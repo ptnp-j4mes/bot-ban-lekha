@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: line-oa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: billing
+      POSTGRES_PASSWORD: billing
+      POSTGRES_DB: line_oa_billing
+    ports:
+      - "5433:5432"
+    volumes:
+      - line-oa-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U billing -d line_oa_billing"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  line-oa-pgdata:

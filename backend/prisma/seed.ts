@@ -1,0 +1,61 @@
+import { prisma } from "../src/lib/prisma";
+import { env } from "../src/env";
+
+async function main() {
+  // Super admin (platform admin) with username/password login.
+  const existing = await prisma.adminUser.findUnique({ where: { username: env.superAdminUsername } });
+  if (!existing) {
+    await prisma.adminUser.create({
+      data: {
+        username: env.superAdminUsername,
+        passwordHash: await Bun.password.hash(env.superAdminPassword),
+        displayName: "Super Admin",
+        isPlatformAdmin: true,
+        isActive: true,
+      },
+    });
+    console.log(`super admin created: ${env.superAdminUsername}`);
+  }
+
+  // Global cycle presets (shared across all orgs).
+  for (const p of [
+    { name: "ทุก 3 วัน", cycleDays: 3 },
+    { name: "ทุก 5 วัน", cycleDays: 5 },
+    { name: "ทุก 7 วัน", cycleDays: 7 },
+  ]) {
+    if (!(await prisma.billingCyclePreset.findFirst({ where: { cycleDays: p.cycleDays } })))
+      await prisma.billingCyclePreset.create({ data: p });
+  }
+
+  // A default organization (tenant) + its default OA and bank account, so dev works out of the box.
+  let org = await prisma.organization.findFirst();
+  if (!org) org = await prisma.organization.create({ data: { name: "Default Org" } });
+
+  if ((await prisma.lineOaAccount.count({ where: { orgId: org.id } })) === 0) {
+    await prisma.lineOaAccount.create({
+      data: {
+        orgId: org.id,
+        name: "Default OA",
+        channelId: env.lineLoginChannelId || "dev",
+        channelSecret: env.lineChannelSecret || "",
+        channelAccessToken: env.lineAccessToken || "",
+      },
+    });
+  }
+  if ((await prisma.bankAccount.count({ where: { orgId: org.id } })) === 0) {
+    await prisma.bankAccount.create({
+      data: {
+        orgId: org.id,
+        accountName: "ชลดา พรมเมศ",
+        accountNo: "2509480357",
+        bankName: "ธนาคารกรุงศรีอยุธยา",
+        bankCode: "BAY",
+        isDefault: true,
+        isActive: true,
+      },
+    });
+  }
+  console.log("seed done. default org:", org.id);
+}
+
+main().finally(() => prisma.$disconnect());

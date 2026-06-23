@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Neumorphic palette: single soft grey-blue surface, light from top-left. */
+    --background: 213 27% 90%;
+    --foreground: 217 24% 27%;
+    --card: 213 27% 90%;
+    --card-foreground: 217 24% 27%;
+    --primary: 221 60% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 213 27% 90%;
+    --secondary-foreground: 217 24% 27%;
+    --muted: 213 20% 82%;
+    --muted-foreground: 217 14% 46%;
+    --accent: 213 27% 86%;
+    --accent-foreground: 217 24% 27%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 213 27% 84%;
+    --input: 213 27% 84%;
+    --ring: 221 60% 53%;
+    --radius: 1rem;
+    --neu-light: 0 0% 100%;
+    --neu-dark: 218 26% 72%;
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+}
+
+@layer components {
+  .neu-raised {
+    box-shadow: 6px 6px 12px hsl(var(--neu-dark)), -6px -6px 12px hsl(var(--neu-light));
+  }
+  .neu-raised-sm {
+    box-shadow: 4px 4px 8px hsl(var(--neu-dark)), -4px -4px 8px hsl(var(--neu-light));
+  }
+  .neu-inset {
+    box-shadow: inset 4px 4px 8px hsl(var(--neu-dark)), inset -4px -4px 8px hsl(var(--neu-light));
+  }
+  /* press-in feedback on tap/click */
+  .neu-press:active {
+    box-shadow: inset 3px 3px 6px hsl(var(--neu-dark)), inset -3px -3px 6px hsl(var(--neu-light));
+  }
+}

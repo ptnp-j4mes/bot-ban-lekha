@@ -1,0 +1,124 @@
+import { Elysia, t } from "elysia";
+import { randomBytes } from "node:crypto";
+import { prisma } from "../lib/prisma";
+import { env } from "../env";
+import { ok, ApiError } from "../lib/response";
+import { signJwt } from "../lib/jwt";
+import { authContext } from "../lib/auth";
+
+const AUTHORIZE = "https://access.line.me/oauth2/v2.1/authorize";
+const TOKEN = "https://api.line.me/oauth2/v2.1/token";
+const PROFILE = "https://api.line.me/v2/profile";
+
+export const authRoutes = new Elysia({ prefix: "/api/auth" })
+  // Username + password login (for super admin / non-LINE accounts). Argon2 via Bun.password.
+  .post("/login", async ({ body }: any) => {
+    const { username, password } = body ?? {};
+    if (!username || !password) throw new ApiError("VALIDATION_ERROR", "username and password are required");
+    const u = await prisma.adminUser.findUnique({ where: { username } });
+    const okPw = u?.passwordHash ? await Bun.password.verify(password, u.passwordHash) : false;
+    if (!u || !okPw) throw new ApiError("UNAUTHORIZED", "username หรือ password ไม่ถูกต้อง");
+    if (!u.isActive) throw new ApiError("FORBIDDEN", "บัญชีถูกปิดใช้งาน");
+    await prisma.adminUser.update({ where: { id: u.id }, data: { lastLoginAt: new Date() } });
+    return ok({ token: signJwt({ sub: u.id, name: u.displayName }, env.jwtSecret) });
+  }, { body: t.Object({ username: t.String({ minLength: 1 }), password: t.String({ minLength: 1 }) }) })
+  // Step 1: redirect the admin to LINE Login with a CSRF state cookie.
+  .get("/line/login", ({ cookie, set }) => {
+    if (!env.lineLoginChannelId) throw new ApiError("INTERNAL_ERROR", "LINE Login not configured");
+    const state = randomBytes(16).toString("hex");
+    cookie.oauth_state.set({ value: state, httpOnly: true, maxAge: 600, path: "/", sameSite: "lax" });
+    const u = new URL(AUTHORIZE);
+    u.searchParams.set("response_type", "code");
+    u.searchParams.set("client_id", env.lineLoginChannelId);
+    u.searchParams.set("redirect_uri", env.lineLoginRedirectUri);
+    u.searchParams.set("state", state);
+    u.searchParams.set("scope", "profile openid");
+    set.status = 302;
+    set.headers["location"] = u.toString();
+    return "";
+  })
+
+  // Step 2: LINE redirects back here with ?code&state. Verify, exchange, upsert, issue JWT.
+  .get("/line/callback", async ({ query, cookie, set }: any) => {
+    const fail = (msg: string) => {
+      set.status = 302;
+      set.headers["location"] = `${env.frontendUrl}/#error=${encodeURIComponent(msg)}`;
+      return "";
+    };
+    if (!query.code || !query.state) return fail("missing code/state");
+    if (!cookie.oauth_state?.value || cookie.oauth_state.value !== query.state) return fail("bad state");
+    cookie.oauth_state.remove();
+
+    const tokenRes = await fetch(TOKEN, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: query.code,
+        redirect_uri: env.lineLoginRedirectUri,
+        client_id: env.lineLoginChannelId,
+        client_secret: env.lineLoginChannelSecret,
+      }),
+    });
+    if (!tokenRes.ok) return fail("token exchange failed");
+    const tok: any = await tokenRes.json();
+
+    const profRes = await fetch(PROFILE, { headers: { Authorization: `Bearer ${tok.access_token}` } });
+    if (!profRes.ok) return fail("profile fetch failed");
+    const prof: any = await profRes.json();
+
+    // First-ever admin to log in becomes the platform admin (you). Others just get an account;
+    // org access is granted by being added to an org (membership) by an owner/platform admin.
+    const total = await prisma.adminUser.count();
+    const existing = await prisma.adminUser.findUnique({ where: { lineUserId: prof.userId } });
+    const user = existing
+      ? await prisma.adminUser.update({
+          where: { id: existing.id },
+          data: { displayName: prof.displayName, pictureUrl: prof.pictureUrl, lastLoginAt: new Date() },
+        })
+      : await prisma.adminUser.create({
+          data: {
+            lineUserId: prof.userId,
+            displayName: prof.displayName,
+            pictureUrl: prof.pictureUrl,
+            isPlatformAdmin: total === 0,
+            isActive: true,
+            lastLoginAt: new Date(),
+          },
+        });
+
+    const jwt = signJwt({ sub: user.id, name: user.displayName }, env.jwtSecret);
+    set.status = 302;
+    set.headers["location"] = `${env.frontendUrl}/#token=${jwt}`;
+    return "";
+  })
+
+  // Change own password (logged-in user). LINE-only accounts can set one (no current required).
+  .post(
+    "/change-password",
+    async ({ headers, body }: any) => {
+      const ctx = await authContext(headers);
+      if (ctx.userId === "apikey") throw new ApiError("VALIDATION_ERROR", "api key has no password");
+      const u = await prisma.adminUser.findUnique({ where: { id: ctx.userId } });
+      if (!u) throw new ApiError("NOT_FOUND", "User not found");
+      if (u.passwordHash) {
+        const okPw = await Bun.password.verify(body.current_password ?? "", u.passwordHash);
+        if (!okPw) throw new ApiError("UNAUTHORIZED", "current password ไม่ถูกต้อง");
+      }
+      await prisma.adminUser.update({ where: { id: u.id }, data: { passwordHash: await Bun.password.hash(body.new_password) } });
+      return ok({ changed: true });
+    },
+    { body: t.Object({ current_password: t.Optional(t.String()), new_password: t.String({ minLength: 6 }) }) }
+  )
+
+  // Current user + their org.
+  .get("/me", async ({ headers }: any) => {
+    const ctx = await authContext(headers);
+    // user = their single org; super admin = no default org (enters a user's org explicitly).
+    let org: { id: string; name: string } | null = null;
+    if (!ctx.isPlatformAdmin && ctx.userId !== "apikey") {
+      const m = await prisma.membership.findFirst({ where: { adminUserId: ctx.userId }, include: { organization: true } });
+      if (m) org = { id: m.orgId, name: m.organization.name };
+    }
+    return ok({ userId: ctx.userId, name: ctx.name, isPlatformAdmin: ctx.isPlatformAdmin, org });
+  });

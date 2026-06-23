@@ -1,0 +1,360 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Tenant. One buyer of the product = one organization. Every domain row is scoped to an org.
+model Organization {
+  id         String  @id @default(uuid())
+  name       String
+  isActive   Boolean @default(true) @map("is_active")
+  timezone   String  @default("Asia/Bangkok")
+  billFooter String? @map("bill_footer") // overrides env BILL_FOOTER for this org's bills
+
+  memberships    Membership[]
+  lineOaAccounts LineOaAccount[]
+  bankAccounts   BankAccount[]
+  customers      Customer[]
+  billPlans      BillPlan[]
+  submissions    PaymentSubmission[]
+  payments       Payment[]
+  messageLogs    MessageLog[]
+  auditLogs      AuditLog[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("organizations")
+}
+
+// A user's role lives here, per org (RBAC is scoped to the tenant).
+model Membership {
+  id          String @id @default(uuid())
+  orgId       String @map("org_id")
+  adminUserId String @map("admin_user_id")
+  role        String @default("viewer") // viewer | admin | owner
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  adminUser    AdminUser    @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([orgId, adminUserId])
+  @@map("memberships")
+}
+
+model LineOaAccount {
+  id                 String  @id @default(uuid())
+  orgId              String  @map("org_id")
+  name               String
+  channelId          String  @map("channel_id")
+  channelSecret      String  @map("channel_secret")
+  channelAccessToken String  @map("channel_access_token")
+  isActive           Boolean @default(true) @map("is_active")
+
+  organization Organization        @relation(fields: [orgId], references: [id])
+  customers    Customer[]
+  submissions  PaymentSubmission[]
+  messageLogs  MessageLog[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([orgId])
+  @@map("line_oa_accounts")
+}
+
+// Registry of LINE groups the bot collects slips from: groupId -> name (for reports).
+model LineGroup {
+  id          String   @id @default(uuid())
+  orgId       String   @map("org_id")
+  lineGroupId String   @map("line_group_id")
+  name        String
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([orgId, lineGroupId])
+  @@index([orgId])
+  @@map("line_groups")
+}
+
+// Registry of slip senders (staff/collectors posting in LINE groups): LINE userId -> name.
+model LineSender {
+  id         String   @id @default(uuid())
+  orgId      String   @map("org_id")
+  lineUserId String   @map("line_user_id")
+  name       String
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([orgId, lineUserId])
+  @@index([orgId])
+  @@map("line_senders")
+}
+
+model Customer {
+  id           String    @id @default(uuid())
+  orgId        String    @map("org_id")
+  lineOaId     String?   @map("line_oa_id")
+  customerCode String    @map("customer_code")
+  lineUserId   String?   @map("line_user_id")
+  displayName  String?   @map("display_name")
+  phone        String?
+  status       String    @default("active")
+  consentAt    DateTime? @map("consent_at")
+
+  organization Organization        @relation(fields: [orgId], references: [id])
+  lineOa       LineOaAccount?      @relation(fields: [lineOaId], references: [id])
+  billPlans    BillPlan[]
+  payments     Payment[]
+  submissions  PaymentSubmission[]
+  messageLogs  MessageLog[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([orgId, customerCode])
+  // line_user_id unique within an OA (provider-scoped userId).
+  @@unique([lineOaId, lineUserId])
+  @@index([orgId])
+  @@map("customers")
+}
+
+model BillingCyclePreset {
+  id        String  @id @default(uuid())
+  name      String
+  cycleDays Int     @map("cycle_days")
+  isActive  Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("billing_cycle_presets")
+}
+
+model BankAccount {
+  id          String  @id @default(uuid())
+  orgId       String  @map("org_id")
+  accountName String  @map("account_name")
+  accountNo   String  @map("account_no")
+  bankName    String  @map("bank_name")
+  bankCode    String? @map("bank_code")
+  branchName  String? @map("branch_name")
+  isDefault   Boolean @default(false) @map("is_default")
+  isActive    Boolean @default(true) @map("is_active")
+  note        String?
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  billPlans    BillPlan[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([orgId])
+  @@map("bank_accounts")
+}
+
+model BillPlan {
+  id                String   @id @default(uuid())
+  orgId             String   @map("org_id")
+  customerId        String   @map("customer_id")
+  bankAccountId     String?  @map("bank_account_id")
+  billNo            Int      @map("bill_no")
+  principalAmount   Decimal  @map("principal_amount")
+  installmentAmount Decimal  @map("installment_amount")
+  cycleType         String   @default("interval_days") @map("cycle_type")
+  cycleDays         Int?     @map("cycle_days")
+  totalInstallments Int      @map("total_installments")
+  startDate         DateTime @map("start_date") @db.Date
+  status            String   @default("active")
+  note              String?
+  createdBy         String?  @map("created_by")
+
+  organization Organization      @relation(fields: [orgId], references: [id])
+  customer     Customer          @relation(fields: [customerId], references: [id])
+  bankAccount  BankAccount?      @relation(fields: [bankAccountId], references: [id])
+  installments BillInstallment[]
+  messageLogs  MessageLog[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([customerId, billNo])
+  @@index([orgId])
+  @@map("bill_plans")
+}
+
+model BillInstallment {
+  id                   String    @id @default(uuid())
+  billPlanId           String    @map("bill_plan_id")
+  installmentNo        Int       @map("installment_no")
+  dueDate              DateTime  @map("due_date") @db.Date
+  amountDue            Decimal   @map("amount_due")
+  amountPaid           Decimal   @default(0) @map("amount_paid")
+  status               String    @default("pending")
+  paidAt               DateTime? @map("paid_at")
+  paidByPaymentId      String?   @map("paid_by_payment_id")
+  morningSentAt        DateTime? @map("morning_sent_at")
+  beforeDeadlineSentAt DateTime? @map("before_deadline_sent_at")
+  overdueSentAt        DateTime? @map("overdue_sent_at")
+
+  billPlan    BillPlan            @relation(fields: [billPlanId], references: [id], onDelete: Cascade)
+  payments    Payment[]
+  submissions PaymentSubmission[]
+  messageLogs MessageLog[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([billPlanId, installmentNo])
+  @@unique([billPlanId, dueDate])
+  @@map("bill_installments")
+}
+
+model PaymentSubmission {
+  id            String  @id @default(uuid())
+  orgId         String? @map("org_id")
+  lineOaId      String? @map("line_oa_id")
+  customerId    String? @map("customer_id")
+  lineUserId    String? @map("line_user_id")  // sender (collector/customer)
+  senderName    String? @map("sender_name")   // resolved name of the slip sender (for tracking)
+  lineGroupId   String? @map("line_group_id") // set when slip arrives in a LINE group; reply target
+  lineMessageId String? @map("line_message_id")
+
+  imageUrl         String? @map("image_url")
+  originalFileName String? @map("original_file_name")
+  imageHash        String? @map("image_hash")
+
+  ocrStatus  String  @default("pending") @map("ocr_status")
+  ocrRawText String? @map("ocr_raw_text")
+
+  parsedAmount       Decimal?  @map("parsed_amount")
+  parsedTransferDate DateTime? @map("parsed_transfer_date") @db.Date
+  parsedTransferTime String?   @map("parsed_transfer_time")
+  parsedBankName     String?   @map("parsed_bank_name")
+  parsedAccountNo    String?   @map("parsed_account_no")
+  parsedReferenceNo  String?   @map("parsed_reference_no")
+
+  matchStatus          String   @default("unmatched") @map("match_status")
+  matchedInstallmentId String?  @map("matched_installment_id")
+  matchConfidence      Decimal? @map("match_confidence")
+  matchReason          String?  @map("match_reason")
+
+  reviewStatus String    @default("pending_review") @map("review_status")
+  reviewedBy   String?   @map("reviewed_by")
+  reviewedAt   DateTime? @map("reviewed_at")
+
+  organization       Organization?    @relation(fields: [orgId], references: [id])
+  lineOa             LineOaAccount?   @relation(fields: [lineOaId], references: [id])
+  customer           Customer?        @relation(fields: [customerId], references: [id])
+  matchedInstallment BillInstallment? @relation(fields: [matchedInstallmentId], references: [id])
+  payment            Payment?
+  messageLogs        MessageLog[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([orgId])
+  @@index([lineUserId])
+  @@index([parsedReferenceNo])
+  @@index([imageHash])
+  @@map("payment_submissions")
+}
+
+model Payment {
+  id                  String  @id @default(uuid())
+  orgId               String  @map("org_id")
+  customerId          String  @map("customer_id")
+  paymentSubmissionId String? @unique @map("payment_submission_id")
+  billInstallmentId   String  @map("bill_installment_id")
+
+  amount        Decimal
+  paidAt        DateTime? @map("paid_at")
+  paymentMethod String    @default("bank_transfer") @map("payment_method")
+  status        String    @default("approved")
+  approvedBy    String?   @map("approved_by")
+  approvedAt    DateTime  @default(now()) @map("approved_at")
+
+  organization      Organization       @relation(fields: [orgId], references: [id])
+  customer          Customer           @relation(fields: [customerId], references: [id])
+  paymentSubmission PaymentSubmission? @relation(fields: [paymentSubmissionId], references: [id])
+  billInstallment   BillInstallment    @relation(fields: [billInstallmentId], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([orgId])
+  @@map("payments")
+}
+
+model MessageLog {
+  id                  String  @id @default(uuid())
+  orgId               String? @map("org_id")
+  lineOaId            String? @map("line_oa_id")
+  customerId          String? @map("customer_id")
+  billPlanId          String? @map("bill_plan_id")
+  billInstallmentId   String? @map("bill_installment_id")
+  paymentSubmissionId String? @map("payment_submission_id")
+
+  lineUserId   String?  @map("line_user_id")
+  messageType  String   @map("message_type")
+  messageText  String?  @map("message_text")
+  lineResponse Json?    @map("line_response")
+  status       String   @default("sent")
+  errorMessage String?  @map("error_message")
+  sentAt       DateTime @default(now()) @map("sent_at")
+
+  organization      Organization?      @relation(fields: [orgId], references: [id])
+  lineOa            LineOaAccount?     @relation(fields: [lineOaId], references: [id])
+  customer          Customer?          @relation(fields: [customerId], references: [id])
+  billPlan          BillPlan?          @relation(fields: [billPlanId], references: [id])
+  billInstallment   BillInstallment?   @relation(fields: [billInstallmentId], references: [id])
+  paymentSubmission PaymentSubmission? @relation(fields: [paymentSubmissionId], references: [id])
+
+  @@index([orgId])
+  @@map("message_logs")
+}
+
+model AdminUser {
+  id              String    @id @default(uuid())
+  lineUserId      String?   @unique @map("line_user_id")
+  username        String?   @unique
+  passwordHash    String?   @map("password_hash")
+  displayName     String?   @map("display_name")
+  pictureUrl      String?   @map("picture_url")
+  isPlatformAdmin Boolean   @default(false) @map("is_platform_admin")
+  isActive        Boolean   @default(true) @map("is_active")
+  lastLoginAt     DateTime? @map("last_login_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  memberships Membership[]
+
+  @@map("admin_users")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  orgId      String?  @map("org_id")
+  actorId    String?  @map("actor_id")
+  actorType  String?  @map("actor_type")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  oldValue   Json?    @map("old_value")
+  newValue   Json?    @map("new_value")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  organization Organization? @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@map("audit_logs")
+}

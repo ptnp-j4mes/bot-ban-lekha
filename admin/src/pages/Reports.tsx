@@ -8,8 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { DataTable, type Column } from "@/components/ui/data-table";
+import { KV } from "@/components/ui/dialog";
 
 const fmt = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+const ocust = (i: any) => i.bill_plan?.customer?.display_name || i.bill_plan?.customer?.customer_code || "—";
 
 export function Reports() {
   const [from, setFrom] = useState("");
@@ -87,19 +90,23 @@ export function Reports() {
 
       <Card>
         <CardHeader><CardTitle>ค้างชำระ ({overdue.data?.length ?? 0})</CardTitle></CardHeader>
-        <CardContent>
-          <Table>
-            <THead><TR><TH>ลูกค้า</TH><TH>บิล</TH><TH>งวด</TH><TH>due</TH><TH>ยอด</TH><TH>สถานะ</TH></TR></THead>
-            <TBody>
-              {(overdue.data ?? []).map((i: any) => (
-                <TR key={i.id}>
-                  <TD>{i.bill_plan?.customer?.display_name || i.bill_plan?.customer?.customer_code || "-"}</TD>
-                  <TD>บิล {i.bill_plan?.bill_no}</TD><TD>{i.installment_no}</TD><TD>{i.due_date}</TD><TD>{i.amount_due}</TD>
-                  <TD>{statusBadge(i.status)}</TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
+        <CardContent className="p-0">
+          <DataTable
+            data={overdue.data ?? []}
+            columns={[
+              { key: "cust", header: "ลูกค้า", sortValue: ocust, cell: ocust },
+              { key: "bill", header: "บิล", sortValue: (i) => i.bill_plan?.bill_no, cell: (i) => <span className="fig">บิล {i.bill_plan?.bill_no}</span> },
+              { key: "inst", header: "งวด", align: "right", sortValue: (i) => i.installment_no, cell: (i) => <span className="fig">{i.installment_no}</span> },
+              { key: "due", header: "due", sortValue: (i) => i.due_date, cell: (i) => <span className="fig">{i.due_date}</span> },
+              { key: "amt", header: "ยอด", align: "right", sortValue: (i) => Number(i.amount_due), cell: (i) => <span className="fig">{fmt(Number(i.amount_due))}</span> },
+              { key: "status", header: "สถานะ", sortValue: (i) => i.status, cell: (i) => statusBadge(i.status) },
+            ] as Column<any>[]}
+            rowKey={(i) => i.id}
+            initialSort={{ key: "due", dir: "asc" }}
+            empty="ไม่มีงวดค้างชำระ"
+            detailTitle="งวดค้างชำระ"
+            detail={(i) => ({ body: <KV pairs={[["ลูกค้า", ocust(i)], ["บิล", i.bill_plan?.bill_no], ["งวด", i.installment_no], ["ครบกำหนด", i.due_date], ["ยอด", fmt(Number(i.amount_due))], ["สถานะ", statusBadge(i.status)]]} /> })}
+          />
         </CardContent>
       </Card>
     </>

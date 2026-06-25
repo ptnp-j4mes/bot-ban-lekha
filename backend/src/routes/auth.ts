@@ -116,9 +116,32 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
     const ctx = await authContext(headers);
     // user = their single org; super admin = no default org (enters a user's org explicitly).
     let org: { id: string; name: string } | null = null;
+    let menuPrefs: unknown = null;
     if (!ctx.isPlatformAdmin && ctx.userId !== "apikey") {
       const m = await prisma.membership.findFirst({ where: { adminUserId: ctx.userId }, include: { organization: true } });
       if (m) org = { id: m.orgId, name: m.organization.name };
     }
-    return ok({ userId: ctx.userId, name: ctx.name, isPlatformAdmin: ctx.isPlatformAdmin, org });
-  });
+    if (ctx.userId !== "apikey") {
+      const u = await prisma.adminUser.findUnique({ where: { id: ctx.userId }, select: { menuPrefs: true } });
+      menuPrefs = u?.menuPrefs ?? null;
+    }
+    return ok({ userId: ctx.userId, name: ctx.name, isPlatformAdmin: ctx.isPlatformAdmin, org, menu_prefs: menuPrefs });
+  })
+
+  // Save the current user's sidebar menu preferences (order + hidden item ids).
+  .patch(
+    "/menu-prefs",
+    async ({ headers, body }: any) => {
+      const ctx = await authContext(headers);
+      if (ctx.userId === "apikey") throw new ApiError("VALIDATION_ERROR", "api key has no menu prefs");
+      const u = await prisma.adminUser.update({ where: { id: ctx.userId }, data: { menuPrefs: body } });
+      return ok({ menu_prefs: u.menuPrefs });
+    },
+    {
+      body: t.Object({
+        order: t.Optional(t.Array(t.String())),
+        hidden: t.Optional(t.Array(t.String())),
+        groups: t.Optional(t.Array(t.Object({ label: t.String(), items: t.Array(t.String()) }))),
+      }),
+    }
+  );

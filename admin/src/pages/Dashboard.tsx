@@ -1,50 +1,71 @@
+import { useContext } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, AlertTriangle, Receipt, Send } from "lucide-react";
+import { Send, CheckCircle2, Circle, CalendarDays, AlertTriangle, Receipt, Clock } from "lucide-react";
+import { NavCtx } from "@/App";
 import { toast } from "sonner";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut, statusBadge } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { DataTable, type Column } from "@/components/ui/data-table";
+import { KV } from "@/components/ui/dialog";
 
 const custName = (i: any) =>
-  i.bill_plan?.customer?.display_name || i.bill_plan?.customer?.customer_code || "-";
+  i.bill_plan?.customer?.display_name || i.bill_plan?.customer?.customer_code || "—";
 
-function InstTable({ rows }: { rows: any[] }) {
-  if (!rows.length) return <p className="text-sm text-muted-foreground">ไม่มีข้อมูล</p>;
+const baht = (n: any) => (n == null ? "—" : Number(n).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+
+// Left status tick: green = settled, oxblood = overdue, amber = waiting.
+const tick = (s: string) =>
+  s === "completed" || s === "paid" ? "bg-primary" : s === "cancelled" ? "bg-muted-foreground/40" : "bg-[#EF4444]";
+
+function InstTable({ rows, empty }: { rows: any[]; empty: string }) {
+  const pay = useMut((b: { id: string; amount: number }) => apiSend(`/api/installments/${b.id}/pay`, "POST", { amount: b.amount }), { success: "บันทึกรับชำระแล้ว", invalidate: ["due-today", "overdue"] });
+  const remind = useMut((id: string) => apiSend(`/api/installments/${id}/remind`, "POST"), { success: "ส่งเตือนแล้ว" });
+  const columns: Column<any>[] = [
+    { key: "tick", header: "", className: "w-1 p-0", cell: (i) => <div className={`h-7 w-[3px] rounded-full ${tick(i.status)}`} /> },
+    { key: "cust", header: "ลูกค้า", sortValue: custName, cell: (i) => <span className="font-medium">{custName(i)}</span> },
+    { key: "bill", header: "บิล", sortValue: (i) => i.bill_plan?.bill_no, cell: (i) => <span className="fig text-muted-foreground">#{i.bill_plan?.bill_no ?? "—"}</span> },
+    { key: "inst", header: "งวด", align: "right", sortValue: (i) => i.installment_no, cell: (i) => <span className="fig text-muted-foreground">{i.installment_no}</span> },
+    { key: "due", header: "ครบกำหนด", sortValue: (i) => i.due_date, cell: (i) => <span className="fig">{i.due_date}</span> },
+    { key: "amt", header: "ยอด (฿)", align: "right", sortValue: (i) => Number(i.amount_due), cell: (i) => <span className="fig font-medium">{baht(i.amount_due)}</span> },
+    { key: "status", header: "สถานะ", sortValue: (i) => i.status, cell: (i) => statusBadge(i.status) },
+    { key: "act", header: "", stop: true, cell: (i) => (
+      <div className="flex justify-end gap-1">
+        <Button size="sm" variant="ghost" disabled={remind.isPending} onClick={() => remind.mutate(i.id)}>เตือน</Button>
+        <Button size="sm" variant="outline" onClick={() => { const rem = Number(i.amount_due) - Number(i.amount_paid ?? 0); const a = prompt("ยอดที่รับ (บาท):", String(rem)); if (a) pay.mutate({ id: i.id, amount: Number(a) }); }}>รับชำระ</Button>
+      </div>
+    ) },
+  ];
   return (
-    <Table>
-      <THead>
-        <TR>
-          <TH>ลูกค้า</TH><TH>บิล</TH><TH>งวด</TH><TH>due</TH><TH>ยอด</TH><TH>สถานะ</TH>
-        </TR>
-      </THead>
-      <TBody>
-        {rows.map((i) => (
-          <TR key={i.id}>
-            <TD>{custName(i)}</TD>
-            <TD>บิล {i.bill_plan?.bill_no ?? "-"}</TD>
-            <TD>งวด {i.installment_no}</TD>
-            <TD>{i.due_date}</TD>
-            <TD>{i.amount_due}</TD>
-            <TD>{statusBadge(i.status)}</TD>
-          </TR>
-        ))}
-      </TBody>
-    </Table>
+    <DataTable
+      data={rows}
+      columns={columns}
+      rowKey={(i) => i.id}
+      empty={empty}
+      detailTitle="รายละเอียดงวด"
+      detail={(i) => ({
+        body: <KV pairs={[
+          ["ลูกค้า", custName(i)],
+          ["บิล", `#${i.bill_plan?.bill_no ?? "—"}`],
+          ["งวดที่", i.installment_no],
+          ["ครบกำหนด", i.due_date],
+          ["ยอด (฿)", baht(i.amount_due)],
+          ["สถานะ", statusBadge(i.status)],
+        ]} />,
+      })}
+    />
   );
 }
 
-function Stat({ icon: Icon, n, label }: { icon: any; n: number; label: string }) {
+function StatCard({ icon: Icon, label, n, tint }: { icon: any; label: string; n: number; tint: string }) {
   return (
-    <Card>
-      <CardContent className="flex items-center gap-3 p-4">
-        <Icon className="h-8 w-8 text-muted-foreground" />
-        <div>
-          <div className="text-2xl font-bold">{n}</div>
-          <div className="text-sm text-muted-foreground">{label}</div>
-        </div>
-      </CardContent>
+    <Card className="p-5">
+      <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${tint}`}>
+        <Icon className="h-5 w-5" />
+      </div>
+      <div className="mt-3 font-head text-[2rem] font-bold leading-none">{n.toLocaleString("th-TH")}</div>
+      <div className="mt-1.5 text-sm text-muted-foreground">{label}</div>
     </Card>
   );
 }
@@ -58,27 +79,80 @@ export function Dashboard() {
   });
 
   const remind = useMut(() => apiSend("/api/installments/send-reminders", "POST"), { success: "ส่งเตือนแล้ว", invalidate: ["due-today"] });
+  const today = new Date().toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric" });
+
+  // First-run setup checklist.
+  const oas = useQuery({ queryKey: ["line-oa"], queryFn: () => apiGet("/api/line-oa-accounts") });
+  const banks = useQuery({ queryKey: ["banks"], queryFn: () => apiGet("/api/bank-accounts") });
+  const custCount = useQuery({ queryKey: ["customers", "", 1], queryFn: () => apiGet("/api/customers?limit=1&page=1") });
+  const go = useContext(NavCtx);
+  const setup = [
+    { done: (oas.data?.length ?? 0) > 0, label: "เชื่อมต่อ LINE OA", tab: "oa" },
+    { done: (banks.data?.length ?? 0) > 0, label: "เพิ่มบัญชีรับโอน", tab: "banks" },
+    { done: (custCount.data?.total ?? 0) > 0, label: "เพิ่มลูกค้า", tab: "customers" },
+  ];
+  const loaded = oas.isSuccess && banks.isSuccess && custCount.isSuccess;
+  const showSetup = loaded && setup.some((s) => !s.done);
+
+  // Overdue aging buckets, computed from due_date (no backend).
+  const aging = { d7: 0, d30: 0, d30p: 0 };
+  const now = Date.now();
+  for (const i of over.data ?? []) {
+    const days = Math.floor((now - new Date(i.due_date).getTime()) / 86400000);
+    if (days <= 7) aging.d7++;
+    else if (days <= 30) aging.d30++;
+    else aging.d30p++;
+  }
 
   return (
     <>
-      <div className="flex justify-end">
+      {showSetup && (
+        <Card className="border-l-[3px] border-l-primary">
+          <CardHeader><CardTitle>เริ่มต้นใช้งาน</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            {setup.map((s) => (
+              <div key={s.label} className="flex items-center gap-2 text-sm">
+                {s.done ? <CheckCircle2 className="h-4 w-4 text-primary" /> : <Circle className="h-4 w-4 text-muted-foreground" />}
+                <span className={s.done ? "text-muted-foreground line-through" : ""}>{s.label}</span>
+                {!s.done && <Button size="sm" variant="outline" className="ml-auto" onClick={() => go(s.tab)}>ไปตั้งค่า</Button>}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* toolbar: ledger date + action */}
+      <div className="flex items-center justify-between">
+        <div className="fig text-sm text-muted-foreground">ประจำวันที่ {today}</div>
         <Button size="sm" disabled={remind.isPending}
-          onClick={() => remind.mutate(undefined as any, { onSuccess: (r: any) => toast.message(`ส่ง ${r.sent}/${r.candidates} ราย`) })}>
-          <Send className="h-3 w-3 mr-1" /> ส่งเตือนวันนี้
+          onClick={() => remind.mutate(undefined as any, { onSuccess: (r: any) => toast.message(`ส่งเตือน ${r.sent}/${r.candidates} ราย`) })}>
+          <Send className="h-3.5 w-3.5" /> ส่งเตือนวันนี้
         </Button>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Stat icon={CalendarDays} n={due.data?.length ?? 0} label="ครบกำหนดวันนี้" />
-        <Stat icon={AlertTriangle} n={over.data?.length ?? 0} label="ค้างชำระ" />
-        <Stat icon={Receipt} n={pend.data?.total ?? 0} label="สลิปรอตรวจ" />
+
+      {/* summary stat cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <StatCard icon={CalendarDays} label="ครบกำหนดวันนี้" n={due.data?.length ?? 0} tint="bg-sky-50 text-sky-600" />
+        <StatCard icon={AlertTriangle} label="ค้างชำระ" n={over.data?.length ?? 0} tint="bg-red-50 text-red-500" />
+        <StatCard icon={Receipt} label="สลิปรอตรวจ" n={pend.data?.total ?? 0} tint="bg-amber-50 text-amber-600" />
       </div>
+
+      {/* overdue aging */}
+      {(over.data?.length ?? 0) > 0 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <StatCard icon={Clock} label="ค้าง 1–7 วัน" n={aging.d7} tint="bg-amber-50 text-amber-600" />
+          <StatCard icon={Clock} label="ค้าง 8–30 วัน" n={aging.d30} tint="bg-orange-50 text-orange-600" />
+          <StatCard icon={AlertTriangle} label="ค้างเกิน 30 วัน" n={aging.d30p} tint="bg-red-50 text-red-500" />
+        </div>
+      )}
+
       <Card>
         <CardHeader><CardTitle>ครบกำหนดวันนี้</CardTitle></CardHeader>
-        <CardContent><InstTable rows={due.data ?? []} /></CardContent>
+        <CardContent className="p-0"><InstTable rows={due.data ?? []} empty="ยังไม่มีรายการครบกำหนดวันนี้" /></CardContent>
       </Card>
       <Card>
         <CardHeader><CardTitle>ค้างชำระ</CardTitle></CardHeader>
-        <CardContent><InstTable rows={over.data ?? []} /></CardContent>
+        <CardContent className="p-0"><InstTable rows={over.data ?? []} empty="ไม่มีรายการค้างชำระ" /></CardContent>
       </Card>
     </>
   );

@@ -1,10 +1,11 @@
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 import { prisma } from "../lib/prisma";
 import { ok, ApiError } from "../lib/response";
 import { authorize } from "../lib/auth";
 import { audit } from "../services/audit";
 import { bangkokToday, dateOnly } from "../lib/date";
 import { renderDailyReminder, sendAndLog } from "../services/messages";
+import { recordManualPayment } from "../services/payment";
 
 export const installmentRoutes = new Elysia({ prefix: "/api/installments" })
   .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
@@ -54,6 +55,33 @@ export const installmentRoutes = new Elysia({ prefix: "/api/installments" })
       })
     );
   })
+
+  // Send a reminder to one installment's customer now (ad-hoc, single customer).
+  .post("/:id/remind", async ({ params, ctx }: any) => {
+    const inst = await prisma.billInstallment.findFirst({
+      where: { id: params.id, billPlan: { orgId: ctx.orgId } },
+      include: { billPlan: { include: { organization: true, customer: { include: { lineOa: true } } } } },
+    });
+    if (!inst) throw new ApiError("NOT_FOUND", "Installment not found");
+    const cust = inst.billPlan.customer;
+    if (!cust?.lineUserId) throw new ApiError("VALIDATION_ERROR", "ลูกค้ายังไม่ได้ผูก LINE");
+    await sendAndLog(prisma, {
+      lineUserId: cust.lineUserId,
+      text: inst.billPlan.organization?.reminderText?.trim() || renderDailyReminder(inst.dueDate),
+      messageType: "daily_reminder",
+      accessToken: cust.lineOa?.channelAccessToken,
+      orgId: ctx.orgId, lineOaId: cust.lineOaId, customerId: cust.id,
+      billPlanId: inst.billPlanId, billInstallmentId: inst.id,
+    });
+    await audit(prisma, { action: "remind_installment", entityType: "bill_installment", entityId: inst.id, orgId: ctx.orgId, actorId: ctx.userId });
+    return ok({ sent: true });
+  })
+
+  // Record a manual/cash payment against this installment.
+  .post("/:id/pay", async ({ params, body, ctx }: any) =>
+    ok(await recordManualPayment(params.id, Number(body.amount), ctx.userId, ctx.orgId, body.method || "cash")),
+    { body: t.Object({ amount: t.Number({ minimum: 0.01 }), method: t.Optional(t.String()) }) }
+  )
 
   .patch("/:id", async ({ params, body, ctx }: any) => {
     const old = await prisma.billInstallment.findFirst({ where: { id: params.id, billPlan: { orgId: ctx.orgId } } });

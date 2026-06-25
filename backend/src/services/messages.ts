@@ -68,7 +68,14 @@ export const renderNeedsAdminMatch = () =>
 export const renderPaymentApproved = (billText: string) => `รับยอดค่ะ✅\n\n${billText}`;
 
 export const renderTextHelp = () =>
-  `สวัสดีค่ะ 🙏\nหากต้องการแจ้งชำระเงิน กรุณาส่ง "รูปสลิป" โอนเงินเข้ามาในแชทนี้ได้เลยค่ะ`;
+  `สวัสดีค่ะ 🙏\nหากต้องการแจ้งชำระเงิน กรุณาส่ง "รูปสลิป" โอนเงินเข้ามาในแชทนี้ได้เลยค่ะ\nหรือพิมพ์ "ยอด" เพื่อเช็คยอดค้างชำระค่ะ`;
+
+export const renderCustomerBalance = (outstanding: number, count: number, nextDue: Date | null) =>
+  count === 0
+    ? `คุณไม่มียอดค้างชำระค่ะ ✅ ขอบคุณค่ะ 🙏`
+    : `ยอดค้างชำระของคุณ 💰\n\nคงเหลือ ${fmtAmount(outstanding)} บาท (${count} งวด)` +
+      (nextDue ? `\nงวดถัดไปครบกำหนด ${dayOfMonth(nextDue)} ${thaiMonth(nextDue)} ${beYear2(nextDue)}` : "") +
+      `\n\nหากต้องการแจ้งชำระ ส่งรูปสลิปเข้ามาได้เลยค่ะ 🙏`;
 
 export const renderDuplicateSlip = () =>
   `📌 สลิปนี้เคยส่งเข้ามาแล้วค่ะ\nระบบกำลังตรวจสอบรายการเดิมอยู่ ไม่ต้องส่งซ้ำนะคะ 🙏`;

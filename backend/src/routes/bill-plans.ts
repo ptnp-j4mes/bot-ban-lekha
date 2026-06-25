@@ -3,7 +3,8 @@ import { prisma } from "../lib/prisma";
 import { ok, ApiError } from "../lib/response";
 import { authorize } from "../lib/auth";
 import { audit } from "../services/audit";
-import { generateInstallments, resolveBankAccount } from "../services/bill";
+import { generateInstallments, resolveBankAccount, renderPlanBill } from "../services/bill";
+import { sendAndLog } from "../services/messages";
 import { dateOnly } from "../lib/date";
 
 const include = { installments: { orderBy: { installmentNo: "asc" as const } }, bankAccount: true };
@@ -117,6 +118,21 @@ export const billPlanRoutes = new Elysia({ prefix: "/api/bill-plans" })
     const p = await prisma.billPlan.findFirst({ where: { id: params.id, orgId: ctx.orgId }, include });
     if (!p) throw new ApiError("NOT_FOUND", "Bill plan not found");
     return ok(p);
+  })
+
+  // Send the bill summary to the customer over LINE now (otherwise they only learn at reminder time).
+  .post("/:id/send", async ({ params, ctx }: any) => {
+    const p = await prisma.billPlan.findFirst({ where: { id: params.id, orgId: ctx.orgId }, include: { customer: { include: { lineOa: true } } } });
+    if (!p) throw new ApiError("NOT_FOUND", "Bill plan not found");
+    if (!p.customer?.lineUserId) throw new ApiError("VALIDATION_ERROR", "ลูกค้ายังไม่ได้ผูก LINE");
+    const bill = await renderPlanBill(prisma, p.id);
+    await sendAndLog(prisma, {
+      lineUserId: p.customer.lineUserId, text: bill.text, messageType: "bill_notice",
+      accessToken: p.customer.lineOa?.channelAccessToken, orgId: ctx.orgId, lineOaId: p.customer.lineOaId,
+      customerId: p.customerId, billPlanId: p.id,
+    });
+    await audit(prisma, { action: "send_bill", entityType: "bill_plan", entityId: p.id, orgId: ctx.orgId, actorId: ctx.userId });
+    return ok({ sent: true });
   })
 
   .patch("/:id/cancel", async ({ params, ctx }: any) => {

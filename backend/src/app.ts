@@ -43,4 +43,6 @@ export const app = new Elysia({ aot: false })
 if (import.meta.main) {
   app.listen(env.port);
   logger.info(`listening on http://localhost:${env.port} (${env.tz})`);
+  const { startScheduler } = await import("./scheduler");
+  startScheduler();
 }

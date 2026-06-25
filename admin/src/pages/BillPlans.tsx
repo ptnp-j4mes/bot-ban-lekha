@@ -4,9 +4,10 @@ import { Trash2, Plus } from "lucide-react";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut, statusBadge } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
+import { Input, Select, Field } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { DataTable, type Column } from "@/components/ui/data-table";
+import { Dialog } from "@/components/ui/dialog";
 
 export function BillPlans() {
   const custs = useQuery({ queryKey: ["customers"], queryFn: () => apiGet("/api/customers?limit=200") });
@@ -15,10 +16,33 @@ export function BillPlans() {
   const [mode, setMode] = useState<"interval" | "custom">("interval");
   const [rows, setRows] = useState([{ due_date: "", amount_due: "" }]);
 
+  const [payInst, setPayInst] = useState<any>(null);
+  const [editInst, setEditInst] = useState<any>(null);
+
   const plans = useQuery({ queryKey: ["bill-plans", viewCust], queryFn: () => apiGet(`/api/customers/${viewCust}/bill-plans`), enabled: !!viewCust });
   const create = useMut((b: any) => apiSend("/api/bill-plans", "POST", b), { success: "สร้างบิลแล้ว", invalidate: ["bill-plans"] });
   const createCustom = useMut((b: any) => apiSend("/api/bill-plans/custom-dates", "POST", b), { success: "สร้างบิลแล้ว", invalidate: ["bill-plans"] });
   const cancel = useMut((id: string) => apiSend(`/api/bill-plans/${id}/cancel`, "PATCH"), { success: "ยกเลิกบิลแล้ว", invalidate: ["bill-plans"] });
+  const sendBill = useMut((id: string) => apiSend(`/api/bill-plans/${id}/send`, "POST"), { success: "ส่งบิลให้ลูกค้าแล้ว" });
+  const inv = ["bill-plans", "due-today", "overdue"];
+  const pay = useMut((b: { id: string; amount: number }) => apiSend(`/api/installments/${b.id}/pay`, "POST", { amount: b.amount }), { success: "บันทึกรับชำระแล้ว", invalidate: inv });
+  const editI = useMut((b: { id: string; data: any }) => apiSend(`/api/installments/${b.id}`, "PATCH", b.data), { success: "แก้งวดแล้ว", invalidate: inv });
+
+  const remaining = (i: any) => Number(i?.amount_due ?? 0) - Number(i?.amount_paid ?? 0);
+
+  const instCols: Column<any>[] = [
+    { key: "no", header: "งวด", align: "right", sortValue: (i) => i.installment_no, cell: (i) => <span className="fig">{i.installment_no}</span> },
+    { key: "due", header: "ครบกำหนด", sortValue: (i) => i.due_date, cell: (i) => <span className="fig">{i.due_date}</span> },
+    { key: "amt", header: "ยอด", align: "right", sortValue: (i) => Number(i.amount_due), cell: (i) => <span className="fig">{i.amount_due}</span> },
+    { key: "paid", header: "จ่าย", align: "right", sortValue: (i) => Number(i.amount_paid), cell: (i) => <span className="fig">{i.amount_paid}</span> },
+    { key: "status", header: "สถานะ", sortValue: (i) => i.status, cell: (i) => statusBadge(i.status) },
+    { key: "act", header: "", stop: true, cell: (i) => (i.status === "paid" || i.status === "cancelled") ? null : (
+      <div className="flex justify-end gap-1">
+        <Button size="sm" onClick={() => setPayInst(i)}>รับชำระ</Button>
+        <Button size="sm" variant="outline" onClick={() => setEditInst(i)}>แก้</Button>
+      </div>
+    ) },
+  ];
 
   const custOptions = (custs.data?.items ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.customer_code} {c.display_name || ""}</option>);
   const bankSelect = (
@@ -63,26 +87,26 @@ export function BillPlans() {
         </CardHeader>
         <CardContent>
           {mode === "interval" ? (
-            <form className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2" onSubmit={submitInterval}>
-              <Select name="customer_id" required defaultValue=""><option value="" disabled>— เลือกลูกค้า —</option>{custOptions}</Select>
-              <Input name="bill_no" type="number" placeholder="bill_no" required />
-              <Input name="principal_amount" type="number" placeholder="ต้น" required />
-              <Input name="installment_amount" type="number" placeholder="ส่งงวดละ" required />
-              <Input name="cycle_days" type="number" placeholder="ทุกกี่วัน" required />
-              <Input name="total_installments" type="number" placeholder="กี่งวด" required />
-              <Input name="start_date" type="date" required />
-              {bankSelect}
-              <Input name="note" placeholder="note" className="sm:col-span-2 lg:col-span-3" />
-              <Button size="sm" type="submit">สร้างบิล</Button>
+            <form className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-3" onSubmit={submitInterval}>
+              <Field label="ลูกค้า"><Select name="customer_id" required defaultValue=""><option value="" disabled>— เลือกลูกค้า —</option>{custOptions}</Select></Field>
+              <Field label="Bill No."><Input name="bill_no" type="number" required /></Field>
+              <Field label="เงินต้น"><Input name="principal_amount" type="number" required /></Field>
+              <Field label="ส่งงวดละ"><Input name="installment_amount" type="number" required /></Field>
+              <Field label="ทุกกี่วัน"><Input name="cycle_days" type="number" required /></Field>
+              <Field label="จำนวนงวด"><Input name="total_installments" type="number" required /></Field>
+              <Field label="วันเริ่ม"><Input name="start_date" type="date" required /></Field>
+              <Field label="บัญชีรับโอน">{bankSelect}</Field>
+              <Field label="หมายเหตุ" className="sm:col-span-2 lg:col-span-3"><Input name="note" /></Field>
+              <Button type="submit">สร้างบิล</Button>
             </form>
           ) : (
             <form className="space-y-2" onSubmit={submitCustom}>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                <Select name="customer_id" required defaultValue=""><option value="" disabled>— เลือกลูกค้า —</option>{custOptions}</Select>
-                <Input name="bill_no" type="number" placeholder="bill_no" required />
-                <Input name="principal_amount" type="number" placeholder="ต้น" required />
-                {bankSelect}
-                <Input name="note" placeholder="note" className="sm:col-span-2 lg:col-span-4" />
+              <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Field label="ลูกค้า"><Select name="customer_id" required defaultValue=""><option value="" disabled>— เลือกลูกค้า —</option>{custOptions}</Select></Field>
+                <Field label="Bill No."><Input name="bill_no" type="number" required /></Field>
+                <Field label="เงินต้น"><Input name="principal_amount" type="number" required /></Field>
+                <Field label="บัญชีรับโอน">{bankSelect}</Field>
+                <Field label="หมายเหตุ" className="sm:col-span-2 lg:col-span-4"><Input name="note" /></Field>
               </div>
               <div className="space-y-1">
                 <div className="text-sm text-muted-foreground">งวด (วันครบกำหนด + ยอด)</div>
@@ -112,23 +136,54 @@ export function BillPlans() {
                 <CardTitle className="text-base">บิล {p.bill_no}</CardTitle>
                 {statusBadge(p.status)}
                 {p.status === "active" && (
-                  <Button size="sm" variant="destructive" className="ml-auto" onClick={() => { if (confirm("ยกเลิกบิลนี้? งวดที่ยังไม่จ่ายจะถูกยกเลิก")) cancel.mutate(p.id); }}>ยกเลิกบิล</Button>
+                  <div className="ml-auto flex gap-1">
+                    <Button size="sm" variant="outline" onClick={() => sendBill.mutate(p.id)}>ส่งบิล</Button>
+                    <Button size="sm" variant="destructive" onClick={() => { if (confirm("ยกเลิกบิลนี้? งวดที่ยังไม่จ่ายจะถูกยกเลิก")) cancel.mutate(p.id); }}>ยกเลิกบิล</Button>
+                  </div>
                 )}
               </CardHeader>
-              <CardContent>
-                <Table>
-                  <THead><TR><TH>งวด</TH><TH>due</TH><TH>ยอด</TH><TH>จ่าย</TH><TH>สถานะ</TH></TR></THead>
-                  <TBody>
-                    {p.installments.map((i: any) => (
-                      <TR key={i.id}><TD>{i.installment_no}</TD><TD>{i.due_date}</TD><TD>{i.amount_due}</TD><TD>{i.amount_paid}</TD><TD>{statusBadge(i.status)}</TD></TR>
-                    ))}
-                  </TBody>
-                </Table>
+              <CardContent className="p-0">
+                <DataTable data={p.installments} columns={instCols} rowKey={(i) => i.id} initialSort={{ key: "no", dir: "asc" }} maxHeight="none" empty="ไม่มีงวด" />
               </CardContent>
             </Card>
           ))}
         </CardContent>
       </Card>
+
+      {/* รับชำระเงิน (เงินสด/นอกสลิป) */}
+      <Dialog open={!!payInst} onClose={() => setPayInst(null)} title={`รับชำระ — งวด ${payInst?.installment_no ?? ""}`} className="max-w-sm">
+        <form onSubmit={(e) => { e.preventDefault(); const amt = Number((e.currentTarget.elements.namedItem("amount") as HTMLInputElement).value); pay.mutate({ id: payInst.id, amount: amt }, { onSuccess: () => setPayInst(null) }); }}>
+          <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">ยอดที่รับ (บาท)</label>
+          <Input name="amount" type="number" step="0.01" min="0.01" defaultValue={remaining(payInst)} className="mt-1" autoFocus required />
+          <p className="mt-2 text-xs text-muted-foreground">คงเหลือของงวดนี้: {remaining(payInst).toLocaleString("th-TH")} บาท · ลูกค้าที่ผูก LINE จะได้รับใบยืนยันอัตโนมัติ</p>
+          <Button size="sm" type="submit" className="mt-3 w-full" disabled={pay.isPending}>บันทึกรับชำระ</Button>
+        </form>
+      </Dialog>
+
+      {/* แก้ไขงวด */}
+      <Dialog open={!!editInst} onClose={() => setEditInst(null)} title={`แก้ไขงวด ${editInst?.installment_no ?? ""}`} className="max-w-sm">
+        <form className="space-y-3" onSubmit={(e) => {
+          e.preventDefault();
+          const f = e.currentTarget.elements as any;
+          editI.mutate({ id: editInst.id, data: { amount_due: Number(f.amount_due.value), due_date: f.due_date.value, status: f.status.value } }, { onSuccess: () => setEditInst(null) });
+        }}>
+          <div>
+            <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">ยอด (บาท)</label>
+            <Input name="amount_due" type="number" step="0.01" defaultValue={editInst?.amount_due} className="mt-1" />
+          </div>
+          <div>
+            <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">ครบกำหนด</label>
+            <Input name="due_date" type="date" defaultValue={editInst?.due_date} className="mt-1" />
+          </div>
+          <div>
+            <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">สถานะ</label>
+            <Select name="status" defaultValue={editInst?.status} className="mt-1">
+              {["pending", "partial_paid", "overdue", "paid", "cancelled"].map((s) => <option key={s}>{s}</option>)}
+            </Select>
+          </div>
+          <Button size="sm" type="submit" className="w-full" disabled={editI.isPending}>บันทึก</Button>
+        </form>
+      </Dialog>
     </>
   );
 }

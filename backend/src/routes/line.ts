@@ -12,6 +12,7 @@ import { env } from "../env";
 import {
   sendAndLog,
   renderTextHelp,
+  renderCustomerBalance,
   renderDuplicateSlip,
   renderUnsupportedSlip,
   renderRateLimited,
@@ -80,15 +81,37 @@ async function ensureGroup(oa: Oa, groupId: string) {
   await prisma.lineGroup.create({ data: { orgId: oa.orgId, lineGroupId: groupId, name } });
 }
 
+// Outstanding (unpaid) balance for a linked customer.
+export async function customerBalance(customerId: string) {
+  const insts = await prisma.billInstallment.findMany({
+    where: { status: { notIn: ["paid", "cancelled"] }, billPlan: { customerId, status: "active" } },
+    select: { amountDue: true, amountPaid: true, dueDate: true },
+    orderBy: { dueDate: "asc" },
+  });
+  const outstanding = insts.reduce((s, i) => s + (Number(i.amountDue) - Number(i.amountPaid)), 0);
+  return { outstanding, count: insts.length, nextDue: insts[0]?.dueDate ?? null };
+}
+
 async function handleNonImage(ev: any, oa: Oa) {
   // In a group, stay quiet on non-image messages (don't spam the group). Only help in 1:1.
   if (groupOf(ev)) return;
   const lineUserId: string | undefined = ev.source?.userId;
   const customer = await findCustomer(oa.id, lineUserId);
+  const text: string = ev.message?.type === "text" ? ev.message.text ?? "" : "";
+
+  // Self-service balance check: linked customer types "ยอด / คงเหลือ / เช็ค / ค้าง / balance".
+  let reply = renderTextHelp();
+  let messageType = "text_help";
+  if (customer && /ยอด|คงเหลือ|เช็ค|ค้าง|balance/i.test(text)) {
+    const b = await customerBalance(customer.id);
+    reply = renderCustomerBalance(b.outstanding, b.count, b.nextDue);
+    messageType = "balance_inquiry";
+  }
+
   await sendAndLog(prisma, {
     lineUserId,
-    text: renderTextHelp(),
-    messageType: "text_help",
+    text: reply,
+    messageType,
     accessToken: oa.channelAccessToken,
     orgId: oa.orgId,
     lineOaId: oa.id,

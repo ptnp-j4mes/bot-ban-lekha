@@ -198,6 +198,45 @@ export async function approveSubmission(submissionId: string, actorId: string, o
   });
 }
 
+// Record a payment made outside the slip flow (cash, manual bank confirm). Marks the
+// installment paid/partial, completes the plan, and notifies the customer if LINE-linked.
+export async function recordManualPayment(installmentId: string, amount: number, actorId: string, orgId: string, method = "cash") {
+  if (!(amount > 0)) throw new ApiError("VALIDATION_ERROR", "amount must be > 0");
+  return prisma.$transaction(async (tx) => {
+    const inst = await tx.billInstallment.findFirst({
+      where: { id: installmentId, billPlan: { orgId } },
+      include: { billPlan: { include: { customer: { include: { lineOa: true } } } } },
+    });
+    if (!inst) throw new ApiError("NOT_FOUND", "Installment not found");
+    if (inst.status === "paid") throw new ApiError("INSTALLMENT_ALREADY_PAID", "Installment already paid");
+
+    const newPaid = Number(inst.amountPaid) + amount;
+    const status = newPaid >= Number(inst.amountDue) ? "paid" : "partial_paid";
+    const paidAt = new Date();
+    const payment = await tx.payment.create({
+      data: { orgId, customerId: inst.billPlan.customerId, billInstallmentId: inst.id, amount, paidAt, paymentMethod: method, approvedBy: actorId },
+    });
+    await tx.billInstallment.update({
+      where: { id: inst.id },
+      data: { amountPaid: newPaid, status, paidAt: status === "paid" ? paidAt : null, paidByPaymentId: payment.id },
+    });
+    const remaining = await tx.billInstallment.count({ where: { billPlanId: inst.billPlanId, status: { not: "paid" } } });
+    if (remaining === 0) await tx.billPlan.update({ where: { id: inst.billPlanId }, data: { status: "completed" } });
+
+    const cust = inst.billPlan.customer;
+    if (cust?.lineUserId) {
+      const bill = await renderPlanBill(tx, inst.billPlanId);
+      await sendAndLog(tx, {
+        lineUserId: cust.lineUserId, text: renderPaymentApproved(bill.text), messageType: "payment_approved",
+        accessToken: cust.lineOa?.channelAccessToken, orgId, lineOaId: cust.lineOaId, customerId: cust.id,
+        billPlanId: inst.billPlanId, billInstallmentId: inst.id,
+      });
+    }
+    await audit(tx, { action: "record_manual_payment", entityType: "payment", entityId: payment.id, orgId, actorId, newValue: { amount, method, installmentId: inst.id } });
+    return { payment, status };
+  });
+}
+
 export async function rejectSubmission(submissionId: string, reason: string, actorId: string, orgId: string) {
   const sub = await prisma.paymentSubmission.findFirst({ where: { id: submissionId, orgId } });
   if (!sub) throw new ApiError("NOT_FOUND", "Submission not found");

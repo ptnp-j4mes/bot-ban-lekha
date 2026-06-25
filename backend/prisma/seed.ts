@@ -55,6 +55,25 @@ async function main() {
       },
     });
   }
+  // A regular org user for dev login.
+  const mockUser = await prisma.adminUser.upsert({
+    where: { username: "admin" },
+    update: {},
+    create: {
+      username: "admin",
+      passwordHash: await Bun.password.hash("admin1234"),
+      displayName: "สมชาย ใจดี",
+      isPlatformAdmin: false,
+      isActive: true,
+    },
+  });
+  await prisma.membership.upsert({
+    where: { orgId_adminUserId: { orgId: org.id, adminUserId: mockUser.id } },
+    update: {},
+    create: { orgId: org.id, adminUserId: mockUser.id },
+  });
+  console.log("mock user: admin / admin1234 (org:", org.id, ")");
+
   console.log("seed done. default org:", org.id);
 }
 

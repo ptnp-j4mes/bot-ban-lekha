@@ -7,6 +7,16 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Platform-wide settings (super admin). Singleton: always the row with id = "system".
+model SystemSetting {
+  id                String   @id @default("system")
+  defaultBillFooter String?  @map("default_bill_footer") // fallback footer when an org sets none
+  defaultTimezone   String   @default("Asia/Bangkok") @map("default_timezone") // applied to newly-created orgs
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
 // Tenant. One buyer of the product = one organization. Every domain row is scoped to an org.
 model Organization {
   id         String  @id @default(uuid())
@@ -14,6 +24,9 @@ model Organization {
   isActive   Boolean @default(true) @map("is_active")
   timezone   String  @default("Asia/Bangkok")
   billFooter String? @map("bill_footer") // overrides env BILL_FOOTER for this org's bills
+  reminderHour Int    @default(9)  @map("reminder_hour")  // Bangkok hour for the morning reminder
+  deadlineHour Int    @default(15) @map("deadline_hour")  // Bangkok hour for the before-deadline reminder
+  reminderText String? @map("reminder_text")              // overrides the default daily reminder body
 
   memberships    Membership[]
   lineOaAccounts LineOaAccount[]
@@ -328,6 +341,7 @@ model AdminUser {
   pictureUrl      String?   @map("picture_url")
   isPlatformAdmin Boolean   @default(false) @map("is_platform_admin")
   isActive        Boolean   @default(true) @map("is_active")
+  menuPrefs       Json?     @map("menu_prefs") // per-user sidebar prefs: { order: string[], hidden: string[] }
   lastLoginAt     DateTime? @map("last_login_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")

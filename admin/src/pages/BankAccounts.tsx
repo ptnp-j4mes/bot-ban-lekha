@@ -5,9 +5,9 @@ import { useMut } from "@/lib/ui";
 import { useAuth } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, Field } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { DataTable, type Column } from "@/components/ui/data-table";
 
 export function BankAccounts() {
   const { canWrite } = useAuth();
@@ -29,19 +29,32 @@ export function BankAccounts() {
     e.currentTarget.reset();
   };
 
+  const columns: Column<any>[] = [
+    { key: "name", header: "ชื่อ", sortValue: (b) => b.account_name, cell: (b) => <span className="flex items-center gap-1.5">{b.is_default && <Star className="h-3.5 w-3.5 text-amber-500" />}{b.account_name}</span> },
+    { key: "no", header: "เลขที่", sortValue: (b) => b.account_no, cell: (b) => <span className="fig">{b.account_no}</span> },
+    { key: "bank", header: "ธนาคาร", sortValue: (b) => b.bank_name, cell: (b) => b.bank_name },
+    { key: "status", header: "สถานะ", sortValue: (b) => (b.is_active ? 1 : 0), cell: (b) => <Badge variant={b.is_active ? "success" : "secondary"}>{b.is_active ? "active" : "inactive"}</Badge> },
+    { key: "act", header: "", stop: true, cell: (b) => (
+      <div className="flex justify-end gap-1">
+        {canWrite && <Button size="sm" variant="outline" onClick={() => setDefault.mutate(b.id)}>ตั้ง default</Button>}
+        {canWrite && b.is_active && <Button size="sm" variant="destructive" onClick={() => deactivate.mutate(b.id)}>ปิด</Button>}
+      </div>
+    ) },
+  ];
+
   return (
     <>
       {canWrite && (
         <Card>
           <CardHeader><CardTitle>เพิ่มบัญชีรับโอน</CardTitle></CardHeader>
           <CardContent>
-            <form className="flex flex-wrap items-center gap-2" onSubmit={submit}>
-              <Input name="account_name" placeholder="ชื่อบัญชี" className="w-44" required />
-              <Input name="account_no" placeholder="เลขบัญชี" className="w-40" required />
-              <Input name="bank_name" placeholder="ธนาคาร" className="w-44" required />
-              <Input name="bank_code" placeholder="code" className="w-24" />
-              <label className="flex items-center gap-1 text-sm"><input type="checkbox" name="is_default" /> default</label>
-              <Button size="sm" type="submit">เพิ่ม</Button>
+            <form className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={submit}>
+              <Field label="ชื่อบัญชี"><Input name="account_name" required /></Field>
+              <Field label="เลขบัญชี"><Input name="account_no" required /></Field>
+              <Field label="ธนาคาร"><Input name="bank_name" required /></Field>
+              <Field label="รหัสธนาคาร"><Input name="bank_code" placeholder="เช่น KBANK" /></Field>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="is_default" /> ตั้งเป็นบัญชีหลัก</label>
+              <Button type="submit">เพิ่มบัญชี</Button>
             </form>
           </CardContent>
         </Card>
@@ -49,25 +62,8 @@ export function BankAccounts() {
 
       <Card>
         <CardHeader><CardTitle>บัญชีทั้งหมด</CardTitle></CardHeader>
-        <CardContent>
-          <Table>
-            <THead><TR><TH>ชื่อ</TH><TH>เลขที่</TH><TH>ธนาคาร</TH><TH></TH><TH>สถานะ</TH><TH></TH></TR></THead>
-            <TBody>
-              {(list.data ?? []).map((b: any) => (
-                <TR key={b.id}>
-                  <TD>{b.account_name}</TD>
-                  <TD>{b.account_no}</TD>
-                  <TD>{b.bank_name}</TD>
-                  <TD>{b.is_default && <Star className="h-4 w-4 text-amber-500" />}</TD>
-                  <TD><Badge variant={b.is_active ? "success" : "secondary"}>{b.is_active ? "active" : "inactive"}</Badge></TD>
-                  <TD className="flex gap-1">
-                    {canWrite && <Button size="sm" variant="outline" onClick={() => setDefault.mutate(b.id)}>ตั้ง default</Button>}
-                    {canWrite && b.is_active && <Button size="sm" variant="destructive" onClick={() => deactivate.mutate(b.id)}>ปิด</Button>}
-                  </TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
+        <CardContent className="p-0">
+          <DataTable data={list.data ?? []} columns={columns} rowKey={(b) => b.id} initialSort={{ key: "name", dir: "asc" }} empty="ยังไม่มีบัญชีรับโอน" />
         </CardContent>
       </Card>
     </>

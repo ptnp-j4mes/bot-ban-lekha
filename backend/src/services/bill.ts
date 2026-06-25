@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { addDays } from "../lib/date";
 import { ApiError } from "../lib/response";
 import { renderBillText } from "./messages";
+import { getSystemSettings } from "./systemSettings";
 
 type Tx = PrismaClient | Prisma.TransactionClient;
 
@@ -64,7 +65,7 @@ export async function renderPlanBill(db: Tx, billPlanId: string) {
         }
       : null,
     note: plan.note,
-    footer: plan.organization?.billFooter,
+    footer: plan.organization?.billFooter || (await getSystemSettings()).defaultBillFooter,
   });
   return { plan, completed, text };
 }

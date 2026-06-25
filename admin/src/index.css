@@ -4,48 +4,130 @@
 
 @layer base {
   :root {
-    /* Neumorphic palette: single soft grey-blue surface, light from top-left. */
-    --background: 213 27% 90%;
-    --foreground: 217 24% 27%;
-    --card: 213 27% 90%;
-    --card-foreground: 217 24% 27%;
-    --primary: 221 60% 53%;
+    /* Verdana Health — deep navy + soft sage, clinical and calm. */
+    --background: 210 40% 98%;     /* #F8FAFC */
+    --foreground: 222 47% 11%;     /* navy #0F172A */
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --primary: 222 47% 11%;        /* navy — primary actions/headers */
     --primary-foreground: 0 0% 100%;
-    --secondary: 213 27% 90%;
-    --secondary-foreground: 217 24% 27%;
-    --muted: 213 20% 82%;
-    --muted-foreground: 217 14% 46%;
-    --accent: 213 27% 86%;
-    --accent-foreground: 217 24% 27%;
-    --destructive: 0 72% 55%;
+    --secondary: 210 40% 96%;      /* slate-100 */
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 19% 35%; /* slate #475569 */
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84% 60%;      /* #EF4444 */
     --destructive-foreground: 0 0% 100%;
-    --border: 213 27% 84%;
-    --input: 213 27% 84%;
-    --ring: 221 60% 53%;
-    --radius: 1rem;
-    --neu-light: 0 0% 100%;
-    --neu-dark: 218 26% 72%;
+    --border: 214 32% 91%;         /* #E2E8F0 */
+    --input: 214 32% 91%;
+    --ring: 222 47% 11%;
+    --sage: 160 90% 30%;           /* #059669 — links, CTAs, positive */
+    --radius: 0.75rem;             /* 12px */
   }
+
+  .dark {
+    --background: 222 47% 9%;
+    --foreground: 210 40% 96%;
+    --card: 222 40% 13%;
+    --card-foreground: 210 40% 96%;
+    --primary: 160 84% 39%;        /* sage carries actions on dark */
+    --primary-foreground: 222 47% 9%;
+    --secondary: 217 33% 18%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 217 33% 18%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 33% 18%;
+    --accent-foreground: 210 40% 96%;
+    --border: 217 33% 20%;
+    --input: 217 33% 20%;
+    --ring: 160 84% 39%;
+  }
+  .dark .neu-raised, .dark .neu-raised-sm { background: hsl(var(--card)); }
+  .dark .neu-inset { background: hsl(222 40% 15%); }
+
   body {
-    background-color: hsl(var(--background));
+    min-height: 100vh;
+    background: hsl(var(--background));
     color: hsl(var(--foreground));
-    font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+    font-family: "DM Sans", "Noto Sans Thai", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
     -webkit-text-size-adjust: 100%;
+  }
+
+  h1, h2, h3, h4, .font-head {
+    font-family: "Plus Jakarta Sans", "Noto Sans Thai", system-ui, sans-serif;
+    letter-spacing: -0.01em;
+  }
+
+  /* Fira Code for vitals / amounts / codes — clear tabular numerals. */
+  .fig, .mono {
+    font-family: "Fira Code", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
   }
 }
 
 @layer components {
+  /* Cards: white, soft diffused float (no hard border). */
   .neu-raised {
-    box-shadow: 6px 6px 12px hsl(var(--neu-dark)), -6px -6px 12px hsl(var(--neu-light));
+    background: #ffffff;
+    border: 1px solid hsl(214 32% 91% / 0.6);
+    box-shadow: 0 1px 2px hsl(222 47% 11% / 0.04), 0 6px 16px hsl(222 47% 11% / 0.05);
   }
   .neu-raised-sm {
-    box-shadow: 4px 4px 8px hsl(var(--neu-dark)), -4px -4px 8px hsl(var(--neu-light));
+    background: #ffffff;
+    border: 1px solid hsl(214 32% 91% / 0.6);
+    box-shadow: 0 1px 3px hsl(222 47% 11% / 0.04);
   }
   .neu-inset {
-    box-shadow: inset 4px 4px 8px hsl(var(--neu-dark)), inset -4px -4px 8px hsl(var(--neu-light));
+    background: #ffffff;
+    border: 1px solid hsl(var(--border));
+    box-shadow: none;
   }
-  /* press-in feedback on tap/click */
-  .neu-press:active {
-    box-shadow: inset 3px 3px 6px hsl(var(--neu-dark)), inset -3px -3px 6px hsl(var(--neu-light));
+  .neu-press:active { transform: translateY(1px); }
+
+  /* Diffused elevation helpers (md / lg) per the system. */
+  .elev-md { box-shadow: 0 4px 16px hsl(222 47% 11% / 0.07); }
+  .elev-lg { box-shadow: 0 8px 32px hsl(222 47% 11% / 0.10); }
+
+  /* Navy cover (login). */
+  .sidebar-ink {
+    background: #0f172a;
+    color: #cbd5e1;
+  }
+  /* App sidebar — light, calm; navy reserved for the logo tile + primary actions. */
+  .sidebar-light {
+    background: #ffffff;
+    border-right: 1px solid hsl(var(--border));
+  }
+
+  .glass-bar {
+    background: hsl(var(--background) / 0.85);
+    backdrop-filter: blur(12px) saturate(150%);
+    -webkit-backdrop-filter: blur(12px) saturate(150%);
+    border-bottom: 1px solid hsl(var(--border));
+  }
+
+  /* Summary strip container. */
+  .ledger-strip {
+    background: #ffffff;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+  }
+
+  /* Stat strip accents. */
+  .stat-card        { border-left: 3px solid hsl(var(--sage)); }
+  .stat-card-warn   { border-left: 3px solid #eab308; }
+  .stat-card-danger { border-left: 3px solid #ef4444; }
+
+  /* Sidebar section label. */
+  .nav-section {
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #64748b;
+    padding: 1rem 0.85rem 0.35rem;
   }
 }

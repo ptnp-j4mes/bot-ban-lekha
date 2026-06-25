@@ -7,7 +7,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
       type={type}
       ref={ref}
       className={cn(
-        "flex h-10 w-full rounded-xl border-0 bg-background px-3.5 py-1 text-sm neu-inset transition-shadow placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+        "flex h-[42px] w-full rounded-lg border border-border bg-white px-3.5 py-1 text-sm transition-shadow placeholder:text-muted-foreground hover:border-primary focus-visible:outline-none focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-[#F1F5F9]",
         className
       )}
       {...props}
@@ -21,7 +21,7 @@ export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttrib
     <select
       ref={ref}
       className={cn(
-        "flex h-10 w-full rounded-xl border-0 bg-background px-3.5 py-1 text-sm neu-inset focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        "flex h-[42px] w-full rounded-lg border border-border bg-white px-3.5 py-1 text-sm hover:border-primary focus-visible:outline-none focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/10",
         className
       )}
       {...props}
@@ -31,3 +31,13 @@ export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttrib
   )
 );
 Select.displayName = "Select";
+
+// Labeled field: "Label : [control]". Use for every form control instead of a bare placeholder.
+export function Field({ label, children, className }: { label: React.ReactNode; children: React.ReactNode; className?: string }) {
+  return (
+    <label className={cn("flex flex-col gap-1.5", className)}>
+      <span className="text-sm font-medium text-foreground">{label} :</span>
+      {children}
+    </label>
+  );
+}

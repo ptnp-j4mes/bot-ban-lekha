@@ -3,7 +3,6 @@ import { toast } from "sonner";
 import { loginUrl, setDevKey, setToken, clearAuth } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "";
 
@@ -35,31 +34,65 @@ export function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-sm">
-        <CardContent className="space-y-4 p-6">
-          <h1 className="text-center text-xl font-bold">💸 Bill Admin</h1>
+    <div className="flex min-h-screen">
+      {/* Left: ledger cover */}
+      <div className="sidebar-ink hidden lg:flex lg:w-[42%] flex-col justify-between p-12">
+        <div>
+          <div className="font-mono text-[11px] tracking-[0.25em] text-emerald-400/60 uppercase">สมุดลูกหนี้</div>
+          <div className="mt-1 text-2xl font-bold tracking-tight text-white">Bill Admin</div>
+        </div>
+        <div>
+          <h2 className="text-emerald-50/90 text-[28px] font-bold leading-snug">
+            ทวงบิลผ่าน LINE<br />รับสลิป · กระทบยอดอัตโนมัติ
+          </h2>
+          <div className="mt-6 space-y-2 font-mono text-[12px] text-emerald-50/40">
+            <div className="flex justify-between border-b border-white/10 pb-1.5"><span>ส่งเตือนตามรอบงวด</span><span>LINE OA</span></div>
+            <div className="flex justify-between border-b border-white/10 pb-1.5"><span>อ่านสลิป OCR</span><span>ตรวจก่อนอนุมัติ</span></div>
+            <div className="flex justify-between"><span>กระทบยอดเข้าบิล</span><span>อัตโนมัติ</span></div>
+          </div>
+        </div>
+        <p className="font-mono text-[10px] tracking-wider text-emerald-50/25">© {new Date().getFullYear() + 543} BILL ADMIN</p>
+      </div>
 
-          <form className="space-y-2" onSubmit={login}>
-            <Input placeholder="username" value={user} onChange={(e) => setUser(e.target.value)} required />
-            <Input type="password" placeholder="password" value={pass} onChange={(e) => setPass(e.target.value)} required />
-            <Button className="w-full" type="submit" disabled={busy}>{busy ? "กำลังเข้า…" : "เข้าสู่ระบบ"}</Button>
+      {/* Right: sign-in */}
+      <div className="flex flex-1 items-center justify-center bg-background p-6">
+        <div className="w-full max-w-[340px]">
+          <div className="mb-7">
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">เข้าสู่ระบบ</div>
+            <h1 className="mt-1 text-xl font-bold tracking-tight">ลงชื่อเข้าใช้บัญชี</h1>
+          </div>
+
+          <form className="space-y-3" onSubmit={login}>
+            <div>
+              <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">Username</label>
+              <Input value={user} onChange={(e) => setUser(e.target.value)} required className="mt-1 h-10" autoFocus />
+            </div>
+            <div>
+              <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">Password</label>
+              <Input type="password" value={pass} onChange={(e) => setPass(e.target.value)} required className="mt-1 h-10" />
+            </div>
+            <Button className="w-full h-10" type="submit" disabled={busy}>
+              {busy ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}
+            </Button>
           </form>
 
-          <div className="text-center text-xs text-muted-foreground">หรือ</div>
-          <a href={loginUrl} className="block">
-            <Button variant="outline" className="w-full">เข้าสู่ระบบด้วย LINE</Button>
+          <div className="my-5 flex items-center gap-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <div className="h-px flex-1 bg-border" /> หรือ <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <a href={loginUrl}>
+            <Button variant="outline" className="w-full h-10">เข้าสู่ระบบด้วย LINE</Button>
           </a>
 
-          <details className="text-xs text-muted-foreground">
-            <summary className="cursor-pointer">dev: ใช้ API key</summary>
+          <details className="mt-5 font-mono text-[11px] text-muted-foreground">
+            <summary className="cursor-pointer hover:text-foreground">dev · ใช้ API key</summary>
             <form className="mt-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); clearAuth(); setDevKey(dev.trim()); window.location.reload(); }}>
-              <Input type="password" placeholder="ADMIN_API_KEY" value={dev} onChange={(e) => setDev(e.target.value)} />
+              <Input type="password" placeholder="ADMIN_API_KEY" value={dev} onChange={(e) => setDev(e.target.value)} className="h-9" />
               <Button size="sm" type="submit">เข้า</Button>
             </form>
           </details>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

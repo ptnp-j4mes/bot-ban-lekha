@@ -1,8 +1,10 @@
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 import { prisma } from "../lib/prisma";
+import { env } from "../env";
 import { ok, ApiError } from "../lib/response";
 import { authorizePlatform } from "../lib/auth";
 import { audit } from "../services/audit";
+import { getSystemSettings, updateSystemSettings } from "../services/systemSettings";
 
 // Super-admin only: manage users (username/password) and the org each user operates in.
 // A user belongs to exactly one org (membership). Roles are collapsed — a member = full access.
@@ -24,7 +26,8 @@ const withOrg = { memberships: { include: { organization: true } } } as const;
 async function setUserOrg(userId: string, opts: { org_id?: string; org_name?: string }) {
   let orgId = opts.org_id;
   if (!orgId && opts.org_name) {
-    const org = await prisma.organization.create({ data: { name: opts.org_name } });
+    const { defaultTimezone } = await getSystemSettings();
+    const org = await prisma.organization.create({ data: { name: opts.org_name, timezone: defaultTimezone } });
     orgId = org.id;
   }
   if (!orgId) return;
@@ -41,6 +44,58 @@ export const platformRoutes = new Elysia({ prefix: "/api/platform" })
   .get("/organizations", async () =>
     ok(await prisma.organization.findMany({ include: { _count: { select: { memberships: true, customers: true } } }, orderBy: { createdAt: "asc" } }))
   )
+
+  // Rename / activate-deactivate an org.
+  .patch("/organizations/:id", async ({ params, body, ctx }: any) => {
+    const org = await prisma.organization.findUnique({ where: { id: params.id } });
+    if (!org) throw new ApiError("NOT_FOUND", "Organization not found");
+    const data: any = {};
+    if (body?.name !== undefined) data.name = body.name;
+    if (body?.is_active !== undefined) data.isActive = !!body.is_active;
+    const updated = await prisma.organization.update({ where: { id: params.id }, data });
+    await audit(prisma, { action: "update_org", entityType: "organization", entityId: org.id, orgId: org.id, actorId: ctx.userId, newValue: data });
+    return ok({ id: updated.id, name: updated.name, is_active: updated.isActive });
+  }, { body: t.Object({ name: t.Optional(t.String({ minLength: 1 })), is_active: t.Optional(t.Boolean()) }) })
+
+  // Platform-wide defaults.
+  .get("/settings", async () => {
+    const s = await getSystemSettings();
+    return ok({ default_bill_footer: s.defaultBillFooter, default_timezone: s.defaultTimezone });
+  })
+  .patch("/settings", async ({ body, ctx }: any) => {
+    const data: any = {};
+    if (body?.default_bill_footer !== undefined) data.defaultBillFooter = body.default_bill_footer || null;
+    if (body?.default_timezone !== undefined) data.defaultTimezone = body.default_timezone;
+    const row = await updateSystemSettings(data);
+    await audit(prisma, { action: "update_system_settings", entityType: "system_setting", entityId: "system", actorId: ctx.userId, newValue: data });
+    return ok({ default_bill_footer: row.defaultBillFooter, default_timezone: row.defaultTimezone });
+  }, { body: t.Object({ default_bill_footer: t.Optional(t.String()), default_timezone: t.Optional(t.String({ minLength: 1 })) }) })
+
+  // Read-only system status / health (no secrets — only whether things are configured).
+  .get("/system-info", async () => {
+    let dbOk = true;
+    try { await prisma.$queryRaw`SELECT 1`; } catch { dbOk = false; }
+    const [orgs, users] = await Promise.all([prisma.organization.count(), prisma.adminUser.count()]);
+    return ok({
+      version: "0.1.0",
+      runtime: `Bun ${Bun.version}`,
+      node_env: process.env.NODE_ENV ?? "development",
+      timezone: env.tz,
+      uptime_sec: Math.round(process.uptime()),
+      db_ok: dbOk,
+      orgs,
+      users,
+      ocr: {
+        provider: env.ocrProvider,
+        model: env.ocrModel,
+        configured: !!env.ocrApiKey,         // never expose the key itself
+        rate_max: env.ocrRateMax,
+        rate_window_sec: env.ocrRateWindowSec,
+      },
+      auto_approve: env.autoApprove,
+      storage_driver: env.storageDriver,
+    });
+  })
 
   .get("/admin-users", async () => ok((await prisma.adminUser.findMany({ include: withOrg, orderBy: { createdAt: "asc" } })).map(userView)))
 

@@ -355,3 +355,67 @@ test("health open; bare /api/customers needs auth", async () => {
   expect((await app.handle(new Request("http://localhost/health"))).status).toBe(200);
   expect((await app.handle(new Request("http://localhost/api/customers"))).status).toBe(401);
 });
+
+// ---------- platform settings + new features ----------
+async function mkPlatformAdmin() {
+  const u = await prisma.adminUser.create({ data: { username: `pa-${rnd()}`, isPlatformAdmin: true, isActive: true } });
+  return signJwt({ sub: u.id }, env.jwtSecret);
+}
+
+test("platform settings: PATCH then GET round-trips; member is blocked", async () => {
+  const token = await mkPlatformAdmin();
+  const H = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  const footer = `sys-${rnd()}`;
+  await app.handle(new Request("http://localhost/api/platform/settings", { method: "PATCH", headers: H, body: JSON.stringify({ default_bill_footer: footer }) }));
+  const got = await (await app.handle(new Request("http://localhost/api/platform/settings", { headers: H }))).json();
+  expect(got.data.default_bill_footer).toBe(footer);
+
+  // a normal member must not reach platform routes
+  const org = await mkOrg();
+  const m = await mkMember(org.id, "user");
+  const blocked = await app.handle(new Request("http://localhost/api/platform/settings", { headers: hdr(m.token, org.id) }));
+  expect(blocked.status).toBe(403);
+});
+
+test("bill footer falls back to system default when org has none", async () => {
+  const { updateSystemSettings } = await import("../src/services/systemSettings");
+  const footer = `deffoot-${rnd()}`;
+  await updateSystemSettings({ defaultBillFooter: footer });
+  const { renderPlanBill } = await import("../src/services/bill");
+  const org = await mkOrg(); // org.billFooter is null
+  const { plan } = await makePlan(org.id);
+  const { text } = await renderPlanBill(prisma, plan.id);
+  expect(text).toContain(footer);
+});
+
+test("org PATCH renames + toggles active (platform admin)", async () => {
+  const token = await mkPlatformAdmin();
+  const H = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  const org = await mkOrg();
+  const r = await (await app.handle(new Request(`http://localhost/api/platform/organizations/${org.id}`, { method: "PATCH", headers: H, body: JSON.stringify({ name: "Renamed", is_active: false }) }))).json();
+  expect(r.data.name).toBe("Renamed");
+  expect(r.data.is_active).toBe(false);
+});
+
+test("manual payment marks installment paid + completes plan", async () => {
+  const { recordManualPayment } = await import("../src/services/payment");
+  const org = await mkOrg();
+  const m = await mkMember(org.id, "user");
+  const { plan, inst } = await makePlan(org.id, 490);
+  const r = await recordManualPayment(inst.id, 490, m.user.id, org.id, "cash");
+  expect(r.status).toBe("paid");
+  const after = await prisma.billInstallment.findUnique({ where: { id: inst.id } });
+  expect(after?.status).toBe("paid");
+  const p = await prisma.billPlan.findUnique({ where: { id: plan.id } });
+  expect(p?.status).toBe("completed");
+});
+
+test("customerBalance sums unpaid installments", async () => {
+  const { customerBalance } = await import("../src/routes/line");
+  const org = await mkOrg();
+  const { customer } = await makePlan(org.id, 490);
+  const b = await customerBalance(customer.id);
+  expect(b.count).toBe(1);
+  expect(b.outstanding).toBe(490);
+  expect(b.nextDue).not.toBeNull();
+});

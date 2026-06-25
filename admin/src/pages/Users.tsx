@@ -6,9 +6,9 @@ import { useMut } from "@/lib/ui";
 import { useAuth } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
+import { Input, Select, Field } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { DataTable, type Column } from "@/components/ui/data-table";
 
 // Super-admin console: manage users + the org each operates in, and "enter" a user's org.
 export function Users() {
@@ -42,19 +42,38 @@ export function Users() {
 
   const orgOptions = (orgs.data ?? []).map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>);
 
+  const columns: Column<any>[] = [
+    { key: "name", header: "ชื่อ / login", sortValue: (u) => u.display_name || u.username, cell: (u) => <div>{u.display_name || "—"}<div className="text-xs text-muted-foreground">@{u.username}</div></div> },
+    { key: "org", header: "org", stop: true, sortValue: (u) => u.org?.name ?? "", cell: (u) => u.is_platform_admin ? <span className="text-muted-foreground">—</span> : (
+      <Select value={u.org?.id ?? ""} className="h-8 w-40" onChange={(e) => update.mutate({ id: u.id, data: { org_id: e.target.value } })}>
+        <option value="" disabled>— เลือก org —</option>{orgOptions}
+      </Select>
+    ) },
+    { key: "role", header: "สิทธิ์", sortValue: (u) => (u.is_platform_admin ? 0 : 1), cell: (u) => u.is_platform_admin ? <Badge variant="warning">super admin</Badge> : <Badge variant="secondary">user</Badge> },
+    { key: "status", header: "สถานะ", sortValue: (u) => (u.is_active ? 1 : 0), cell: (u) => <Badge variant={u.is_active ? "success" : "secondary"}>{u.is_active ? "active" : "off"}</Badge> },
+    { key: "login", header: "เข้าใช้ล่าสุด", sortValue: (u) => u.last_login_at ?? "", cell: (u) => <span className="text-xs">{u.last_login_at?.slice(0, 10) ?? "—"}</span> },
+    { key: "act", header: "", stop: true, cell: (u) => (
+      <div className="flex justify-end gap-1">
+        {!u.is_platform_admin && u.org && <Button size="sm" onClick={() => enterOrg(u.org)}><LogIn className="h-3 w-3 mr-1" /> เข้าจัดการ</Button>}
+        <Button size="sm" variant="outline" onClick={() => { const p = prompt("รหัสผ่านใหม่:"); if (p) update.mutate({ id: u.id, data: { password: p } }); }}>รีเซ็ตรหัส</Button>
+        <Button size="sm" variant={u.is_active ? "destructive" : "success"} onClick={() => update.mutate({ id: u.id, data: { is_active: !u.is_active } })}>{u.is_active ? "ปิด" : "เปิด"}</Button>
+      </div>
+    ) },
+  ];
+
   return (
     <>
       <Card>
         <CardHeader><CardTitle>สร้างผู้ใช้</CardTitle></CardHeader>
         <CardContent>
-          <form className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2" onSubmit={submit}>
-            <Input name="username" placeholder="username" required />
-            <Input name="password" type="password" placeholder="password" required />
-            <Input name="display_name" placeholder="ชื่อ (ไม่บังคับ)" />
-            <Select name="org_id" defaultValue=""><option value="">— เลือก org เดิม —</option>{orgOptions}</Select>
-            <Input name="org_name" placeholder="หรือสร้าง org ใหม่ (ชื่อ)" />
-            <label className="flex items-center gap-1 text-sm"><input type="checkbox" name="is_platform_admin" /> super admin</label>
-            <Button size="sm" type="submit" className="w-fit">สร้าง</Button>
+          <form className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-3" onSubmit={submit}>
+            <Field label="Username"><Input name="username" required /></Field>
+            <Field label="Password"><Input name="password" type="password" required /></Field>
+            <Field label="ชื่อ (ไม่บังคับ)"><Input name="display_name" /></Field>
+            <Field label="Org เดิม"><Select name="org_id" defaultValue=""><option value="">— เลือก org เดิม —</option>{orgOptions}</Select></Field>
+            <Field label="หรือสร้าง Org ใหม่"><Input name="org_name" placeholder="ชื่อองค์กรใหม่" /></Field>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="is_platform_admin" /> super admin</label>
+            <Button type="submit" className="w-fit">สร้างผู้ใช้</Button>
           </form>
           <p className="mt-2 text-xs text-muted-foreground">user 1 คน อยู่ 1 org; super admin ไม่ต้องมี org</p>
         </CardContent>
@@ -62,34 +81,8 @@ export function Users() {
 
       <Card>
         <CardHeader><CardTitle>ผู้ใช้ทั้งหมด</CardTitle></CardHeader>
-        <CardContent>
-          <Table>
-            <THead><TR><TH>ชื่อ / login</TH><TH>org</TH><TH>สิทธิ์</TH><TH>สถานะ</TH><TH>เข้าใช้ล่าสุด</TH><TH></TH></TR></THead>
-            <TBody>
-              {(users.data ?? []).map((u: any) => (
-                <TR key={u.id}>
-                  <TD>{u.display_name || "—"}<div className="text-xs text-muted-foreground">@{u.username}</div></TD>
-                  <TD>
-                    {u.is_platform_admin ? <span className="text-muted-foreground">—</span> : (
-                      <Select value={u.org?.id ?? ""} className="h-8 w-40" onChange={(e) => update.mutate({ id: u.id, data: { org_id: e.target.value } })}>
-                        <option value="" disabled>— เลือก org —</option>{orgOptions}
-                      </Select>
-                    )}
-                  </TD>
-                  <TD>{u.is_platform_admin ? <Badge variant="warning">super admin</Badge> : <Badge variant="secondary">user</Badge>}</TD>
-                  <TD><Badge variant={u.is_active ? "success" : "secondary"}>{u.is_active ? "active" : "off"}</Badge></TD>
-                  <TD className="text-xs">{u.last_login_at?.slice(0, 10) ?? "—"}</TD>
-                  <TD className="flex gap-1">
-                    {!u.is_platform_admin && u.org && (
-                      <Button size="sm" onClick={() => enterOrg(u.org)}><LogIn className="h-3 w-3 mr-1" /> เข้าจัดการ</Button>
-                    )}
-                    <Button size="sm" variant="outline" onClick={() => { const p = prompt("รหัสผ่านใหม่:"); if (p) update.mutate({ id: u.id, data: { password: p } }); }}>รีเซ็ตรหัส</Button>
-                    <Button size="sm" variant={u.is_active ? "destructive" : "success"} onClick={() => update.mutate({ id: u.id, data: { is_active: !u.is_active } })}>{u.is_active ? "ปิด" : "เปิด"}</Button>
-                  </TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
+        <CardContent className="p-0">
+          <DataTable data={users.data ?? []} columns={columns} rowKey={(u) => u.id} initialSort={{ key: "name", dir: "asc" }} empty="ยังไม่มีผู้ใช้" />
         </CardContent>
       </Card>
     </>

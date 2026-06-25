@@ -7,9 +7,9 @@ import { useMut } from "@/lib/ui";
 import { CustomerDetail } from "./CustomerDetail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
+import { Input, Select, Field } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { DataTable, type Column } from "@/components/ui/data-table";
 
 const LIMIT = 20;
 const formObj = (e: React.FormEvent<HTMLFormElement>) => {
@@ -50,20 +50,55 @@ export function Customers() {
   const total = list.data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / LIMIT));
 
+  const saveRow = (id: string) => {
+    const dn = (document.getElementById(`dn-${id}`) as HTMLInputElement).value;
+    const ph = (document.getElementById(`ph-${id}`) as HTMLInputElement).value;
+    const st = (document.getElementById(`st-${id}`) as HTMLSelectElement).value;
+    update.mutate({ id, data: { display_name: dn, phone: ph, status: st } });
+    setEditing(null);
+  };
+
+  const columns: Column<any>[] = [
+    { key: "code", header: "code", sortValue: (c) => c.customer_code, cell: (c) => <span className="fig">{c.customer_code}</span> },
+    { key: "name", header: "ชื่อ", sortValue: (c) => c.display_name ?? "", cell: (c) => editing === c.id
+      ? <Input defaultValue={c.display_name ?? ""} className="h-8 w-32" id={`dn-${c.id}`} />
+      : c.display_name },
+    { key: "phone", header: "เบอร์", cell: (c) => editing === c.id
+      ? <Input defaultValue={c.phone ?? ""} className="h-8 w-28" id={`ph-${c.id}`} />
+      : <span className="fig">{c.phone}</span> },
+    { key: "line", header: "LINE", sortValue: (c) => (c.line_user_id ? 1 : 0), cell: (c) => c.line_user_id ? <Check className="h-4 w-4 text-primary" /> : <span className="text-muted-foreground">—</span> },
+    { key: "status", header: "สถานะ", sortValue: (c) => c.status, cell: (c) => editing === c.id
+      ? <Select defaultValue={c.status} className="h-8 w-24" id={`st-${c.id}`}>{["active", "blocked", "closed"].map((x) => <option key={x}>{x}</option>)}</Select>
+      : <Badge variant="secondary">{c.status}</Badge> },
+    { key: "act", header: "", stop: true, cell: (c) => editing === c.id ? (
+      <div className="flex gap-1">
+        <Button size="sm" onClick={() => saveRow(c.id)}>บันทึก</Button>
+        <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>ยกเลิก</Button>
+      </div>
+    ) : (
+      <div className="flex justify-end gap-1">
+        <Button size="sm" onClick={() => setDetailId(c.id)}>ดู</Button>
+        <Button size="sm" variant="outline" onClick={() => setEditing(c.id)}>แก้ไข</Button>
+      </div>
+    ) },
+  ];
+
   return (
     <>
       <Card>
         <CardHeader><CardTitle>เพิ่มลูกค้า</CardTitle></CardHeader>
         <CardContent>
-          <form className="flex flex-wrap gap-2" onSubmit={(e) => { create.mutate(formObj(e)); e.currentTarget.reset(); }}>
-            <Input name="customer_code" placeholder="customer_code" className="w-44" required />
-            <Input name="display_name" placeholder="ชื่อ" className="w-44" />
-            <Input name="phone" placeholder="เบอร์" className="w-36" />
-            <Select name="line_oa_id" className="w-48" defaultValue="">
-              <option value="">— เลือก LINE OA —</option>
-              {(oas.data ?? []).filter((o: any) => o.is_active).map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
-            </Select>
-            <Button size="sm" type="submit">เพิ่ม</Button>
+          <form className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={(e) => { create.mutate(formObj(e)); e.currentTarget.reset(); }}>
+            <Field label="Customer Code"><Input name="customer_code" placeholder="เช่น C001" required /></Field>
+            <Field label="ชื่อ"><Input name="display_name" /></Field>
+            <Field label="เบอร์โทร"><Input name="phone" /></Field>
+            <Field label="LINE OA">
+              <Select name="line_oa_id" defaultValue="">
+                <option value="">— เลือก LINE OA —</option>
+                {(oas.data ?? []).filter((o: any) => o.is_active).map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </Select>
+            </Field>
+            <Button type="submit">เพิ่มลูกค้า</Button>
           </form>
         </CardContent>
       </Card>
@@ -71,10 +106,10 @@ export function Customers() {
       <Card>
         <CardHeader><CardTitle>ผูก LINE user id</CardTitle></CardHeader>
         <CardContent>
-          <form className="flex flex-wrap gap-2" onSubmit={(e) => link.mutate(formObj(e))}>
-            <Input name="customer_code" placeholder="customer_code" className="w-44" required />
-            <Input name="line_user_id" placeholder="line_user_id (Uxxxx)" className="w-56" required />
-            <Button size="sm" type="submit">ผูก</Button>
+          <form className="grid grid-cols-1 items-end gap-3 sm:grid-cols-3" onSubmit={(e) => link.mutate(formObj(e))}>
+            <Field label="Customer Code"><Input name="customer_code" placeholder="เช่น C001" required /></Field>
+            <Field label="LINE User ID"><Input name="line_user_id" placeholder="Uxxxxxxxx" required /></Field>
+            <Button type="submit">ผูก LINE</Button>
           </form>
         </CardContent>
       </Card>
@@ -93,49 +128,10 @@ export function Customers() {
             </form>
           </div>
         </CardHeader>
-        <CardContent>
-          <Table>
-            <THead><TR><TH>code</TH><TH>ชื่อ</TH><TH>เบอร์</TH><TH>LINE</TH><TH>สถานะ</TH><TH></TH></TR></THead>
-            <TBody>
-              {(list.data?.items ?? []).map((c: any) => editing === c.id ? (
-                <TR key={c.id}>
-                  <TD>{c.customer_code}</TD>
-                  <TD><Input defaultValue={c.display_name ?? ""} className="h-8 w-32" id={`dn-${c.id}`} /></TD>
-                  <TD><Input defaultValue={c.phone ?? ""} className="h-8 w-28" id={`ph-${c.id}`} /></TD>
-                  <TD>{c.line_user_id ? <Check className="h-4 w-4 text-green-600" /> : "—"}</TD>
-                  <TD>
-                    <Select defaultValue={c.status} className="h-8 w-24" id={`st-${c.id}`}>
-                      {["active", "blocked", "closed"].map((s) => <option key={s}>{s}</option>)}
-                    </Select>
-                  </TD>
-                  <TD className="flex gap-1">
-                    <Button size="sm" onClick={() => {
-                      const dn = (document.getElementById(`dn-${c.id}`) as HTMLInputElement).value;
-                      const ph = (document.getElementById(`ph-${c.id}`) as HTMLInputElement).value;
-                      const st = (document.getElementById(`st-${c.id}`) as HTMLSelectElement).value;
-                      update.mutate({ id: c.id, data: { display_name: dn, phone: ph, status: st } });
-                      setEditing(null);
-                    }}>บันทึก</Button>
-                    <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>ยกเลิก</Button>
-                  </TD>
-                </TR>
-              ) : (
-                <TR key={c.id}>
-                  <TD>{c.customer_code}</TD>
-                  <TD>{c.display_name}</TD>
-                  <TD>{c.phone}</TD>
-                  <TD>{c.line_user_id ? <Check className="h-4 w-4 text-green-600" /> : <span className="text-muted-foreground">—</span>}</TD>
-                  <TD><Badge variant="secondary">{c.status}</Badge></TD>
-                  <TD className="flex gap-1">
-                    <Button size="sm" onClick={() => setDetailId(c.id)}>ดู</Button>
-                    <Button size="sm" variant="outline" onClick={() => setEditing(c.id)}>แก้ไข</Button>
-                  </TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
+        <CardContent className="p-0">
+          <DataTable data={list.data?.items ?? []} columns={columns} rowKey={(c) => c.id} initialSort={{ key: "code", dir: "asc" }} empty="ยังไม่มีลูกค้า" />
           {pages > 1 && (
-            <div className="flex items-center justify-end gap-2 mt-3 text-sm">
+            <div className="flex items-center justify-end gap-2 px-4 py-3 text-sm">
               <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</Button>
               <span>{page} / {pages}</span>
               <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage(page + 1)}>ถัดไป</Button>

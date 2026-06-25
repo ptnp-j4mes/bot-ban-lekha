@@ -4,7 +4,9 @@ import { toast } from "sonner";
 import { apiGet, clearAuth, hasCreds, setToken, getOrgId, setOrgId } from "./api";
 
 type Org = { id: string; name: string };
-type Me = { userId: string; name?: string; isPlatformAdmin: boolean; org?: Org | null };
+export type MenuGroup = { label: string; items: string[] };
+export type MenuPrefs = { order?: string[]; hidden?: string[]; groups?: MenuGroup[] };
+type Me = { userId: string; name?: string; isPlatformAdmin: boolean; org?: Org | null; menuPrefs?: MenuPrefs | null };
 
 type AuthState = {
   me?: Me;
@@ -16,6 +18,7 @@ type AuthState = {
   enterOrg: (org: Org) => void;
   exitOrg: () => void;
   canWrite: boolean; // any member = full access
+  menuPrefs?: MenuPrefs | null;
   logout: () => void;
 };
 
@@ -40,7 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const me = useQuery<any>({ queryKey: ["me"], queryFn: () => apiGet("/api/auth/me"), enabled: ready && hasCreds(), retry: false });
   const data: Me | undefined = me.data
-    ? { userId: me.data.user_id, name: me.data.name, isPlatformAdmin: !!me.data.is_platform_admin, org: me.data.org ?? null }
+    ? { userId: me.data.user_id, name: me.data.name, isPlatformAdmin: !!me.data.is_platform_admin, org: me.data.org ?? null, menuPrefs: me.data.menu_prefs ?? null }
     : undefined;
 
   // A normal user always operates inside their own org — pin it.
@@ -84,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     enterOrg,
     exitOrg,
     canWrite: true,
+    menuPrefs: data?.menuPrefs ?? null,
     logout,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

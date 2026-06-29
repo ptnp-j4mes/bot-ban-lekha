@@ -62,6 +62,25 @@ export const adminSubmissionRoutes = new Elysia({ prefix: "/api/admin/payment-su
     return ok(await matchInstallment(params.id, body.bill_installment_id, body.note, ctx.userId, ctx.orgId));
   })
 
+  .post("/bulk-approve", async ({ body, ctx }: any) => {
+    const ids: string[] = body?.ids ?? [];
+    if (!Array.isArray(ids) || ids.length === 0)
+      throw new ApiError("VALIDATION_ERROR", "ids must be a non-empty array");
+    const approved: { id: string; paymentId: string }[] = [];
+    const failed: { id: string; reason: string }[] = [];
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const r = await approveSubmission(id, ctx.userId, ctx.orgId);
+          approved.push({ id, paymentId: r.payment.id });
+        } catch (err: any) {
+          failed.push({ id, reason: err.message ?? "unknown error" });
+        }
+      })
+    );
+    return ok({ approved, failed });
+  })
+
   .post("/:id/approve", async ({ params, ctx }: any) => {
     const r = await approveSubmission(params.id, ctx.userId, ctx.orgId);
     return ok({ payment: r.payment, bill_text: r.billText });

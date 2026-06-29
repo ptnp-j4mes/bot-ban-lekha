@@ -419,3 +419,84 @@ test("customerBalance sums unpaid installments", async () => {
   expect(b.outstanding).toBe(490);
   expect(b.nextDue).not.toBeNull();
 });
+
+// ---------- bulk-approve ----------
+test("bulk-approve: all succeed, payments created, installments paid", async () => {
+  const org = await mkOrg();
+  const m = await mkMember(org.id, "user");
+
+  const { inst: inst1 } = await makePlan(org.id);
+  const sub1 = await prisma.paymentSubmission.create({
+    data: { orgId: org.id, matchedInstallmentId: inst1.id, parsedAmount: 490, parsedReferenceNo: `BK1${rnd()}` },
+  });
+  const { inst: inst2 } = await makePlan(org.id);
+  const sub2 = await prisma.paymentSubmission.create({
+    data: { orgId: org.id, matchedInstallmentId: inst2.id, parsedAmount: 490, parsedReferenceNo: `BK2${rnd()}` },
+  });
+
+  const res = await app.handle(new Request("http://localhost/api/admin/payment-submissions/bulk-approve", {
+    method: "POST",
+    headers: { ...hdr(m.token, org.id), "content-type": "application/json" },
+    body: JSON.stringify({ ids: [sub1.id, sub2.id] }),
+  }));
+  expect(res.status).toBe(200);
+  const data = (await res.json()).data;
+  expect(data.approved).toHaveLength(2);
+  expect(data.failed).toHaveLength(0);
+  expect((await prisma.billInstallment.findUnique({ where: { id: inst1.id } }))!.status).toBe("paid");
+  expect((await prisma.billInstallment.findUnique({ where: { id: inst2.id } }))!.status).toBe("paid");
+});
+
+test("bulk-approve: partial failure — bad submission does not fail the batch", async () => {
+  const org = await mkOrg();
+  const m = await mkMember(org.id, "user");
+
+  // Good: has matched installment
+  const { inst } = await makePlan(org.id);
+  const good = await prisma.paymentSubmission.create({
+    data: { orgId: org.id, matchedInstallmentId: inst.id, parsedAmount: 490, parsedReferenceNo: `BKG${rnd()}` },
+  });
+
+  // Bad: no matched installment
+  const bad = await prisma.paymentSubmission.create({
+    data: { orgId: org.id },
+  });
+
+  const res = await app.handle(new Request("http://localhost/api/admin/payment-submissions/bulk-approve", {
+    method: "POST",
+    headers: { ...hdr(m.token, org.id), "content-type": "application/json" },
+    body: JSON.stringify({ ids: [good.id, bad.id] }),
+  }));
+  expect(res.status).toBe(200);
+  const data = (await res.json()).data;
+  expect(data.approved).toHaveLength(1);
+  expect(data.approved[0].id).toBe(good.id);
+  expect(data.failed).toHaveLength(1);
+  expect(data.failed[0].id).toBe(bad.id);
+  expect(data.failed[0].reason).toMatch(/no matched installment/i);
+  // Good submission really was approved
+  expect((await prisma.billInstallment.findUnique({ where: { id: inst.id } }))!.status).toBe("paid");
+});
+
+test("bulk-approve: cross-org submissions are rejected as failures, not silently approved", async () => {
+  const orgA = await mkOrg();
+  const orgB = await mkOrg();
+  const mB = await mkMember(orgB.id, "user");
+
+  const { inst } = await makePlan(orgA.id);
+  const sub = await prisma.paymentSubmission.create({
+    data: { orgId: orgA.id, matchedInstallmentId: inst.id, parsedAmount: 490 },
+  });
+
+  const res = await app.handle(new Request("http://localhost/api/admin/payment-submissions/bulk-approve", {
+    method: "POST",
+    headers: { ...hdr(mB.token, orgB.id), "content-type": "application/json" },
+    body: JSON.stringify({ ids: [sub.id] }),
+  }));
+  expect(res.status).toBe(200);
+  const data = (await res.json()).data;
+  expect(data.approved).toHaveLength(0);
+  expect(data.failed).toHaveLength(1);
+  // Installment must still be unpaid
+  expect((await prisma.billInstallment.findUnique({ where: { id: inst.id } }))!.status).not.toBe("paid");
+});

@@ -4,18 +4,55 @@ services:
     container_name: line-oa-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: billing
-      POSTGRES_PASSWORD: billing
-      POSTGRES_DB: line_oa_billing
+      POSTGRES_USER: ${POSTGRES_USER:-billing}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-billing}
+      POSTGRES_DB: ${POSTGRES_DB:-line_oa_billing}
     ports:
       - "5433:5432"
     volumes:
       - line-oa-pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U billing -d line_oa_billing"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-billing} -d ${POSTGRES_DB:-line_oa_billing}"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: line-oa-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Override to use Docker service name instead of localhost
+      DATABASE_URL: postgresql://${POSTGRES_USER:-billing}:${POSTGRES_PASSWORD:-billing}@postgres:5432/${POSTGRES_DB:-line_oa_billing}
+      APP_PORT: "8787"
+      NODE_ENV: development
+    ports:
+      - "8787:8787"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8787/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  admin:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+    container_name: line-oa-admin
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   line-oa-pgdata:

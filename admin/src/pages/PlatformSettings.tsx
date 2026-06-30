@@ -27,7 +27,12 @@ export function PlatformSettings() {
   const saveDefaults = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    save.mutate({ default_bill_footer: fd.get("footer"), default_timezone: fd.get("tz") });
+    const retention = fd.get("slip_retention_days");
+    save.mutate({
+      default_bill_footer: fd.get("footer"),
+      default_timezone: fd.get("tz"),
+      default_slip_retention_days: retention === "" ? null : Number(retention),
+    });
   };
 
   const d = s.data;
@@ -63,6 +68,10 @@ export function PlatformSettings() {
                 <textarea name="footer" defaultValue={d.default_bill_footer ?? ""} rows={3}
                   className="mt-1 flex w-full rounded-md px-3 py-2 text-sm neu-inset focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   placeholder="ปล่อยว่าง = ใช้ค่าจาก .env (BILL_FOOTER)" />
+              </div>
+              <div>
+                <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">เก็บรูปสลิปกี่วันเริ่มต้น (ใช้เมื่อ org ไม่ตั้งเอง, 0 = ลบทันทีหลัง OCR)</label>
+                <Input name="slip_retention_days" type="number" min={0} defaultValue={d.default_slip_retention_days ?? ""} placeholder="ปล่อยว่าง = ใช้ค่าจาก .env (SLIP_RETENTION_DAYS)" className="mt-1" />
               </div>
               <Button size="sm" type="submit" disabled={save.isPending}>บันทึกค่าเริ่มต้น</Button>
             </form>
@@ -108,6 +117,7 @@ export function PlatformSettings() {
                 <Row k="Rate limit" v={`${i.ocr.rate_max} / ${Math.round(i.ocr.rate_window_sec / 60)} นาที`} />
                 <Row k="อนุมัติอัตโนมัติ" v={<Badge variant={i.auto_approve ? "success" : "secondary"}>{i.auto_approve ? "เปิด" : "ปิด"}</Badge>} />
                 <Row k="Storage" v={i.storage_driver} />
+                <Row k="เก็บสลิป (.env default)" v={`${i.slip_retention_days_env_default} วัน`} />
               </>
             )}
             <p className="mt-3 font-mono text-[11px] leading-relaxed text-muted-foreground">

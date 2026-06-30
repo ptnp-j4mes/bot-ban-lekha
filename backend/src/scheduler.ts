@@ -1,4 +1,5 @@
 import { runReminder, markOverdue, retryFailed } from "./routes/jobs";
+import { purgeExpiredSlips } from "./services/retention";
 import { logger } from "./lib/logger";
 
 // In-process scheduler. Reminder sends are idempotent (guarded by *_sent_at columns),
@@ -16,6 +17,7 @@ async function tick() {
     await runReminder("morningSentAt", "daily_reminder", { hour: h, hourField: "reminderHour" });
     await runReminder("beforeDeadlineSentAt", "before_deadline_reminder", { hour: h, hourField: "deadlineHour" });
     await retryFailed();
+    await purgeExpiredSlips();
   } catch (e) {
     logger.error({ err: e }, "scheduler tick failed");
   }

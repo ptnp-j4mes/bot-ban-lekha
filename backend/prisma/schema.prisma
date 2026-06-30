@@ -9,10 +9,11 @@ datasource db {
 
 // Platform-wide settings (super admin). Singleton: always the row with id = "system".
 model SystemSetting {
-  id                String   @id @default("system")
-  defaultBillFooter String?  @map("default_bill_footer") // fallback footer when an org sets none
-  defaultTimezone   String   @default("Asia/Bangkok") @map("default_timezone") // applied to newly-created orgs
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id                       String   @id @default("system")
+  defaultBillFooter        String?  @map("default_bill_footer") // fallback footer when an org sets none
+  defaultTimezone          String   @default("Asia/Bangkok") @map("default_timezone") // applied to newly-created orgs
+  defaultSlipRetentionDays Int?     @map("default_slip_retention_days") // fallback retention when an org sets none; null = use env SLIP_RETENTION_DAYS
+  updatedAt                DateTime @updatedAt @map("updated_at")
 
   @@map("system_settings")
 }
@@ -27,6 +28,7 @@ model Organization {
   reminderHour Int    @default(9)  @map("reminder_hour")  // Bangkok hour for the morning reminder
   deadlineHour Int    @default(15) @map("deadline_hour")  // Bangkok hour for the before-deadline reminder
   reminderText String? @map("reminder_text")              // overrides the default daily reminder body
+  slipRetentionDays Int? @map("slip_retention_days")       // days to keep slip images; 0 = purge right after OCR; null = use system/env default
 
   memberships    Membership[]
   lineOaAccounts LineOaAccount[]
@@ -242,6 +244,7 @@ model PaymentSubmission {
   imageUrl         String? @map("image_url")
   originalFileName String? @map("original_file_name")
   imageHash        String? @map("image_hash")
+  imagePurgedAt    DateTime? @map("image_purged_at") // set when the local slip file has been purged (image_url cleared); metadata above is kept
 
   ocrStatus  String  @default("pending") @map("ocr_status")
   ocrRawText String? @map("ocr_raw_text")

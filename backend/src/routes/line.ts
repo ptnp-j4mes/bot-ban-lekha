@@ -7,6 +7,7 @@ import { dateOnly } from "../lib/date";
 import { storeSlip } from "../services/storage";
 import { getOcrService, detectImageMime, mimeExt } from "../services/ocr";
 import { processSubmission } from "../services/payment";
+import { effectiveRetentionDaysForOrg, purgeSlipImage } from "../services/retention";
 import { captureError } from "../lib/logger";
 import { env } from "../env";
 import {
@@ -220,4 +221,12 @@ async function handleImage(ev: any, oa: Oa) {
   });
 
   await processSubmission(sub.id);
+
+  // Retention = 0 days means "purge right after processing". Never let a purge failure
+  // (missing file, disk error) break the submission that was just recorded.
+  try {
+    if ((await effectiveRetentionDaysForOrg(oa.orgId)) === 0) await purgeSlipImage(sub.id);
+  } catch (e) {
+    captureError(e, { scope: "purge_slip_immediate", submissionId: sub.id });
+  }
 }

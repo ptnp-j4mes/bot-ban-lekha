@@ -108,10 +108,12 @@ export function Settings() {
   const saveSettings = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const retentionRaw = String(fd.get("slip_retention_days") ?? "").trim();
     save.mutate({
       name: fd.get("name"), timezone: fd.get("timezone"), bill_footer: fd.get("bill_footer"),
       reminder_hour: Number(fd.get("reminder_hour")), deadline_hour: Number(fd.get("deadline_hour")),
       reminder_text: fd.get("reminder_text"),
+      slip_retention_days: retentionRaw === "" ? null : Number(retentionRaw),
     });
   };
   const submitPw = (e: React.FormEvent<HTMLFormElement>) => {
@@ -162,6 +164,10 @@ export function Settings() {
                 <textarea name="reminder_text" defaultValue={d.reminder_text ?? ""} rows={3}
                   className="flex w-full rounded-md border-0 px-3.5 py-2 text-sm neu-inset focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   placeholder="เช่น วันนี้ครบกำหนดชำระค่ะ 🙏 ส่งสลิปกลับมาได้เลยนะคะ" />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground">เก็บรูปสลิปกี่วัน (0 = ลบทันทีหลัง OCR, ปล่อยว่าง = ใช้ค่าเริ่มต้นของระบบ)</label>
+                <Input name="slip_retention_days" type="number" min={0} defaultValue={d.slip_retention_days ?? ""} placeholder="เช่น 30" />
               </div>
               <Button size="sm" type="submit">บันทึก</Button>
             </form>

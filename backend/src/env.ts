@@ -21,6 +21,9 @@ export const env = {
   maxSlipMb: Number(process.env.MAX_SLIP_FILE_SIZE_MB ?? 10),
   ocrRateMax: Number(process.env.OCR_RATE_MAX ?? 10),
   ocrRateWindowSec: Number(process.env.OCR_RATE_WINDOW_SEC ?? 3600),
+  // Days to keep a slip image on local disk before purge; 0 = purge right after OCR/processing.
+  // Org/system settings can override this default (see services/retention.ts).
+  slipRetentionDaysDefault: Number(process.env.SLIP_RETENTION_DAYS ?? 30),
   // Bill footer / late-payment notice. Configurable per group; default kept polite (compliance).
   billFooter:
     process.env.BILL_FOOTER ||

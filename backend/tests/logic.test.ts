@@ -8,6 +8,9 @@ import { dateOnly, toISODate } from "../src/lib/date";
 import { verifySignature } from "../src/lib/line";
 import { signJwt, verifyJwt } from "../src/lib/jwt";
 import { createHmac } from "node:crypto";
+import { storeSlip, deleteSlipFile } from "../src/services/storage";
+import { effectiveRetentionDays } from "../src/services/retention";
+import { env } from "../src/env";
 
 test("jwt: roundtrip, tamper, wrong-secret, expiry", () => {
   const secret = "test-secret";
@@ -163,4 +166,21 @@ test("verifySignature: valid sig passes, wrong/missing fails", () => {
   expect(verifySignature(body, sig, secret)).toBe(true);
   expect(verifySignature(body, "wrong", secret)).toBe(false);
   expect(verifySignature(body, sig, "")).toBe(false); // no secret configured
+});
+
+test("effectiveRetentionDays: org override > system default > env default, 0 is a valid override", () => {
+  expect(effectiveRetentionDays(7, 30)).toBe(7);
+  expect(effectiveRetentionDays(0, 30)).toBe(0); // falsy but explicit — must not fall through
+  expect(effectiveRetentionDays(null, 14)).toBe(14);
+  expect(effectiveRetentionDays(undefined, 0)).toBe(0);
+  expect(effectiveRetentionDays(null, null)).toBe(env.slipRetentionDaysDefault);
+});
+
+test("deleteSlipFile: deletes inside storage root, never touches paths outside it", async () => {
+  const path = await storeSlip(`logic-test-${Date.now()}`, Buffer.from("slip-bytes"));
+  expect(await deleteSlipFile(path)).toBe("deleted");
+  expect(await deleteSlipFile(path)).toBe("missing"); // already gone, no crash
+  expect(await deleteSlipFile(null)).toBe("skipped");
+  expect(await deleteSlipFile("/etc/passwd")).toBe("skipped");
+  expect(await deleteSlipFile(`${env.localStoragePath}/../../../etc/passwd`)).toBe("skipped");
 });

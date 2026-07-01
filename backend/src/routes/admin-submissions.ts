@@ -3,6 +3,8 @@ import { prisma } from "../lib/prisma";
 import { ok, ApiError } from "../lib/response";
 import { authorize } from "../lib/auth";
 import { matchInstallment, approveSubmission, rejectSubmission } from "../services/payment";
+import { scoreInstallment, describeCandidate } from "../services/matching";
+import { bangkokToday } from "../lib/date";
 
 export const adminSubmissionRoutes = new Elysia({ prefix: "/api/admin/payment-submissions" })
   .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
@@ -46,15 +48,28 @@ export const adminSubmissionRoutes = new Elysia({ prefix: "/api/admin/payment-su
           ? { customerId: sub.customerId, status: "active", orgId: ctx.orgId }
           : { status: "active", orgId: ctx.orgId },
       },
-      include: { billPlan: { include: { customer: true } } },
+      include: { billPlan: { include: { customer: true, bankAccount: true } } },
       orderBy: { dueDate: "asc" },
       take: 200,
     });
+    // Rank candidates by the same v2 matching score, so admin sees the likeliest match first with a reason.
+    const slip = {
+      amount: sub.parsedAmount ? Number(sub.parsedAmount) : null,
+      transferDate: sub.parsedTransferDate,
+      accountNo: sub.parsedAccountNo,
+    };
+    const today = bangkokToday();
+    const scoredCandidates = candidates
+      .map((c) => {
+        const cand = { id: c.id, amountDue: Number(c.amountDue), dueDate: c.dueDate, bankAccountNo: c.billPlan.bankAccount?.accountNo ?? null };
+        return { ...c, score: scoreInstallment(slip, cand, { today }), matchReason: describeCandidate(slip, cand, { today }) };
+      })
+      .sort((a, b) => b.score - a.score);
     const auditLogs = await prisma.auditLog.findMany({
       where: { entityType: "payment_submission", entityId: sub.id },
       orderBy: { createdAt: "asc" },
     });
-    return ok({ submission: sub, candidate_installments: candidates, audit_logs: auditLogs });
+    return ok({ submission: sub, candidate_installments: scoredCandidates, audit_logs: auditLogs });
   })
 
   .patch("/:id/match-installment", async ({ params, body, ctx }: any) => {

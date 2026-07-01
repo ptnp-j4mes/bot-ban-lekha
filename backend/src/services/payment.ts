@@ -48,12 +48,22 @@ export async function processSubmission(submissionId: string) {
           ? { customerId: sub.customerId, status: "active", orgId: sub.orgId ?? undefined }
           : { status: "active", orgId: sub.orgId ?? undefined },
       },
+      include: { billPlan: { include: { bankAccount: true } } },
     });
-    candidates = insts.map((i) => ({ id: i.id, amountDue: Number(i.amountDue), dueDate: i.dueDate }));
+    candidates = insts.map((i) => ({
+      id: i.id,
+      amountDue: Number(i.amountDue),
+      dueDate: i.dueDate,
+      bankAccountNo: i.billPlan.bankAccount?.accountNo ?? null,
+    }));
   }
 
   const decision = decideMatch(
-    { amount: sub.parsedAmount ? Number(sub.parsedAmount) : null, transferDate: sub.parsedTransferDate },
+    {
+      amount: sub.parsedAmount ? Number(sub.parsedAmount) : null,
+      transferDate: sub.parsedTransferDate,
+      accountNo: sub.parsedAccountNo,
+    },
     candidates,
     { today, referenceUnique: refUnique, customerKnown: matchable }
   );

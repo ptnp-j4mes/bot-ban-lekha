@@ -30,6 +30,25 @@ export async function pushMessage(to: string, text: string, accessToken: string)
   }
 }
 
+// Verify a LIFF ID token via LINE's own verify endpoint (no local JWKS handling needed).
+// Returns the LINE user id (sub) once LINE confirms the token's signature + audience.
+export async function verifyLineIdToken(idToken: string, channelId: string): Promise<{ sub: string; name?: string } | null> {
+  if (!idToken || !channelId) return null;
+  try {
+    const res = await fetch("https://api.line.me/oauth2/v2.1/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ id_token: idToken, client_id: channelId }),
+    });
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    if (!data.sub || data.aud !== channelId) return null;
+    return { sub: data.sub, name: data.name };
+  } catch {
+    return null;
+  }
+}
+
 // Fetch a group/room member's LINE display name (for tracking who sent a slip).
 export async function getGroupMemberName(
   source: { groupId?: string; roomId?: string; userId?: string },

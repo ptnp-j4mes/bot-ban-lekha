@@ -1,0 +1,108 @@
+name: "Bug Report"
+description: "Report a bug or unexpected behavior"
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Fill in all required sections. An AI coding agent may pick up this issue — precise reproduction steps and clear expected vs actual behavior are essential for a safe fix.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: "Summary"
+      description: "One sentence describing the bug."
+      placeholder: "Payment submission shows 500 when the slip image is larger than 5 MB."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps_to_reproduce
+    attributes:
+      label: "Steps to Reproduce"
+      description: "Numbered steps that reliably trigger the bug."
+      placeholder: |
+        1. Log in as admin of org X
+        2. Go to Payment Submissions
+        3. Upload a slip image > 5 MB
+        4. Observe 500 Internal Server Error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Expected Behavior"
+      description: "What should have happened?"
+      placeholder: "Should return 422 with a message: 'File too large. Max size is 10 MB.'"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: "Actual Behavior"
+      description: "What actually happened? Include error messages, logs, or screenshots."
+      placeholder: "500 Internal Server Error. No user-facing message."
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: "Environment"
+      description: "Where does the bug occur?"
+      placeholder: |
+        - Environment: local / staging / production
+        - Branch: main
+        - Bun version: 1.x
+        - Browser (if UI bug): Chrome 120
+    validations:
+      required: false
+
+  - type: textarea
+    id: affected_area
+    attributes:
+      label: "Affected Area"
+      description: "Which part of the system is affected? This helps scope the fix safely."
+      placeholder: |
+        - backend/src/routes/submissions.ts
+        - backend/src/services/storage.ts
+        - OCR flow / Payment matching / Auth / Admin UI / LINE webhook
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: "Acceptance Criteria"
+      description: "Checkboxes that must all be true before this bug is considered fixed."
+      placeholder: |
+        - [ ] Uploading a file > 10 MB returns 422 with a clear error message
+        - [ ] Uploading a valid file still works
+        - [ ] Tenant isolation unaffected
+        - [ ] Regression test added
+    validations:
+      required: true
+
+  - type: textarea
+    id: test_plan
+    attributes:
+      label: "Test Plan"
+      description: "How will the fix be verified?"
+      placeholder: |
+        - [ ] Unit test for file-size guard in storage service
+        - [ ] Integration test: upload > MAX_SLIP_FILE_SIZE_MB → expect 422
+        - [ ] Manual: reproduce original steps and confirm fix
+    validations:
+      required: true
+
+  - type: textarea
+    id: safety_notes
+    attributes:
+      label: "Safety Notes"
+      description: "Any risks for the fix: payment state, OCR, auth, multi-tenancy, secrets, migrations."
+      placeholder: "Fix must not change how already-approved payments are stored."
+    validations:
+      required: false

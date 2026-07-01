@@ -4,10 +4,14 @@ import { toEmojiNumber } from "../src/lib/emoji-number";
 import { renderBillStatusLines, renderDailyReminder, renderBillText } from "../src/services/messages";
 import { scoreInstallment, decideMatch } from "../src/services/matching";
 import { mapGeminiResult, detectImageMime } from "../src/services/ocr";
+import { deleteSlipFile } from "../src/services/storage";
 import { dateOnly, toISODate } from "../src/lib/date";
 import { verifySignature } from "../src/lib/line";
 import { signJwt, verifyJwt } from "../src/lib/jwt";
 import { createHmac } from "node:crypto";
+import { mkdir, writeFile, rm } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { env } from "../src/env";
 
 test("jwt: roundtrip, tamper, wrong-secret, expiry", () => {
   const secret = "test-secret";
@@ -81,14 +85,21 @@ test("renderDailyReminder contains emoji date", () => {
   expect(msg).toContain("17.00");
 });
 
-test("scoreInstallment: full match = 110", () => {
+test("scoreInstallment: full match (amount + date + due-today bonus) = 95", () => {
   const today = dateOnly("2026-06-16");
   const c = { id: "x", amountDue: 490, dueDate: dateOnly("2026-06-16") };
-  const score = scoreInstallment({ amount: 490, transferDate: dateOnly("2026-06-16") }, c, {
-    today,
-    referenceUnique: true,
-  });
-  expect(score).toBe(110);
+  const score = scoreInstallment({ amount: 490, transferDate: dateOnly("2026-06-16") }, c, { today });
+  expect(score).toBe(95);
+});
+
+test("scoreInstallment: destination account no matches -> bonus; mismatches -> penalty", () => {
+  const today = dateOnly("2026-01-01");
+  const c = { id: "x", amountDue: 490, dueDate: dateOnly("2026-06-16"), bankAccountNo: "250-9-48035-7" };
+  const slipSame = { amount: 490, transferDate: dateOnly("2026-06-16"), accountNo: "2509480357" };
+  const slipDiff = { amount: 490, transferDate: dateOnly("2026-06-16"), accountNo: "9999999999" };
+  const scoreMatch = scoreInstallment(slipSame, c, { today });
+  const scoreMismatch = scoreInstallment(slipDiff, c, { today });
+  expect(scoreMatch).toBeGreaterThan(scoreMismatch);
 });
 
 test("decideMatch: auto when score high and unique best", () => {
@@ -102,7 +113,18 @@ test("decideMatch: auto when score high and unique best", () => {
   expect(d.installmentId).toBe("i1");
 });
 
-test("decideMatch: needs admin when date mismatch", () => {
+test("decideMatch: amount exact + transfer date within ±1 day of due date still auto matches", () => {
+  const today = dateOnly("2026-07-01");
+  const d = decideMatch(
+    { amount: 490, transferDate: dateOnly("2026-06-15") },
+    [{ id: "i1", amountDue: 490, dueDate: dateOnly("2026-06-16") }],
+    { today, referenceUnique: true, customerKnown: true }
+  );
+  expect(d.status).toBe("auto_matched");
+  expect(d.installmentId).toBe("i1");
+});
+
+test("decideMatch: needs admin when date mismatch is beyond tolerance", () => {
   const today = dateOnly("2026-06-16");
   const d = decideMatch(
     { amount: 490, transferDate: dateOnly("2026-06-10") },
@@ -110,6 +132,30 @@ test("decideMatch: needs admin when date mismatch", () => {
     { today, referenceUnique: true, customerKnown: true }
   );
   expect(d.status).toBe("needs_admin_match");
+});
+
+test("decideMatch: small fee/rounding difference in amount does not auto-approve", () => {
+  const today = dateOnly("2026-06-16");
+  const d = decideMatch(
+    { amount: 465, transferDate: dateOnly("2026-06-16") }, // 490 due, 25 off = outside tolerance
+    [{ id: "i1", amountDue: 490, dueDate: dateOnly("2026-06-16") }],
+    { today, referenceUnique: true, customerKnown: true }
+  );
+  expect(d.status).toBe("needs_admin_match");
+});
+
+test("decideMatch: destination account no confirms the right candidate among same-amount installments", () => {
+  const today = dateOnly("2026-01-01");
+  const d = decideMatch(
+    { amount: 490, transferDate: dateOnly("2026-06-16"), accountNo: "1112223334" },
+    [
+      { id: "i1", amountDue: 490, dueDate: dateOnly("2026-06-16"), bankAccountNo: "1112223334" },
+      { id: "i2", amountDue: 490, dueDate: dateOnly("2026-06-16"), bankAccountNo: "9998887776" },
+    ],
+    { today, referenceUnique: true, customerKnown: true }
+  );
+  expect(d.status).toBe("auto_matched");
+  expect(d.installmentId).toBe("i1");
 });
 
 test("decideMatch: needs admin when two equal-amount installments tie", () => {
@@ -123,6 +169,19 @@ test("decideMatch: needs admin when two equal-amount installments tie", () => {
     { today, referenceUnique: true, customerKnown: true }
   );
   expect(d.status).toBe("needs_admin_match");
+  expect(d.topCandidates.length).toBe(2);
+});
+
+test("decideMatch: duplicate reference/image still blocks auto match even with a perfect score", () => {
+  const today = dateOnly("2026-06-16");
+  const d = decideMatch(
+    { amount: 490, transferDate: dateOnly("2026-06-16") },
+    [{ id: "i1", amountDue: 490, dueDate: dateOnly("2026-06-16") }],
+    { today, referenceUnique: false, customerKnown: true }
+  );
+  expect(d.status).toBe("needs_admin_match");
+  expect(d.installmentId).toBeNull();
+  expect(d.reason).toMatch(/ซ้ำ/);
 });
 
 test("decideMatch: no customer -> needs admin", () => {
@@ -133,6 +192,20 @@ test("decideMatch: no customer -> needs admin", () => {
     customerKnown: false,
   });
   expect(d.status).toBe("needs_admin_match");
+});
+
+test("decideMatch: slip amount matches the sum of two pending installments -> multi-installment reason", () => {
+  const today = dateOnly("2026-01-01");
+  const d = decideMatch(
+    { amount: 980, transferDate: dateOnly("2026-06-16") },
+    [
+      { id: "i1", amountDue: 490, dueDate: dateOnly("2026-06-16") },
+      { id: "i2", amountDue: 490, dueDate: dateOnly("2026-06-23") },
+    ],
+    { today, referenceUnique: true, customerKnown: true }
+  );
+  expect(d.status).toBe("needs_admin_match");
+  expect(d.reason).toMatch(/หลายงวด/);
 });
 
 test("mapGeminiResult: coerces types, nulls -> undefined", () => {
@@ -163,4 +236,23 @@ test("verifySignature: valid sig passes, wrong/missing fails", () => {
   expect(verifySignature(body, sig, secret)).toBe(true);
   expect(verifySignature(body, "wrong", secret)).toBe(false);
   expect(verifySignature(body, sig, "")).toBe(false); // no secret configured
+});
+
+test("deleteSlipFile: deletes inside storage root, refuses outside, handles already-missing", async () => {
+  const dir = join(env.localStoragePath, "slips", `retention-test-${Date.now()}`);
+  await mkdir(dir, { recursive: true });
+  try {
+    const inside = join(dir, "a.jpg");
+    await writeFile(inside, "x");
+    expect(await deleteSlipFile(inside)).toBe("deleted");
+    expect(await deleteSlipFile(inside)).toBe("missing"); // already gone -> no throw
+
+    // Outside the configured storage root: refused outright, never touched.
+    expect(await deleteSlipFile("/etc/passwd")).toBe("skipped");
+    // Path-traversal attempt that resolves outside the root.
+    const traversal = join(resolve(env.localStoragePath), "..", "definitely-outside.jpg");
+    expect(await deleteSlipFile(traversal)).toBe("skipped");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

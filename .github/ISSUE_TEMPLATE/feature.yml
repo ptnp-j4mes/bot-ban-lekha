@@ -1,0 +1,74 @@
+name: "Feature Request"
+description: "Propose a new feature or enhancement"
+title: "[Feature]: "
+labels: ["feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Fill in all required sections before submitting. An AI coding agent may pick up this issue directly — the more precise the spec, the safer the implementation.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: "Goal"
+      description: "What is the user/business outcome this feature delivers? One or two sentences."
+      placeholder: "As an admin, I want to... so that..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: "Scope"
+      description: "List the files, routes, services, or UI pages that will change. Be explicit — anything not listed is out of scope."
+      placeholder: |
+        - backend/src/routes/payments.ts — add new endpoint
+        - admin/src/pages/PaymentsPage.tsx — add new column
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: "Acceptance Criteria"
+      description: "Checkboxes that must all be true before this issue can be closed."
+      placeholder: |
+        - [ ] Endpoint returns 200 with correct payload
+        - [ ] Tenant isolation: org A cannot see org B's data
+        - [ ] Admin UI shows the new field
+        - [ ] Existing tests still pass
+    validations:
+      required: true
+
+  - type: textarea
+    id: test_plan
+    attributes:
+      label: "Test Plan"
+      description: "How will you verify this works? Include unit tests, integration tests, and any manual checks."
+      placeholder: |
+        - [ ] Add/update test in backend/tests/
+        - [ ] Verify tenant-isolation test still green
+        - [ ] Manual: log in as viewer role and confirm access is blocked
+    validations:
+      required: true
+
+  - type: textarea
+    id: safety_notes
+    attributes:
+      label: "Safety Notes"
+      description: "Call out any risks: payment logic, OCR, auth, multi-tenancy, secrets, migrations."
+      placeholder: |
+        - Touches payment approval flow — do not auto-approve without PAYMENT_AUTO_APPROVE_ENABLED=true
+        - Schema change required — include migration steps
+    validations:
+      required: false
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: "Out of Scope"
+      description: "Explicitly list what this PR should NOT change, to prevent scope creep."
+      placeholder: "Do not change OCR logic, do not touch auth middleware"
+    validations:
+      required: false

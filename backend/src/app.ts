@@ -18,6 +18,7 @@ import { logRoutes } from "./routes/logs";
 import { senderRoutes } from "./routes/senders";
 import { groupRoutes } from "./routes/groups";
 import { lineOaRoutes } from "./routes/line-oa";
+import { liffRoutes } from "./routes/liff";
 
 export const app = new Elysia({ aot: false })
   .onError(handleError)
@@ -31,6 +32,7 @@ export const app = new Elysia({ aot: false })
   .use(senderRoutes)
   .use(groupRoutes)
   .use(lineOaRoutes)
+  .use(liffRoutes)
   .use(customerRoutes)
   .use(presetRoutes)
   .use(bankAccountRoutes)

@@ -1,6 +1,6 @@
 import { env } from "../env";
 import { prisma } from "./prisma";
-import { verifyJwt } from "./jwt";
+import { verifyJwt, signJwt } from "./jwt";
 import { ApiError } from "./response";
 
 // Two roles only: super_admin (isPlatformAdmin) and user (member of an org).
@@ -65,4 +65,29 @@ export async function authorizePlatform(headers: Headers): Promise<AuthContext> 
 export function requireJob(headers: Headers) {
   const key = headers["x-job-key"] ?? bearer(headers["authorization"]);
   if (key !== env.jobApiKey) throw new ApiError("UNAUTHORIZED", "Invalid job API key");
+}
+
+// Customer self-service (LIFF) session: one linked customer, nothing else. Short-lived and
+// distinct from the admin JWT (`typ: "liff"`) so the two token kinds can never be confused.
+export type LiffContext = { customerId: string; orgId: string; lineOaId: string; lineUserId: string };
+
+export function signLiffSession(ctx: LiffContext): string {
+  return signJwt({ sub: ctx.customerId, typ: "liff", orgId: ctx.orgId, lineOaId: ctx.lineOaId, lineUserId: ctx.lineUserId }, env.jwtSecret, 12 * 3600);
+}
+
+// Guard for /api/liff/* routes. Re-checks the customer row on every call (not just the JWT
+// claims) so a since-unlinked or deactivated customer immediately loses access.
+export async function authorizeLiff(headers: Headers): Promise<LiffContext> {
+  const token = bearer(headers["authorization"]);
+  if (!token) throw new ApiError("UNAUTHORIZED", "Authentication required");
+  let payload: any;
+  try {
+    payload = verifyJwt(token, env.jwtSecret);
+  } catch {
+    throw new ApiError("UNAUTHORIZED", "Invalid or expired session");
+  }
+  if (payload.typ !== "liff") throw new ApiError("UNAUTHORIZED", "Invalid session");
+  const customer = await prisma.customer.findFirst({ where: { id: payload.sub, orgId: payload.orgId, lineUserId: payload.lineUserId } });
+  if (!customer || customer.status !== "active") throw new ApiError("UNAUTHORIZED", "Customer not found");
+  return { customerId: customer.id, orgId: customer.orgId, lineOaId: payload.lineOaId, lineUserId: payload.lineUserId };
 }

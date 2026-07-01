@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import { prisma } from "../src/lib/prisma";
 import { bangkokToday } from "../src/lib/date";
 import { processSubmission, approveSubmission, matchInstallment, rejectSubmission } from "../src/services/payment";
+import { effectiveRetentionDays, purgeSlipImage, purgeExpiredSlips } from "../src/services/retention";
 import { app } from "../src/app";
 import { env } from "../src/env";
 import { signJwt } from "../src/lib/jwt";
@@ -499,4 +500,112 @@ test("bulk-approve: cross-org submissions are rejected as failures, not silently
   expect(data.failed).toHaveLength(1);
   // Installment must still be unpaid
   expect((await prisma.billInstallment.findUnique({ where: { id: inst.id } }))!.status).not.toBe("paid");
+});
+
+// ---------- slip retention / purge ----------
+
+test("effectiveRetentionDays: org override > system default > env default; 0 is a real value", async () => {
+  const { updateSystemSettings } = await import("../src/services/systemSettings");
+  await updateSystemSettings({ defaultSlipRetentionDays: 14 });
+  expect(await effectiveRetentionDays(null)).toBe(14); // no org override -> system default
+  expect(await effectiveRetentionDays(undefined)).toBe(14);
+  expect(await effectiveRetentionDays(7)).toBe(7); // org override wins
+  expect(await effectiveRetentionDays(0)).toBe(0); // 0 is a real override, not "unset"
+
+  await updateSystemSettings({ defaultSlipRetentionDays: null });
+  expect(await effectiveRetentionDays(null)).toBe(env.slipRetentionDays); // falls back to env default
+});
+
+test("purgeSlipImage: clears image but keeps OCR/match metadata + image_hash, idempotent, audited", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const { customer, inst } = await makePlan(org.id);
+  const res = await webhook(oa.id, imageEvent(customer.lineUserId!, `pm${rnd()}`));
+  expect(res.status).toBe(200);
+  const sub = await prisma.paymentSubmission.findFirst({ where: { lineOaId: oa.id, customerId: customer.id }, orderBy: { createdAt: "desc" } });
+  expect(sub!.imageUrl).toBeTruthy();
+  expect(sub!.imageHash).toBeTruthy();
+  const before = { ocrRawText: sub!.ocrRawText, parsedAmount: sub!.parsedAmount, matchStatus: sub!.matchStatus, reviewStatus: sub!.reviewStatus, imageHash: sub!.imageHash };
+
+  const r1 = await purgeSlipImage(sub!.id);
+  expect(r1.purged).toBe(true);
+  const after = await prisma.paymentSubmission.findUnique({ where: { id: sub!.id } });
+  expect(after!.imageUrl).toBeNull();
+  expect(after!.imagePurgedAt).not.toBeNull();
+  expect(after!.ocrRawText).toBe(before.ocrRawText);
+  expect(after!.parsedAmount?.toString() ?? null).toBe(before.parsedAmount?.toString() ?? null);
+  expect(after!.matchStatus).toBe(before.matchStatus);
+  expect(after!.reviewStatus).toBe(before.reviewStatus);
+  expect(after!.imageHash).toBe(before.imageHash); // duplicate detection still works post-purge
+
+  const auditEntry = await prisma.auditLog.findFirst({ where: { entityType: "payment_submission", entityId: sub!.id, action: "purge_slip_image" } });
+  expect(auditEntry).toBeTruthy();
+
+  // idempotent: second call is a no-op, doesn't throw, doesn't re-purge
+  const r2 = await purgeSlipImage(sub!.id);
+  expect(r2.purged).toBe(false);
+  expect(r2.reason).toBe("already_purged");
+  void inst;
+});
+
+test("purgeSlipImage: never deletes a file outside the storage root, still clears the DB pointer safely", async () => {
+  const org = await mkOrg();
+  const { customer } = await makePlan(org.id);
+  const sub = await prisma.paymentSubmission.create({
+    data: { orgId: org.id, customerId: customer.id, imageUrl: "/etc/passwd", imageHash: `OUT${tag}${rnd()}`, ocrRawText: "raw" },
+  });
+  const r = await purgeSlipImage(sub.id);
+  expect(r.purged).toBe(true); // DB pointer cleared, but...
+  const { access } = await import("node:fs/promises");
+  await expect(access("/etc/passwd")).resolves.toBeUndefined(); // ...the outside file is untouched
+  const after = await prisma.paymentSubmission.findUnique({ where: { id: sub.id } });
+  expect(after!.ocrRawText).toBe("raw"); // metadata untouched either way
+});
+
+test("purgeSlipImage: missing submission / already-missing file never throws", async () => {
+  const r = await purgeSlipImage("00000000-0000-0000-0000-000000000000");
+  expect(r.purged).toBe(false);
+  expect(r.reason).toBe("not_found");
+
+  const org = await mkOrg();
+  const { customer } = await makePlan(org.id);
+  const sub = await prisma.paymentSubmission.create({
+    data: { orgId: org.id, customerId: customer.id, imageUrl: `${env.localStoragePath}/slips/does-not-exist-${rnd()}.jpg`, imageHash: `MIS${tag}${rnd()}` },
+  });
+  const r2 = await purgeSlipImage(sub.id); // file already gone -> still succeeds, no crash
+  expect(r2.purged).toBe(true);
+  expect((await prisma.paymentSubmission.findUnique({ where: { id: sub.id } }))!.imageUrl).toBeNull();
+});
+
+test("purgeExpiredSlips: only purges submissions past each org's own retention cutoff", async () => {
+  const orgShort = await mkOrg(); // 0-day retention -> everything with an image is eligible
+  const orgLong = await mkOrg(); // 365-day retention -> nothing eligible yet
+  await prisma.organization.update({ where: { id: orgShort.id }, data: { slipRetentionDays: 0 } });
+  await prisma.organization.update({ where: { id: orgLong.id }, data: { slipRetentionDays: 365 } });
+  const { customer: custShort } = await makePlan(orgShort.id);
+  const { customer: custLong } = await makePlan(orgLong.id);
+  const subShort = await prisma.paymentSubmission.create({
+    data: { orgId: orgShort.id, customerId: custShort.id, imageUrl: `${env.localStoragePath}/slips/x-${rnd()}.jpg`, imageHash: `S${tag}${rnd()}` },
+  });
+  const subLong = await prisma.paymentSubmission.create({
+    data: { orgId: orgLong.id, customerId: custLong.id, imageUrl: `${env.localStoragePath}/slips/y-${rnd()}.jpg`, imageHash: `L${tag}${rnd()}` },
+  });
+
+  await purgeExpiredSlips();
+  expect((await prisma.paymentSubmission.findUnique({ where: { id: subShort.id } }))!.imageUrl).toBeNull();
+  expect((await prisma.paymentSubmission.findUnique({ where: { id: subLong.id } }))!.imageUrl).not.toBeNull();
+});
+
+test("retention 0: webhook purges the slip immediately after OCR, metadata survives", async () => {
+  const org = await mkOrg();
+  await prisma.organization.update({ where: { id: org.id }, data: { slipRetentionDays: 0 } });
+  const oa = await mkOa(org.id);
+  const { customer } = await makePlan(org.id);
+  const res = await webhook(oa.id, imageEvent(customer.lineUserId!, `z${rnd()}`));
+  expect(res.status).toBe(200);
+  const sub = await prisma.paymentSubmission.findFirst({ where: { lineOaId: oa.id, customerId: customer.id }, orderBy: { createdAt: "desc" } });
+  expect(sub!.imageUrl).toBeNull(); // purged right after processing
+  expect(sub!.imagePurgedAt).not.toBeNull();
+  expect(sub!.imageHash).toBeTruthy(); // duplicate detection still intact
+  expect(sub!.matchStatus).not.toBe("unmatched"); // matching already ran before purge
 });

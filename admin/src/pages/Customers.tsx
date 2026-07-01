@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Check, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { apiGet, apiSend } from "@/lib/api";
-import { useMut } from "@/lib/ui";
+import { useMut, followUpBadge, FOLLOW_UP_STATUSES } from "@/lib/ui";
 import { CustomerDetail } from "./CustomerDetail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,10 +21,14 @@ export function Customers() {
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
+  const [followUpStatus, setFollowUpStatus] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
 
-  const list = useQuery({ queryKey: ["customers", q, page], queryFn: () => apiGet(`/api/customers?limit=${LIMIT}&page=${page}&search=${encodeURIComponent(q)}`) });
+  const list = useQuery({
+    queryKey: ["customers", q, page, followUpStatus],
+    queryFn: () => apiGet(`/api/customers?limit=${LIMIT}&page=${page}&search=${encodeURIComponent(q)}${followUpStatus ? `&follow_up_status=${followUpStatus}` : ""}`),
+  });
   const oas = useQuery({ queryKey: ["line-oa"], queryFn: () => apiGet("/api/line-oa-accounts") });
   const create = useMut((b: any) => apiSend("/api/customers", "POST", b), { success: "เพิ่มลูกค้าแล้ว", invalidate: ["customers"] });
   const link = useMut((b: any) => apiSend("/api/customers/link-line", "POST", b), { success: "ผูก LINE แล้ว", invalidate: ["customers"] });
@@ -70,6 +74,7 @@ export function Customers() {
     { key: "status", header: "สถานะ", sortValue: (c) => c.status, cell: (c) => editing === c.id
       ? <Select defaultValue={c.status} className="h-8 w-24" id={`st-${c.id}`}>{["active", "blocked", "closed"].map((x) => <option key={x}>{x}</option>)}</Select>
       : <Badge variant="secondary">{c.status}</Badge> },
+    { key: "follow_up", header: "ติดตาม", sortValue: (c) => c.follow_up?.status ?? "", cell: (c) => c.follow_up ? followUpBadge(c.follow_up.status) : <span className="text-muted-foreground">—</span> },
     { key: "act", header: "", stop: true, cell: (c) => editing === c.id ? (
       <div className="flex gap-1">
         <Button size="sm" onClick={() => saveRow(c.id)}>บันทึก</Button>
@@ -118,6 +123,14 @@ export function Customers() {
         <CardHeader className="flex-row items-center gap-2">
           <CardTitle>ลูกค้าทั้งหมด ({total})</CardTitle>
           <div className="ml-auto flex items-center gap-2">
+            <Select
+              className="h-9 w-40"
+              value={followUpStatus}
+              onChange={(e) => { setPage(1); setFollowUpStatus(e.target.value); }}
+            >
+              <option value="">ติดตาม: ทั้งหมด</option>
+              {FOLLOW_UP_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </Select>
             <label className="cursor-pointer">
               <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && importCsv(e.target.files[0])} />
               <span className="inline-flex h-9 items-center gap-1 rounded-lg bg-background neu-raised-sm px-3.5 text-xs"><Upload className="h-3 w-3" /> นำเข้า CSV</span>

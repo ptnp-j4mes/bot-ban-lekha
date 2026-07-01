@@ -25,6 +25,11 @@ Almost every table carries **`org_id`** (the tenant anchor — see [[Multi-tenan
 - **PaymentSubmission** — an incoming slip: `lineOaId`, `customerId?`, `lineUserId` (sender), `lineGroupId?`, `senderName?`, OCR fields, `matchStatus`, `matchedInstallmentId`, `reviewStatus`.
 - **LineSender** / **LineGroup** — registries mapping LINE `userId`/`groupId` → a name. See [[Group Slips & Tracking]].
 
+## Collection (internal follow-up)
+
+- **CustomerFollowUp** — current internal collection state, one row per customer: `status` (`new`/`contacted`/`promised_to_pay`/`dispute`/`unreachable`/`resolved`), `promiseToPayDate`, `nextFollowUpDate` (snooze), `assignedToId`. Entirely separate from `Payment`/`BillInstallment` status.
+- **CollectionActivity** — append-only timeline entry (note + optional status/date change) backing the follow-up UI. Never written by the payment approval flow, never triggers a LINE message.
+
 ## Logs
 
 - **MessageLog** — every LINE push (type, status, error). **AuditLog** — important actions (`org_id`, actor, old/new).

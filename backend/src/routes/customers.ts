@@ -40,8 +40,10 @@ export const customerRoutes = new Elysia({ prefix: "/api" })
         { displayName: { contains: query.search, mode: "insensitive" } },
         { phone: { contains: query.search } },
       ];
+    // Filter debtors by internal collection follow-up status (separate from payment status).
+    if (query.follow_up_status) where.followUp = { status: query.follow_up_status };
     const [items, total] = await Promise.all([
-      prisma.customer.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: "desc" } }),
+      prisma.customer.findMany({ where, include: { followUp: true }, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: "desc" } }),
       prisma.customer.count({ where }),
     ]);
     return ok({ items, total, page, limit });
@@ -97,13 +99,18 @@ export const customerRoutes = new Elysia({ prefix: "/api" })
   .get("/customers/:id/detail", async ({ params, ctx }: any) => {
     const customer = await prisma.customer.findFirst({ where: { id: params.id, orgId: ctx.orgId } });
     if (!customer) throw new ApiError("NOT_FOUND", "Customer not found");
-    const [billPlans, payments, submissions, messageLogs] = await Promise.all([
+    const [billPlans, payments, submissions, messageLogs, followUp, collectionActivities] = await Promise.all([
       prisma.billPlan.findMany({ where: { customerId: customer.id }, include: { installments: { orderBy: { installmentNo: "asc" } }, bankAccount: true }, orderBy: { billNo: "asc" } }),
       prisma.payment.findMany({ where: { customerId: customer.id }, orderBy: { createdAt: "desc" } }),
       prisma.paymentSubmission.findMany({ where: { customerId: customer.id }, orderBy: { createdAt: "desc" }, take: 50 }),
       prisma.messageLog.findMany({ where: { customerId: customer.id }, orderBy: { sentAt: "desc" }, take: 50 }),
+      prisma.customerFollowUp.findFirst({ where: { customerId: customer.id, orgId: ctx.orgId } }),
+      prisma.collectionActivity.findMany({ where: { customerId: customer.id, orgId: ctx.orgId }, orderBy: { createdAt: "desc" }, take: 50 }),
     ]);
-    return ok({ customer, bill_plans: billPlans, payments, submissions, message_logs: messageLogs });
+    return ok({
+      customer, bill_plans: billPlans, payments, submissions, message_logs: messageLogs,
+      follow_up: followUp, collection_activities: collectionActivities,
+    });
   })
 
   // Bulk create customers (CSV import).

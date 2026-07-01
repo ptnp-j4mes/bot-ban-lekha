@@ -29,3 +29,10 @@ export const reviewBadge = (s: string) => (
 export const statusBadge = (s: string) => (
   <Badge variant={s === "completed" || s === "paid" ? "success" : s === "cancelled" ? "secondary" : "outline"}>{s}</Badge>
 );
+
+export const FOLLOW_UP_STATUSES = ["new", "contacted", "promised_to_pay", "dispute", "unreachable", "resolved"] as const;
+export const followUpBadge = (s: string) => (
+  <Badge variant={s === "resolved" ? "success" : s === "dispute" || s === "unreachable" ? "destructive" : s === "promised_to_pay" ? "warning" : "secondary"}>
+    {s}
+  </Badge>
+);

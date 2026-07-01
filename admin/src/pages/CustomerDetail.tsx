@@ -1,11 +1,84 @@
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { apiGet, apiSend } from "@/lib/api";
-import { useMut, statusBadge } from "@/lib/ui";
+import { useMut, statusBadge, followUpBadge, FOLLOW_UP_STATUSES } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input, Select, Field } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+
+const formObj = (e: React.FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
+  return Object.fromEntries(new FormData(e.currentTarget).entries()) as Record<string, string>;
+};
+
+function FollowUpSection({ customerId, followUp, activities }: { customerId: string; followUp: any; activities: any[] }) {
+  const add = useMut((b: any) => apiSend(`/api/customers/${customerId}/collection-activities`, "POST", b), {
+    success: "บันทึกการติดตามแล้ว", invalidate: ["customer-detail"],
+  });
+
+  const submit = (e: React.FormEvent<HTMLFormElement>) => {
+    const raw = formObj(e);
+    const body: Record<string, string> = {};
+    if (raw.status) body.status = raw.status;
+    if (raw.note) body.note = raw.note;
+    if (raw.promise_to_pay_date) body.promise_to_pay_date = raw.promise_to_pay_date;
+    if (raw.next_follow_up_date) body.next_follow_up_date = raw.next_follow_up_date;
+    if (!Object.keys(body).length) return;
+    add.mutate(body);
+    e.currentTarget.reset();
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center gap-2">
+        <CardTitle className="text-base">การติดตามลูกหนี้</CardTitle>
+        {followUp && followUpBadge(followUp.status)}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {followUp && (
+          <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground sm:grid-cols-4">
+            <div>นัดจ่าย: <span className="fig text-foreground">{followUp.promise_to_pay_date ?? "—"}</span></div>
+            <div>ติดตามอีกครั้ง: <span className="fig text-foreground">{followUp.next_follow_up_date ?? "—"}</span></div>
+          </div>
+        )}
+
+        <form className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={submit}>
+          <Field label="สถานะ">
+            <Select name="status" defaultValue="">
+              <option value="">— ไม่เปลี่ยนสถานะ —</option>
+              {FOLLOW_UP_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </Select>
+          </Field>
+          <Field label="วันที่นัดจ่าย"><Input type="date" name="promise_to_pay_date" /></Field>
+          <Field label="ติดตามอีกครั้งวันที่"><Input type="date" name="next_follow_up_date" /></Field>
+          <Field label="โน้ต" className="lg:col-span-4"><Input name="note" placeholder="บันทึกการติดตาม เช่น โทรแล้วไม่รับสาย" /></Field>
+          <Button type="submit" disabled={add.isPending}>บันทึก</Button>
+        </form>
+
+        <div className="space-y-2">
+          {(activities ?? []).map((a: any) => (
+            <div key={a.id} className="rounded-lg border border-border p-2.5 text-sm">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="fig">{a.created_at?.replace("T", " ").slice(0, 16)}</span>
+                {a.status && followUpBadge(a.status)}
+              </div>
+              {a.note && <div className="mt-1">{a.note}</div>}
+              {(a.promise_to_pay_date || a.next_follow_up_date) && (
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {a.promise_to_pay_date && <>นัดจ่าย {a.promise_to_pay_date} </>}
+                  {a.next_follow_up_date && <>ติดตามอีกครั้ง {a.next_follow_up_date}</>}
+                </div>
+              )}
+            </div>
+          ))}
+          {!activities?.length && <p className="text-sm text-muted-foreground">ยังไม่มีประวัติการติดตาม</p>}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export function CustomerDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const d = useQuery({ queryKey: ["customer-detail", id], queryFn: () => apiGet(`/api/customers/${id}/detail`) });
@@ -45,6 +118,10 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
             </CardContent>
           )}
         </Card>
+
+        {data?.customer && (
+          <FollowUpSection customerId={data.customer.id} followUp={data.follow_up} activities={data.collection_activities} />
+        )}
 
         <Card>
           <CardHeader><CardTitle className="text-base">บิล</CardTitle></CardHeader>

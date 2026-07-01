@@ -39,6 +39,8 @@ model Organization {
   payments       Payment[]
   messageLogs    MessageLog[]
   auditLogs      AuditLog[]
+  customerFollowUps    CustomerFollowUp[]
+  collectionActivities CollectionActivity[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -129,6 +131,8 @@ model Customer {
   payments     Payment[]
   submissions  PaymentSubmission[]
   messageLogs  MessageLog[]
+  followUp             CustomerFollowUp?
+  collectionActivities CollectionActivity[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -374,4 +378,48 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([action])
   @@map("audit_logs")
+}
+
+// Current internal debtor-collection state for a customer (one row per customer).
+// Entirely separate from Payment/BillInstallment status — collectors track "did we reach them",
+// never "did they pay". Kept up to date by appending a CollectionActivity.
+model CustomerFollowUp {
+  id               String    @id @default(uuid())
+  orgId            String    @map("org_id")
+  customerId       String    @unique @map("customer_id")
+  status           String    @default("new") // new | contacted | promised_to_pay | dispute | unreachable | resolved
+  promiseToPayDate DateTime? @map("promise_to_pay_date") @db.Date
+  nextFollowUpDate DateTime? @map("next_follow_up_date") @db.Date // snooze: hide from the follow-up queue until this date
+  assignedToId     String?   @map("assigned_to_id") // admin_users.id (not FK-enforced, same convention as approved_by/reviewed_by)
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([orgId])
+  @@index([orgId, status])
+  @@map("customer_follow_ups")
+}
+
+// Append-only timeline of collection follow-up actions (notes, status changes, promise/snooze dates).
+model CollectionActivity {
+  id               String    @id @default(uuid())
+  orgId            String    @map("org_id")
+  customerId       String    @map("customer_id")
+  status           String?   // follow-up status recorded by this entry, if it changed
+  note             String?
+  promiseToPayDate DateTime? @map("promise_to_pay_date") @db.Date
+  nextFollowUpDate DateTime? @map("next_follow_up_date") @db.Date
+  createdById      String?   @map("created_by_id") // admin_users.id (not FK-enforced)
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([orgId])
+  @@index([customerId])
+  @@map("collection_activities")
 }

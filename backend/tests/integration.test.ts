@@ -140,6 +140,118 @@ test("cannot approve a submission from another org", async () => {
   await expect(approveSubmission(sub.id, "actor", orgB.id)).rejects.toThrow(/not found/i);
 });
 
+// ---------- collection follow-up workflow ----------
+test("collection: add note creates timeline entry + upserts current follow-up state", async () => {
+  const org = await mkOrg();
+  const m = await mkMember(org.id, "user");
+  const { customer } = await makePlan(org.id);
+  const H = { ...hdr(m.token, org.id), "content-type": "application/json" };
+
+  const add = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/collection-activities`, {
+    method: "POST", headers: H, body: JSON.stringify({ status: "contacted", note: "โทรแล้วไม่รับสาย" }),
+  }));
+  expect(add.status).toBe(200);
+  const added = (await add.json()).data;
+  expect(added.activity.note).toBe("โทรแล้วไม่รับสาย");
+  expect(added.follow_up.status).toBe("contacted");
+
+  const get = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/collection-activities`, { headers: hdr(m.token, org.id) }));
+  const got = (await get.json()).data;
+  expect(got.follow_up.status).toBe("contacted");
+  expect(got.activities.length).toBe(1);
+
+  const auditEntry = await prisma.auditLog.findFirst({ where: { entityType: "customer", entityId: customer.id, action: "add_collection_activity" } });
+  expect(auditEntry).toBeTruthy();
+
+  // payment/installment status untouched by the follow-up note
+  const inst = await prisma.billInstallment.findFirst({ where: { billPlan: { customerId: customer.id } } });
+  expect(inst!.status).toBe("pending");
+});
+
+test("collection: promise-to-pay date, snooze date, and assignment round-trip; invalid status rejected", async () => {
+  const org = await mkOrg();
+  const m = await mkMember(org.id, "user");
+  const { customer } = await makePlan(org.id);
+  const H = { ...hdr(m.token, org.id), "content-type": "application/json" };
+
+  const promiseDate = "2026-08-01";
+  const snoozeDate = "2026-07-10";
+  const set = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/collection-activities`, {
+    method: "POST", headers: H,
+    body: JSON.stringify({ status: "promised_to_pay", promise_to_pay_date: promiseDate, next_follow_up_date: snoozeDate, assigned_to_id: m.user.id }),
+  }));
+  expect(set.status).toBe(200);
+  const followUp = (await set.json()).data.follow_up;
+  expect(followUp.promise_to_pay_date).toBe(promiseDate);
+  expect(followUp.next_follow_up_date).toBe(snoozeDate);
+  expect(followUp.assigned_to_id).toBe(m.user.id);
+
+  const bad = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/collection-activities`, {
+    method: "POST", headers: H, body: JSON.stringify({ status: "not_a_real_status" }),
+  }));
+  expect(bad.status).toBe(400);
+
+  const empty = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/collection-activities`, {
+    method: "POST", headers: H, body: JSON.stringify({}),
+  }));
+  expect(empty.status).toBe(400);
+
+  // assigning to a non-member of this org is rejected
+  const outsider = await prisma.adminUser.create({ data: { username: `out${rnd()}`, isActive: true } });
+  const badAssign = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/collection-activities`, {
+    method: "POST", headers: H, body: JSON.stringify({ assigned_to_id: outsider.id }),
+  }));
+  expect(badAssign.status).toBe(400);
+});
+
+test("collection: filter customers by follow-up status, and org-wide follow-up queue", async () => {
+  const org = await mkOrg();
+  const m = await mkMember(org.id, "user");
+  const a = await makePlan(org.id);
+  const b = await makePlan(org.id);
+  const H = { ...hdr(m.token, org.id), "content-type": "application/json" };
+
+  await app.handle(new Request(`http://localhost/api/customers/${a.customer.id}/collection-activities`, {
+    method: "POST", headers: H, body: JSON.stringify({ status: "dispute", note: "แจ้งว่าจ่ายแล้ว" }),
+  }));
+
+  const filtered = await app.handle(new Request(`http://localhost/api/customers?limit=100&follow_up_status=dispute`, { headers: hdr(m.token, org.id) }));
+  const filteredItems = (await filtered.json()).data.items;
+  expect(filteredItems.some((c: any) => c.id === a.customer.id)).toBe(true);
+  expect(filteredItems.some((c: any) => c.id === b.customer.id)).toBe(false);
+
+  const queue = await app.handle(new Request(`http://localhost/api/collection/follow-ups?status=dispute`, { headers: hdr(m.token, org.id) }));
+  const queueData = (await queue.json()).data;
+  expect(queueData.length).toBe(1);
+  expect(queueData[0].customer.id).toBe(a.customer.id);
+});
+
+// ---------- TENANT ISOLATION: collection follow-up ----------
+test("collection tenant isolation: cannot read/write follow-up data for another org's customer", async () => {
+  const orgA = await mkOrg();
+  const orgB = await mkOrg();
+  const { customer: custA } = await makePlan(orgA.id);
+  const memberB = await mkMember(orgB.id, "user");
+  const HB = { ...hdr(memberB.token, orgB.id), "content-type": "application/json" };
+
+  // memberB scoped to orgB cannot see/add activity on orgA's customer
+  const read = await app.handle(new Request(`http://localhost/api/customers/${custA.id}/collection-activities`, { headers: hdr(memberB.token, orgB.id) }));
+  expect(read.status).toBe(404);
+  const write = await app.handle(new Request(`http://localhost/api/customers/${custA.id}/collection-activities`, {
+    method: "POST", headers: HB, body: JSON.stringify({ note: "cross-tenant attempt" }),
+  }));
+  expect(write.status).toBe(404);
+
+  // seed a follow-up in orgA, confirm org-wide queue for orgB never returns it
+  const memberA = await mkMember(orgA.id, "user");
+  await app.handle(new Request(`http://localhost/api/customers/${custA.id}/collection-activities`, {
+    method: "POST", headers: { ...hdr(memberA.token, orgA.id), "content-type": "application/json" }, body: JSON.stringify({ status: "unreachable" }),
+  }));
+  const queueB = await app.handle(new Request(`http://localhost/api/collection/follow-ups`, { headers: hdr(memberB.token, orgB.id) }));
+  const queueBData = (await queueB.json()).data;
+  expect(queueBData.every((f: any) => f.customer.id !== custA.id)).toBe(true);
+});
+
 // ---------- webhook / multi-OA ----------
 test("webhook per-OA sets org + customer; unknown OA 404", async () => {
   const org = await mkOrg();

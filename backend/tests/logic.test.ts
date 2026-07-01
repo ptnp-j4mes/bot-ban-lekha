@@ -4,10 +4,14 @@ import { toEmojiNumber } from "../src/lib/emoji-number";
 import { renderBillStatusLines, renderDailyReminder, renderBillText } from "../src/services/messages";
 import { scoreInstallment, decideMatch } from "../src/services/matching";
 import { mapGeminiResult, detectImageMime } from "../src/services/ocr";
+import { deleteSlipFile } from "../src/services/storage";
 import { dateOnly, toISODate } from "../src/lib/date";
 import { verifySignature } from "../src/lib/line";
 import { signJwt, verifyJwt } from "../src/lib/jwt";
 import { createHmac } from "node:crypto";
+import { mkdir, writeFile, rm } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { env } from "../src/env";
 
 test("jwt: roundtrip, tamper, wrong-secret, expiry", () => {
   const secret = "test-secret";
@@ -163,4 +167,23 @@ test("verifySignature: valid sig passes, wrong/missing fails", () => {
   expect(verifySignature(body, sig, secret)).toBe(true);
   expect(verifySignature(body, "wrong", secret)).toBe(false);
   expect(verifySignature(body, sig, "")).toBe(false); // no secret configured
+});
+
+test("deleteSlipFile: deletes inside storage root, refuses outside, handles already-missing", async () => {
+  const dir = join(env.localStoragePath, "slips", `retention-test-${Date.now()}`);
+  await mkdir(dir, { recursive: true });
+  try {
+    const inside = join(dir, "a.jpg");
+    await writeFile(inside, "x");
+    expect(await deleteSlipFile(inside)).toBe("deleted");
+    expect(await deleteSlipFile(inside)).toBe("missing"); // already gone -> no throw
+
+    // Outside the configured storage root: refused outright, never touched.
+    expect(await deleteSlipFile("/etc/passwd")).toBe("skipped");
+    // Path-traversal attempt that resolves outside the root.
+    const traversal = join(resolve(env.localStoragePath), "..", "definitely-outside.jpg");
+    expect(await deleteSlipFile(traversal)).toBe("skipped");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

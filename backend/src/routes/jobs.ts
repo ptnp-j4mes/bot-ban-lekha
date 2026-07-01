@@ -6,6 +6,7 @@ import { bangkokToday } from "../lib/date";
 import { renderDailyReminder, sendAndLog } from "../services/messages";
 import { pushMessage } from "../lib/line";
 import { captureError } from "../lib/logger";
+import { purgeExpiredSlips } from "../services/retention";
 
 // Send a reminder for each due installment, guarded by a "sent_at" column for idempotency.
 // When `hourField` is given, only orgs whose configured hour matches the current Bangkok hour fire
@@ -84,4 +85,5 @@ export const jobRoutes = new Elysia({ prefix: "/api/jobs" })
   .post("/send-daily-bill-reminders", async () => ok(await runReminder("morningSentAt", "daily_reminder")))
   .post("/send-before-deadline-reminders", async () => ok(await runReminder("beforeDeadlineSentAt", "before_deadline_reminder")))
   .post("/mark-overdue", async () => ok(await markOverdue()))
-  .post("/retry-failed-line-messages", async () => ok(await retryFailed()));
+  .post("/retry-failed-line-messages", async () => ok(await retryFailed()))
+  .post("/purge-expired-slips", async () => ok(await purgeExpiredSlips()));

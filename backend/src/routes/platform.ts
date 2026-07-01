@@ -60,16 +60,31 @@ export const platformRoutes = new Elysia({ prefix: "/api/platform" })
   // Platform-wide defaults.
   .get("/settings", async () => {
     const s = await getSystemSettings();
-    return ok({ default_bill_footer: s.defaultBillFooter, default_timezone: s.defaultTimezone });
+    return ok({
+      default_bill_footer: s.defaultBillFooter,
+      default_timezone: s.defaultTimezone,
+      default_slip_retention_days: s.defaultSlipRetentionDays,
+    });
   })
   .patch("/settings", async ({ body, ctx }: any) => {
     const data: any = {};
     if (body?.default_bill_footer !== undefined) data.defaultBillFooter = body.default_bill_footer || null;
     if (body?.default_timezone !== undefined) data.defaultTimezone = body.default_timezone;
+    if (body?.default_slip_retention_days !== undefined) data.defaultSlipRetentionDays = body.default_slip_retention_days;
     const row = await updateSystemSettings(data);
     await audit(prisma, { action: "update_system_settings", entityType: "system_setting", entityId: "system", actorId: ctx.userId, newValue: data });
-    return ok({ default_bill_footer: row.defaultBillFooter, default_timezone: row.defaultTimezone });
-  }, { body: t.Object({ default_bill_footer: t.Optional(t.String()), default_timezone: t.Optional(t.String({ minLength: 1 })) }) })
+    return ok({
+      default_bill_footer: row.defaultBillFooter,
+      default_timezone: row.defaultTimezone,
+      default_slip_retention_days: row.defaultSlipRetentionDays,
+    });
+  }, {
+    body: t.Object({
+      default_bill_footer: t.Optional(t.String()),
+      default_timezone: t.Optional(t.String({ minLength: 1 })),
+      default_slip_retention_days: t.Optional(t.Union([t.Integer({ minimum: 0 }), t.Null()])),
+    }),
+  })
 
   // Read-only system status / health (no secrets — only whether things are configured).
   .get("/system-info", async () => {
@@ -94,6 +109,7 @@ export const platformRoutes = new Elysia({ prefix: "/api/platform" })
       },
       auto_approve: env.autoApprove,
       storage_driver: env.storageDriver,
+      slip_retention_days_env_default: env.slipRetentionDays,
     });
   })
 

@@ -7,6 +7,7 @@ import { dateOnly } from "../lib/date";
 import { storeSlip } from "../services/storage";
 import { getOcrService, detectImageMime, mimeExt } from "../services/ocr";
 import { processSubmission } from "../services/payment";
+import { effectiveRetentionDaysForOrg, purgeSlipImage } from "../services/retention";
 import { captureError } from "../lib/logger";
 import { env } from "../env";
 import {
@@ -220,4 +221,12 @@ async function handleImage(ev: any, oa: Oa) {
   });
 
   await processSubmission(sub.id);
+
+  // Retention 0 = purge the local file right away. Never let a purge failure affect the
+  // submission/webhook — the slip stays on disk (swept later by the scheduled job) on error.
+  try {
+    if ((await effectiveRetentionDaysForOrg(oa.orgId)) === 0) await purgeSlipImage(sub.id);
+  } catch (e) {
+    captureError(e, { scope: "immediate_purge", submissionId: sub.id });
+  }
 }

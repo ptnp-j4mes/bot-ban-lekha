@@ -15,6 +15,8 @@ export const env = {
   autoApprove: process.env.PAYMENT_AUTO_APPROVE_ENABLED === "true",
   storageDriver: process.env.STORAGE_DRIVER ?? "local",
   localStoragePath: process.env.LOCAL_STORAGE_PATH ?? "./storage",
+  // Slip image retention (days) before the local file is purged; 0 = purge right after OCR/process.
+  slipRetentionDays: Number(process.env.SLIP_RETENTION_DAYS ?? 30),
   ocrProvider: process.env.OCR_PROVIDER ?? "mock",
   ocrApiKey: process.env.OCR_API_KEY ?? "",
   ocrModel: process.env.OCR_MODEL ?? "gemini-2.5-flash",

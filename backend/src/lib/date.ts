@@ -28,3 +28,13 @@ export const thaiMonth = (d: Date) => THAI_MONTHS[d.getUTCMonth()];
 export const beYear2 = (d: Date) => String((d.getUTCFullYear() + 543) % 100).padStart(2, "0");
 export const sameDay = (a: Date, b: Date) => a.getTime() === b.getTime();
 export const toISODate = (d: Date) => d.toISOString().slice(0, 10);
+
+// Inclusive Bangkok-local [from, to] range for a DateTime column, as a Prisma where-clause
+// fragment. Bounds are omitted (open-ended) when the matching query param is absent.
+export function bangkokDateRange(from?: string, to?: string): { gte?: Date; lt?: Date } | undefined {
+  if (!from && !to) return undefined;
+  const range: { gte?: Date; lt?: Date } = {};
+  if (from) range.gte = new Date(`${from}T00:00:00+07:00`);
+  if (to) range.lt = addDays(new Date(`${to}T00:00:00+07:00`), 1);
+  return range;
+}

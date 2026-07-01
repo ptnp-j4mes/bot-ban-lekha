@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { prisma } from "../src/lib/prisma";
-import { bangkokToday } from "../src/lib/date";
+import { bangkokToday, addDays } from "../src/lib/date";
 import { processSubmission, approveSubmission, matchInstallment, rejectSubmission } from "../src/services/payment";
 import { effectiveRetentionDays, purgeSlipImage, purgeExpiredSlips } from "../src/services/retention";
 import { app } from "../src/app";
@@ -217,6 +217,105 @@ test("daily report: per-group breakdown + combined totals", async () => {
   const ga = rep.groups.find((g: any) => g.line_group_id === g1);
   expect(ga.received).toBe(2);
   expect(ga.name).toBe("กลุ่ม A");
+});
+
+// ---------- accounting reports (P2 #16) ----------
+
+test("collections/bank: sums approved payments per bank account, org-scoped", async () => {
+  const { recordManualPayment } = await import("../src/services/payment");
+  const orgA = await mkOrg();
+  const orgB = await mkOrg();
+  const mA = await mkMember(orgA.id, "user");
+  const a = await makePlan(orgA.id, 500);
+  const b = await makePlan(orgB.id, 700);
+  await recordManualPayment(a.inst.id, 500, mA.user.id, orgA.id, "cash");
+  await recordManualPayment(b.inst.id, 700, mA.user.id, orgB.id, "cash"); // other org, must not leak into orgA's report
+
+  const res = await app.handle(new Request("http://localhost/api/reports/collections/bank", { headers: hdr(mA.token, orgA.id) }));
+  const data = (await res.json()).data;
+  expect(data.total).toBe(500);
+  expect(data.rows.length).toBe(1);
+  expect(data.rows[0].bank_account_id).toBe(a.plan.bankAccountId);
+
+  const csv = await app.handle(new Request("http://localhost/api/reports/collections/bank.csv", { headers: hdr(mA.token, orgA.id) }));
+  expect(csv.headers.get("content-type")).toContain("text/csv");
+  expect(await csv.text()).toContain("500");
+});
+
+test("collections/senders: groups approved payments by LINE group + sender", async () => {
+  const org = await mkOrg();
+  const m = await mkMember(org.id, "user");
+  await prisma.lineGroup.create({ data: { orgId: org.id, lineGroupId: "G1", name: "กลุ่มทดสอบ" } });
+  const { inst, customer } = await makePlan(org.id, 500);
+  const sub = await prisma.paymentSubmission.create({ data: { orgId: org.id, customerId: customer.id, lineGroupId: "G1", senderName: "พี่เอ", matchedInstallmentId: inst.id, parsedAmount: 500 } });
+  await approveSubmission(sub.id, "actor", org.id);
+
+  const res = await app.handle(new Request("http://localhost/api/reports/collections/senders", { headers: hdr(m.token, org.id) }));
+  const data = (await res.json()).data;
+  expect(data.total).toBe(500);
+  expect(data.rows[0].group_name).toBe("กลุ่มทดสอบ");
+  expect(data.rows[0].sender_name).toBe("พี่เอ");
+});
+
+test("aging report: buckets overdue installments by days past due, org-scoped", async () => {
+  const org = await mkOrg();
+  const other = await mkOrg();
+  const m = await mkMember(org.id, "user");
+  const bank = await prisma.bankAccount.create({ data: { orgId: org.id, accountName: "n", accountNo: "1", bankName: "b", isDefault: true, isActive: true } });
+  const customer = await prisma.customer.create({ data: { orgId: org.id, customerCode: `AG${rnd()}`, status: "active" } });
+  const mkOverdue = (daysAgo: number, billNo: number, orgId = org.id) => prisma.billPlan.create({
+    data: {
+      orgId, customerId: customer.id, bankAccountId: bank.id, billNo, principalAmount: 100, installmentAmount: 100,
+      cycleType: "interval_days", cycleDays: 7, totalInstallments: 1, startDate: today,
+      installments: { create: [{ installmentNo: 1, dueDate: addDays(today, -daysAgo), amountDue: 100 }] },
+    },
+  });
+  await mkOverdue(3, 1); // 1-7
+  await mkOverdue(15, 2); // 8-30
+  await mkOverdue(45, 3); // 31+
+  const otherCustomer = await prisma.customer.create({ data: { orgId: other.id, customerCode: `AG${rnd()}`, status: "active" } });
+  await prisma.billPlan.create({
+    data: {
+      orgId: other.id, customerId: otherCustomer.id, billNo: 1, principalAmount: 100, installmentAmount: 100,
+      cycleType: "interval_days", cycleDays: 7, totalInstallments: 1, startDate: today,
+      installments: { create: [{ installmentNo: 1, dueDate: addDays(today, -45), amountDue: 100 }] },
+    },
+  }); // other org, must not leak into org's aging report
+
+  const res = await app.handle(new Request("http://localhost/api/reports/aging", { headers: hdr(m.token, org.id) }));
+  const data = (await res.json()).data;
+  expect(data.buckets["1-7"].count).toBe(1);
+  expect(data.buckets["8-30"].count).toBe(1);
+  expect(data.buckets["31+"].count).toBe(1);
+  expect(data.total_outstanding).toBe(300);
+});
+
+test("approvals report: approved payments with approver, org-scoped", async () => {
+  const { recordManualPayment } = await import("../src/services/payment");
+  const org = await mkOrg();
+  const m = await mkMember(org.id, "user");
+  const { inst } = await makePlan(org.id, 250);
+  await recordManualPayment(inst.id, 250, m.user.id, org.id, "cash");
+
+  const res = await app.handle(new Request("http://localhost/api/reports/approvals", { headers: hdr(m.token, org.id) }));
+  const data = (await res.json()).data;
+  expect(data.total).toBe(250);
+  expect(data.rows[0].approved_by).toBe(m.user.id);
+});
+
+test("unmatched slip report: lists unmatched/needs_admin submissions only, org-scoped", async () => {
+  const org = await mkOrg();
+  const other = await mkOrg();
+  const m = await mkMember(org.id, "user");
+  await prisma.paymentSubmission.create({ data: { orgId: org.id, matchStatus: "unmatched", parsedAmount: 200, parsedReferenceNo: `U${rnd()}` } });
+  await prisma.paymentSubmission.create({ data: { orgId: org.id, matchStatus: "needs_admin_match", parsedAmount: 300 } });
+  await prisma.paymentSubmission.create({ data: { orgId: org.id, matchStatus: "auto_matched", parsedAmount: 999 } }); // matched, excluded
+  await prisma.paymentSubmission.create({ data: { orgId: other.id, matchStatus: "unmatched", parsedAmount: 1000 } }); // other org, excluded
+
+  const res = await app.handle(new Request("http://localhost/api/reports/unmatched", { headers: hdr(m.token, org.id) }));
+  const data = (await res.json()).data;
+  expect(data.count).toBe(2);
+  expect(data.total_parsed_amount).toBe(500);
 });
 
 test("line-oa-accounts: secrets masked, member can read + write, org-scoped", async () => {

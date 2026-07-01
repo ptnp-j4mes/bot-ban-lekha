@@ -149,7 +149,7 @@ export function Submissions() {
                   <option value="">{cands.length ? "— เลือกงวด —" : "ไม่มีงวด candidate"}</option>
                   {cands.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.bill_plan?.customer ? `${c.bill_plan.customer.display_name || c.bill_plan.customer.customer_code} · ` : ""}บิล {c.bill_plan?.bill_no} งวด {c.installment_no} • {c.due_date} • {c.amount_due} ({c.status})
+                      {c.bill_plan?.customer ? `${c.bill_plan.customer.display_name || c.bill_plan.customer.customer_code} · ` : ""}บิล {c.bill_plan?.bill_no} งวด {c.installment_no} • {c.due_date} • {c.amount_due} ({c.status}) — คะแนน {c.score}
                     </option>
                   ))}
                 </Select>

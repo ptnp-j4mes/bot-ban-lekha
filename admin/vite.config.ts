@@ -10,4 +10,8 @@ export default defineConfig({
     port: 5173,
     proxy: { "/api": "http://localhost:8787" },
   },
+  build: {
+    // Two entry points: the admin SPA (index.html) and the customer-facing LIFF page (liff.html).
+    rollupOptions: { input: { main: path.resolve(__dirname, "index.html"), liff: path.resolve(__dirname, "liff.html") } },
+  },
 });

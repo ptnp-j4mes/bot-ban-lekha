@@ -12,6 +12,8 @@ export const env = {
   lineLoginRedirectUri: process.env.LINE_LOGIN_REDIRECT_URI ?? "http://localhost:8787/api/auth/line/callback",
   lineChannelSecret: process.env.LINE_CHANNEL_SECRET ?? "",
   lineAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN ?? "",
+  // Customer-facing LIFF app channel id (ID token audience) — separate from admin LINE Login.
+  lineLiffChannelId: process.env.LINE_LIFF_CHANNEL_ID ?? "",
   autoApprove: process.env.PAYMENT_AUTO_APPROVE_ENABLED === "true",
   storageDriver: process.env.STORAGE_DRIVER ?? "local",
   localStoragePath: process.env.LOCAL_STORAGE_PATH ?? "./storage",

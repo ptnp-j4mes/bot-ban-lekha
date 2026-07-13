@@ -410,6 +410,28 @@ test("manual payment marks installment paid + completes plan", async () => {
   expect(p?.status).toBe("completed");
 });
 
+test("cash bill is never auto-matched (routed to admin)", async () => {
+  const org = await mkOrg();
+  const { customer } = await makePlan(org.id, 490);
+  // amount+date would normally auto-match, but docType=cash must force admin review
+  const sub = await prisma.paymentSubmission.create({
+    data: { orgId: org.id, customerId: customer.id, docType: "cash", parsedAmount: 490, parsedTransferDate: today, parsedReferenceNo: `RC${rnd()}`, imageHash: `HC${rnd()}`, ocrStatus: "success" },
+  });
+  await processSubmission(sub.id);
+  const after = await prisma.paymentSubmission.findUnique({ where: { id: sub.id } });
+  expect(after?.matchStatus).toBe("needs_admin_match");
+  expect(after?.matchedInstallmentId).toBeNull();
+});
+
+test("storeSlip (local) writes to orgId/lineOaId path", async () => {
+  const { updateSystemSettings } = await import("../src/services/systemSettings");
+  await updateSystemSettings({ storageDriver: "local" });
+  const { storeSlip } = await import("../src/services/storage");
+  const p = await storeSlip("orgX", "oaY", `sub-${rnd()}`, Buffer.from("slip"), "jpg");
+  expect(p).toContain("orgX/oaY/");
+  expect(await Bun.file(p).exists()).toBe(true);
+});
+
 test("customerBalance sums unpaid installments", async () => {
   const { customerBalance } = await import("../src/routes/line");
   const org = await mkOrg();
@@ -418,4 +440,43 @@ test("customerBalance sums unpaid installments", async () => {
   expect(b.count).toBe(1);
   expect(b.outstanding).toBe(490);
   expect(b.nextDue).not.toBeNull();
+});
+
+test("slip image endpoint serves local file, org-scoped", async () => {
+  const org = await mkOrg();
+  const other = await mkOrg();
+  const m = await mkMember(org.id, "user");
+  const mOther = await mkMember(other.id, "user");
+  const { storeSlip } = await import("../src/services/storage");
+  const path = await storeSlip(org.id, null, `img-${rnd()}`, Buffer.from("fake-jpg-bytes"), "jpg");
+  const sub = await prisma.paymentSubmission.create({ data: { orgId: org.id, imageUrl: path } });
+
+  const url = `http://localhost/api/admin/payment-submissions/${sub.id}/image`;
+  const okRes = await app.handle(new Request(url, { headers: hdr(m.token, org.id) }));
+  expect(okRes.status).toBe(200);
+  expect(await okRes.text()).toBe("fake-jpg-bytes");
+
+  // Another org must not see it.
+  const cross = await app.handle(new Request(url, { headers: hdr(mOther.token, other.id) }));
+  expect(cross.status).toBe(404);
+});
+
+test("auto-approve setting: auto_matched slip becomes paid without admin", async () => {
+  const org = await prisma.organization.create({ data: { name: `auto-${rnd()}`, autoApproveEnabled: true } });
+  const { inst, customer } = await makePlan(org.id, 750);
+  const sub = await prisma.paymentSubmission.create({
+    data: { orgId: org.id, customerId: customer.id, parsedAmount: 750, parsedTransferDate: today, parsedReferenceNo: `AUTO${rnd()}`, ocrStatus: "success", docType: "slip" },
+  });
+  await processSubmission(sub.id);
+  const s = await prisma.paymentSubmission.findUnique({ where: { id: sub.id } });
+  expect(s!.reviewStatus).toBe("approved");
+  expect(s!.reviewedBy).toBe("system");
+  expect((await prisma.billInstallment.findUnique({ where: { id: inst.id } }))!.status).toBe("paid");
+
+  // Cash bill never auto-approves, even with the setting on.
+  const cash = await prisma.paymentSubmission.create({
+    data: { orgId: org.id, customerId: customer.id, parsedAmount: 750, parsedTransferDate: today, docType: "cash", ocrStatus: "success" },
+  });
+  await processSubmission(cash.id);
+  expect((await prisma.paymentSubmission.findUnique({ where: { id: cash.id } }))!.reviewStatus).toBe("pending_review");
 });

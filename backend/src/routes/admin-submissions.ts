@@ -13,6 +13,8 @@ export const adminSubmissionRoutes = new Elysia({ prefix: "/api/admin/payment-su
     const where: any = { orgId: ctx.orgId };
     if (query.match_status) where.matchStatus = query.match_status;
     if (query.review_status) where.reviewStatus = query.review_status;
+    if (query.ocr_status) where.ocrStatus = query.ocr_status;
+    if (query.doc_type) where.docType = query.doc_type;
     if (query.customer_id) where.customerId = query.customer_id;
     if (query.date_from || query.date_to) {
       where.createdAt = {};
@@ -55,6 +57,22 @@ export const adminSubmissionRoutes = new Elysia({ prefix: "/api/admin/payment-su
       orderBy: { createdAt: "asc" },
     });
     return ok({ submission: sub, candidate_installments: candidates, audit_logs: auditLogs });
+  })
+
+  // Serve the stored slip image. Local driver = file on disk; gdrive = redirect to the Drive link.
+  .get("/:id/image", async ({ params, ctx, set }: any) => {
+    const sub = await prisma.paymentSubmission.findFirst({
+      where: { id: params.id, orgId: ctx.orgId },
+      select: { imageUrl: true },
+    });
+    if (!sub?.imageUrl) throw new ApiError("NOT_FOUND", "No image for this submission");
+    if (sub.imageUrl.startsWith("http")) {
+      set.redirect = sub.imageUrl;
+      return;
+    }
+    const file = Bun.file(sub.imageUrl);
+    if (!(await file.exists())) throw new ApiError("NOT_FOUND", "Image file missing from storage");
+    return new Response(file);
   })
 
   .patch("/:id/match-installment", async ({ params, body, ctx }: any) => {

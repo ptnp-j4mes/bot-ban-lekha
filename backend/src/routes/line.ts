@@ -180,7 +180,7 @@ async function handleImage(ev: any, oa: Oa) {
       ocrStatus: "processing",
     },
   });
-  const imageUrl = await storeSlip(sub.id, buffer, ext);
+  const imageUrl = await storeSlip(oa.orgId, oa.id, sub.id, buffer, ext);
 
   if (badType || tooBig) {
     await prisma.paymentSubmission.update({
@@ -198,7 +198,7 @@ async function handleImage(ev: any, oa: Oa) {
 
   let ocr;
   try {
-    ocr = await getOcrService().parseSlip(imageUrl, buffer);
+    ocr = await getOcrService().parseSlip(buffer);
   } catch {
     ocr = { rawText: "", confidence: 0 } as any;
   }
@@ -210,6 +210,7 @@ async function handleImage(ev: any, oa: Oa) {
       imageUrl,
       ocrStatus: gotFields ? "success" : "failed",
       ocrRawText: ocr.rawText,
+      docType: ocr.docType ?? null,
       parsedAmount: ocr.amount,
       parsedTransferDate: ocr.transferDate ? dateOnly(ocr.transferDate) : null,
       parsedTransferTime: ocr.transferTime,

@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, Select, Field } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -23,6 +23,16 @@ export function PlatformSettings() {
 
   const save = useMut((b: any) => apiSend("/api/platform/settings", "PATCH", b), { success: "บันทึกแล้ว", invalidate: ["platform-settings"] });
   const editOrg = useMut((b: { id: string; data: any }) => apiSend(`/api/platform/organizations/${b.id}`, "PATCH", b.data), { success: "อัปเดตองค์กรแล้ว", invalidate: ["orgs"] });
+
+  const saveStorage = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const body: any = { storage_driver: fd.get("driver"), gdrive_root_folder_id: fd.get("root") };
+    const sa = (fd.get("sa") as string)?.trim();
+    if (sa) body.gdrive_service_account = sa; // empty = keep existing
+    save.mutate(body, { onError: (err: any) => {} });
+    (e.currentTarget.elements.namedItem("sa") as HTMLTextAreaElement).value = "";
+  };
 
   const saveDefaults = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -70,6 +80,39 @@ export function PlatformSettings() {
         </CardContent>
       </Card>
 
+      {/* Slip storage gateway */}
+      <Card>
+        <CardHeader><CardTitle>ที่เก็บไฟล์สลิป (Storage)</CardTitle></CardHeader>
+        <CardContent>
+          {d && (
+            <form className="max-w-xl space-y-3" onSubmit={saveStorage}>
+              <Field label="ที่เก็บไฟล์ (Driver)">
+                <Select name="driver" defaultValue={d.storage_driver}>
+                  <option value="local">Local disk (เซิร์ฟเวอร์)</option>
+                  <option value="gdrive">Google Drive</option>
+                </Select>
+              </Field>
+              <Field label="Google Drive — Root Folder ID">
+                <Input name="root" defaultValue={d.gdrive_root_folder_id ?? ""} placeholder="ID โฟลเดอร์ปลายทางใน Drive" />
+              </Field>
+              <div>
+                <div className="mb-1 flex items-center gap-2 text-sm font-medium text-foreground">
+                  Service Account JSON
+                  {d.gdrive_configured ? <Badge variant="success">ตั้งค่าแล้ว</Badge> : <Badge variant="secondary">ยังไม่ตั้ง</Badge>}
+                </div>
+                <textarea name="sa" rows={4}
+                  className="flex w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/10"
+                  placeholder='วาง service account JSON (เว้นว่าง = คงค่าเดิม) — เก็บฝั่ง server ไม่ถูกส่งกลับ' />
+              </div>
+              <Button type="submit" disabled={save.isPending}>บันทึก Storage</Button>
+              <p className="text-xs text-muted-foreground">
+                สลิปเก็บที่ <span className="fig">โฟลเดอร์ราก / orgId / lineOaId /</span> · path แยกตาม org และ OA (บอท) · S3 เลือกได้แต่ยังไม่เปิด สลับได้เมื่อพร้อม
+              </p>
+            </form>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Organizations */}
       <Card>
         <CardHeader><CardTitle>องค์กรทั้งหมด</CardTitle></CardHeader>
@@ -92,6 +135,7 @@ export function PlatformSettings() {
                 <Row k="ฐานข้อมูล" v={<Badge variant={i.db_ok ? "success" : "destructive"}>{i.db_ok ? "เชื่อมต่อ" : "ขัดข้อง"}</Badge>} />
                 <Row k="Uptime" v={`${Math.floor(i.uptime_sec / 60)} นาที`} />
                 <Row k="องค์กร / ผู้ใช้" v={`${i.orgs} / ${i.users}`} />
+                <Row k="Storage" v={i.storage_driver === "gdrive" ? <Badge variant={i.storage_gdrive_configured ? "success" : "warning"}>Google Drive</Badge> : <Badge variant="secondary">{i.storage_driver}</Badge>} />
               </>
             )}
           </CardContent>

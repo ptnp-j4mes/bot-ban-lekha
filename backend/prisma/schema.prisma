@@ -12,7 +12,13 @@ model SystemSetting {
   id                String   @id @default("system")
   defaultBillFooter String?  @map("default_bill_footer") // fallback footer when an org sets none
   defaultTimezone   String   @default("Asia/Bangkok") @map("default_timezone") // applied to newly-created orgs
-  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Slip storage gateway (super-admin configured). Driver switches local <-> gdrive <-> s3.
+  storageDriver        String  @default("local") @map("storage_driver") // local | gdrive | s3
+  gdriveServiceAccount Json?   @map("gdrive_service_account") // service-account JSON — secret, never returned by API
+  gdriveRootFolderId   String? @map("gdrive_root_folder_id") // Drive folder that holds <orgId>/<lineOaId>/ trees
+
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("system_settings")
 }
@@ -27,6 +33,7 @@ model Organization {
   reminderHour Int    @default(9)  @map("reminder_hour")  // Bangkok hour for the morning reminder
   deadlineHour Int    @default(15) @map("deadline_hour")  // Bangkok hour for the before-deadline reminder
   reminderText String? @map("reminder_text")              // overrides the default daily reminder body
+  autoApproveEnabled Boolean @default(false) @map("auto_approve_enabled") // auto-approve slips that auto-match (opt-in)
 
   memberships    Membership[]
   lineOaAccounts LineOaAccount[]
@@ -138,18 +145,6 @@ model Customer {
   @@map("customers")
 }
 
-model BillingCyclePreset {
-  id        String  @id @default(uuid())
-  name      String
-  cycleDays Int     @map("cycle_days")
-  isActive  Boolean @default(true) @map("is_active")
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@map("billing_cycle_presets")
-}
-
 model BankAccount {
   id          String  @id @default(uuid())
   orgId       String  @map("org_id")
@@ -245,6 +240,7 @@ model PaymentSubmission {
 
   ocrStatus  String  @default("pending") @map("ocr_status")
   ocrRawText String? @map("ocr_raw_text")
+  docType    String? @map("doc_type") // slip | cash | unknown — bank transfer slip vs cash receipt/bill
 
   parsedAmount       Decimal?  @map("parsed_amount")
   parsedTransferDate DateTime? @map("parsed_transfer_date") @db.Date

@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { KV } from "@/components/ui/dialog";
+import { thDate } from "@/lib/format";
 
 const fmt = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 const ocust = (i: any) => i.bill_plan?.customer?.display_name || i.bill_plan?.customer?.customer_code || "—";
@@ -97,7 +98,7 @@ export function Reports() {
               { key: "cust", header: "ลูกค้า", sortValue: ocust, cell: ocust },
               { key: "bill", header: "บิล", sortValue: (i) => i.bill_plan?.bill_no, cell: (i) => <span className="fig">บิล {i.bill_plan?.bill_no}</span> },
               { key: "inst", header: "งวด", align: "right", sortValue: (i) => i.installment_no, cell: (i) => <span className="fig">{i.installment_no}</span> },
-              { key: "due", header: "due", sortValue: (i) => i.due_date, cell: (i) => <span className="fig">{i.due_date}</span> },
+              { key: "due", header: "ครบกำหนด", sortValue: (i) => i.due_date, cell: (i) => <span className="fig">{thDate(i.due_date)}</span> },
               { key: "amt", header: "ยอด", align: "right", sortValue: (i) => Number(i.amount_due), cell: (i) => <span className="fig">{fmt(Number(i.amount_due))}</span> },
               { key: "status", header: "สถานะ", sortValue: (i) => i.status, cell: (i) => statusBadge(i.status) },
             ] as Column<any>[]}
@@ -105,7 +106,7 @@ export function Reports() {
             initialSort={{ key: "due", dir: "asc" }}
             empty="ไม่มีงวดค้างชำระ"
             detailTitle="งวดค้างชำระ"
-            detail={(i) => ({ body: <KV pairs={[["ลูกค้า", ocust(i)], ["บิล", i.bill_plan?.bill_no], ["งวด", i.installment_no], ["ครบกำหนด", i.due_date], ["ยอด", fmt(Number(i.amount_due))], ["สถานะ", statusBadge(i.status)]]} /> })}
+            detail={(i) => ({ body: <KV pairs={[["ลูกค้า", ocust(i)], ["บิล", i.bill_plan?.bill_no], ["งวด", i.installment_no], ["ครบกำหนด", thDate(i.due_date)], ["ยอด", fmt(Number(i.amount_due))], ["สถานะ", statusBadge(i.status)]]} /> })}
           />
         </CardContent>
       </Card>

@@ -112,6 +112,7 @@ export function Settings() {
       name: fd.get("name"), timezone: fd.get("timezone"), bill_footer: fd.get("bill_footer"),
       reminder_hour: Number(fd.get("reminder_hour")), deadline_hour: Number(fd.get("deadline_hour")),
       reminder_text: fd.get("reminder_text"),
+      auto_approve_enabled: fd.get("auto_approve") === "on",
     });
   };
   const submitPw = (e: React.FormEvent<HTMLFormElement>) => {
@@ -163,6 +164,13 @@ export function Settings() {
                   className="flex w-full rounded-md border-0 px-3.5 py-2 text-sm neu-inset focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   placeholder="เช่น วันนี้ครบกำหนดชำระค่ะ 🙏 ส่งสลิปกลับมาได้เลยนะคะ" />
               </div>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" name="auto_approve" defaultChecked={d.auto_approve_enabled} className="mt-0.5" />
+                <span>
+                  อนุมัติสลิปอัตโนมัติเมื่อระบบจับคู่ได้แน่นอน
+                  <span className="block text-xs text-muted-foreground">เฉพาะสลิปโอนที่ยอดและวันที่ตรงกับงวด — บิลเงินสดยังรอแอดมินตรวจเสมอ</span>
+                </span>
+              </label>
               <Button size="sm" type="submit">บันทึก</Button>
             </form>
           )}

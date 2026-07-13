@@ -114,6 +114,7 @@ export function Settings() {
       reminder_hour: Number(fd.get("reminder_hour")), deadline_hour: Number(fd.get("deadline_hour")),
       reminder_text: fd.get("reminder_text"),
       slip_retention_days: retention === "" ? null : Number(retention),
+      auto_approve_enabled: fd.get("auto_approve") === "on",
     });
   };
   const submitPw = (e: React.FormEvent<HTMLFormElement>) => {
@@ -169,6 +170,13 @@ export function Settings() {
                 <label className="text-sm text-muted-foreground">เก็บรูปสลิปกี่วัน (0 = ลบทันทีหลัง OCR, ปล่อยว่าง = ใช้ค่าเริ่มต้นของระบบ)</label>
                 <Input name="slip_retention_days" type="number" min={0} defaultValue={d.slip_retention_days ?? ""} placeholder="ค่าเริ่มต้นของระบบ" />
               </div>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" name="auto_approve" defaultChecked={d.auto_approve_enabled} className="mt-0.5" />
+                <span>
+                  อนุมัติสลิปอัตโนมัติเมื่อระบบจับคู่ได้แน่นอน
+                  <span className="block text-xs text-muted-foreground">เฉพาะสลิปโอนที่ยอดและวันที่ตรงกับงวด — บิลเงินสดยังรอแอดมินตรวจเสมอ</span>
+                </span>
+              </label>
               <Button size="sm" type="submit">บันทึก</Button>
             </form>
           )}

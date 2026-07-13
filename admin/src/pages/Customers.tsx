@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Check, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { apiGet, apiSend } from "@/lib/api";
-import { useMut } from "@/lib/ui";
+import { useMut, statusTh } from "@/lib/ui";
 import { CustomerDetail } from "./CustomerDetail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,7 +59,7 @@ export function Customers() {
   };
 
   const columns: Column<any>[] = [
-    { key: "code", header: "code", sortValue: (c) => c.customer_code, cell: (c) => <span className="fig">{c.customer_code}</span> },
+    { key: "code", header: "รหัส", sortValue: (c) => c.customer_code, cell: (c) => <span className="fig">{c.customer_code}</span> },
     { key: "name", header: "ชื่อ", sortValue: (c) => c.display_name ?? "", cell: (c) => editing === c.id
       ? <Input defaultValue={c.display_name ?? ""} className="h-8 w-32" id={`dn-${c.id}`} />
       : c.display_name },
@@ -68,8 +68,8 @@ export function Customers() {
       : <span className="fig">{c.phone}</span> },
     { key: "line", header: "LINE", sortValue: (c) => (c.line_user_id ? 1 : 0), cell: (c) => c.line_user_id ? <Check className="h-4 w-4 text-primary" /> : <span className="text-muted-foreground">—</span> },
     { key: "status", header: "สถานะ", sortValue: (c) => c.status, cell: (c) => editing === c.id
-      ? <Select defaultValue={c.status} className="h-8 w-24" id={`st-${c.id}`}>{["active", "blocked", "closed"].map((x) => <option key={x}>{x}</option>)}</Select>
-      : <Badge variant="secondary">{c.status}</Badge> },
+      ? <Select defaultValue={c.status} className="h-8 w-28" id={`st-${c.id}`}>{["active", "blocked", "closed"].map((x) => <option key={x} value={x}>{statusTh(x)}</option>)}</Select>
+      : <Badge variant={c.status === "active" ? "success" : c.status === "blocked" ? "destructive" : "secondary"}>{statusTh(c.status)}</Badge> },
     { key: "act", header: "", stop: true, cell: (c) => editing === c.id ? (
       <div className="flex gap-1">
         <Button size="sm" onClick={() => saveRow(c.id)}>บันทึก</Button>
@@ -85,11 +85,38 @@ export function Customers() {
 
   return (
     <>
+      {/* Daily task first: find a customer. Add/link forms live below. */}
+      <Card>
+        <CardHeader className="flex-row items-center gap-2">
+          <CardTitle>ลูกค้าทั้งหมด ({total})</CardTitle>
+          <div className="ml-auto flex items-center gap-2">
+            <label className="cursor-pointer">
+              <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && importCsv(e.target.files[0])} />
+              <span className="inline-flex h-9 items-center gap-1 rounded-lg bg-background neu-raised-sm px-3.5 text-xs"><Upload className="h-3 w-3" /> นำเข้า CSV</span>
+            </label>
+            <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); setPage(1); setQ(search); }}>
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหา รหัส/ชื่อ/เบอร์" className="w-56" />
+              <Button size="sm" type="submit">ค้นหา</Button>
+            </form>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <DataTable data={list.data?.items ?? []} columns={columns} rowKey={(c) => c.id} initialSort={{ key: "code", dir: "asc" }} empty="ยังไม่มีลูกค้า" loading={list.isLoading} />
+          {pages > 1 && (
+            <div className="flex items-center justify-end gap-2 px-4 py-3 text-sm">
+              <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</Button>
+              <span>{page} / {pages}</span>
+              <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage(page + 1)}>ถัดไป</Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader><CardTitle>เพิ่มลูกค้า</CardTitle></CardHeader>
         <CardContent>
           <form className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={(e) => { create.mutate(formObj(e)); e.currentTarget.reset(); }}>
-            <Field label="Customer Code"><Input name="customer_code" placeholder="เช่น C001" required /></Field>
+            <Field label="รหัสลูกค้า"><Input name="customer_code" placeholder="เช่น C001" required /></Field>
             <Field label="ชื่อ"><Input name="display_name" /></Field>
             <Field label="เบอร์โทร"><Input name="phone" /></Field>
             <Field label="LINE OA">
@@ -107,36 +134,10 @@ export function Customers() {
         <CardHeader><CardTitle>ผูก LINE user id</CardTitle></CardHeader>
         <CardContent>
           <form className="grid grid-cols-1 items-end gap-3 sm:grid-cols-3" onSubmit={(e) => link.mutate(formObj(e))}>
-            <Field label="Customer Code"><Input name="customer_code" placeholder="เช่น C001" required /></Field>
+            <Field label="รหัสลูกค้า"><Input name="customer_code" placeholder="เช่น C001" required /></Field>
             <Field label="LINE User ID"><Input name="line_user_id" placeholder="Uxxxxxxxx" required /></Field>
             <Button type="submit">ผูก LINE</Button>
           </form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex-row items-center gap-2">
-          <CardTitle>ลูกค้าทั้งหมด ({total})</CardTitle>
-          <div className="ml-auto flex items-center gap-2">
-            <label className="cursor-pointer">
-              <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && importCsv(e.target.files[0])} />
-              <span className="inline-flex h-9 items-center gap-1 rounded-lg bg-background neu-raised-sm px-3.5 text-xs"><Upload className="h-3 w-3" /> นำเข้า CSV</span>
-            </label>
-            <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); setPage(1); setQ(search); }}>
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหา code/ชื่อ/เบอร์" className="w-56" />
-              <Button size="sm" type="submit">ค้นหา</Button>
-            </form>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          <DataTable data={list.data?.items ?? []} columns={columns} rowKey={(c) => c.id} initialSort={{ key: "code", dir: "asc" }} empty="ยังไม่มีลูกค้า" />
-          {pages > 1 && (
-            <div className="flex items-center justify-end gap-2 px-4 py-3 text-sm">
-              <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</Button>
-              <span>{page} / {pages}</span>
-              <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage(page + 1)}>ถัดไป</Button>
-            </div>
-          )}
         </CardContent>
       </Card>
 

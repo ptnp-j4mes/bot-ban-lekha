@@ -1,7 +1,10 @@
 import { env } from "../env";
 
+export type DocType = "slip" | "cash" | "unknown";
+
 export type OcrResult = {
   rawText: string;
+  docType?: DocType; // bank transfer slip vs cash receipt/bill
   amount?: number;
   transferDate?: string; // YYYY-MM-DD
   transferTime?: string; // HH:mm
@@ -11,19 +14,23 @@ export type OcrResult = {
   confidence?: number; // 0..100
 };
 
+const asDocType = (v: any): DocType | undefined =>
+  v === "slip" || v === "cash" || v === "unknown" ? v : undefined;
+
 export interface OcrService {
-  parseSlip(imageUrl: string, buffer?: Buffer): Promise<OcrResult>;
+  parseSlip(buffer: Buffer): Promise<OcrResult>;
 }
 
 // Mock provider: if the slip bytes are JSON (dev/test inject real fields), use them.
 // Otherwise we can't read the image -> empty result, confidence 0 (=> needs_admin_match).
 class MockOcrProvider implements OcrService {
-  async parseSlip(_imageUrl: string, buffer?: Buffer): Promise<OcrResult> {
-    const text = buffer?.toString("utf8") ?? "";
+  async parseSlip(buffer: Buffer): Promise<OcrResult> {
+    const text = buffer.toString("utf8");
     try {
       const j = JSON.parse(text);
       return {
         rawText: text,
+        docType: asDocType(j.docType) ?? "slip",
         amount: j.amount,
         transferDate: j.transferDate,
         transferTime: j.transferTime,
@@ -52,14 +59,17 @@ export const mimeExt = (mime: string) => (mime === "image/png" ? "png" : mime ==
 const sniffMime = (buf?: Buffer) => detectImageMime(buf) ?? "image/jpeg";
 
 const SLIP_PROMPT =
-  "Extract the bank transfer slip fields. Return amount as a number (THB). " +
-  "Return transferDate in Gregorian YYYY-MM-DD; if the slip shows a Thai Buddhist year (พ.ศ., e.g. 2569) subtract 543. " +
-  "transferTime as HH:mm (24h). bankName, accountNo (destination account), referenceNo as strings. " +
+  "Classify the image and extract payment fields. " +
+  "docType: 'slip' for a bank/mobile-banking transfer slip, 'cash' for a cash receipt or cash bill (เงินสด, no bank transfer), 'unknown' if neither. " +
+  "Return amount as a number (THB). " +
+  "Return transferDate in Gregorian YYYY-MM-DD; if it shows a Thai Buddhist year (พ.ศ., e.g. 2569) subtract 543. " +
+  "transferTime as HH:mm (24h). bankName, accountNo (destination account), referenceNo as strings (null for a cash bill). " +
   "confidence 0-100 for how sure you are. Use null for any field you cannot read.";
 
 const SLIP_SCHEMA = {
   type: "OBJECT",
   properties: {
+    docType: { type: "STRING", nullable: true },
     amount: { type: "NUMBER", nullable: true },
     transferDate: { type: "STRING", nullable: true },
     transferTime: { type: "STRING", nullable: true },
@@ -76,6 +86,7 @@ export function mapGeminiResult(j: any, rawText: string): OcrResult {
   const str = (v: any) => (v == null || v === "" ? undefined : String(v));
   return {
     rawText,
+    docType: asDocType(j?.docType),
     amount: num(j?.amount),
     transferDate: str(j?.transferDate),
     transferTime: str(j?.transferTime),
@@ -87,9 +98,8 @@ export function mapGeminiResult(j: any, rawText: string): OcrResult {
 }
 
 class GeminiOcrProvider implements OcrService {
-  async parseSlip(_imageUrl: string, buffer?: Buffer): Promise<OcrResult> {
+  async parseSlip(buffer: Buffer): Promise<OcrResult> {
     if (!env.ocrApiKey) throw new Error("OCR_API_KEY not set for gemini provider");
-    if (!buffer) throw new Error("gemini OCR needs image bytes");
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${env.ocrModel}:generateContent`;
     const res = await fetch(url, {
       method: "POST",

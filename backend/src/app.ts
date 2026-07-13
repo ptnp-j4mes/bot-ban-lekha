@@ -3,7 +3,6 @@ import { env } from "./env";
 import { logger } from "./lib/logger";
 import { handleError, ok } from "./lib/response";
 import { customerRoutes } from "./routes/customers";
-import { presetRoutes } from "./routes/presets";
 import { bankAccountRoutes } from "./routes/bank-accounts";
 import { billPlanRoutes } from "./routes/bill-plans";
 import { installmentRoutes } from "./routes/installments";
@@ -34,7 +33,6 @@ export const app = new Elysia({ aot: false })
   .use(lineOaRoutes)
   .use(liffRoutes)
   .use(customerRoutes)
-  .use(presetRoutes)
   .use(bankAccountRoutes)
   .use(billPlanRoutes)
   .use(installmentRoutes)

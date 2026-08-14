@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "react-toastify";
 import { Copy } from "lucide-react";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut } from "@/lib/ui";

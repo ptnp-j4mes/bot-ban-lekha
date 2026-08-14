@@ -10,6 +10,7 @@ import { Input, Select, Field } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Dialog } from "@/components/ui/dialog";
+import { useConfirm, usePrompt } from "@/components/ui/confirm";
 
 const MATCH = ["unmatched", "auto_matched", "needs_admin_match", "admin_matched", "rejected"];
 const REVIEW = ["pending_review", "approved", "rejected"];
@@ -33,6 +34,8 @@ function SlipImage({ id }: { id: string }) {
 
 export function Submissions() {
   const { canWrite } = useAuth();
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const [match, setMatch] = useState("");
   // Reviewing pending slips is the page's job — land there by default.
   const [review, setReview] = useState("pending_review");
@@ -85,6 +88,19 @@ export function Submissions() {
     success: "ปฏิเสธแล้ว", invalidate: inv,
   });
 
+  const approveOne = async (id: string, message: string) => {
+    if (await confirm({ title: "ยืนยันอนุมัติสลิป", message, confirmLabel: "อนุมัติ", destructive: false })) approve.mutate(id);
+  };
+  const approveBulk = async () => {
+    if (await confirm({ title: "ยืนยันอนุมัติสลิปที่เลือก", message: `อนุมัติ ${sel.size} สลิปที่เลือก?`, confirmLabel: "อนุมัติ", destructive: false })) {
+      bulkApprove.mutate(undefined as any, { onSuccess: () => setSel(new Set()) });
+    }
+  };
+  const rejectOne = async (id: string) => {
+    const reason = await prompt({ title: "เหตุผลที่ปฏิเสธ", message: "กรุณาระบุเหตุผลก่อนปฏิเสธสลิป", placeholder: "เหตุผลที่ปฏิเสธ", confirmLabel: "ปฏิเสธ" });
+    if (reason?.trim()) reject.mutate({ id, reason: reason.trim() });
+  };
+
   const s = detail.data?.submission;
   const cands: any[] = detail.data?.candidate_installments ?? [];
 
@@ -110,7 +126,7 @@ export function Submissions() {
       const canApprove = canWrite && it.review_status === "pending_review" && (it.match_status === "auto_matched" || it.match_status === "admin_matched");
       return (
         <div className="flex justify-end gap-1">
-          {canApprove && <Button size="sm" variant="success" disabled={approve.isPending} onClick={() => { if (confirm("อนุมัติสลิปนี้? จะสร้าง payment + ส่ง LINE")) approve.mutate(it.id); }}>อนุมัติ</Button>}
+          {canApprove && <Button size="sm" variant="success" disabled={approve.isPending} onClick={() => void approveOne(it.id, "อนุมัติสลิปนี้? จะสร้าง payment + ส่ง LINE")}>อนุมัติ</Button>}
           <Button size="sm" variant="outline" onClick={() => { setSelId(it.id); setInstId(""); }}>ตรวจ</Button>
         </div>
       );
@@ -157,7 +173,7 @@ export function Submissions() {
           <CardTitle>สลิป ({list.data?.total ?? 0})</CardTitle>
           {canWrite && sel.size > 0 && (
             <Button size="sm" variant="success" className="ml-auto" disabled={bulkApprove.isPending}
-              onClick={() => { if (confirm(`อนุมัติ ${sel.size} สลิปที่เลือก?`)) bulkApprove.mutate(undefined as any, { onSuccess: () => setSel(new Set()) }); }}>
+              onClick={() => void approveBulk()}>
               อนุมัติที่เลือก ({sel.size})
             </Button>
           )}
@@ -165,7 +181,7 @@ export function Submissions() {
         <CardContent className="p-0">
           <DataTable data={items} columns={columns} rowKey={(it) => it.id} initialSort={{ key: "date", dir: "desc" }} empty="ไม่มีสลิปตามตัวกรองนี้" loading={list.isLoading} />
           {pages > 1 && (
-            <div className="flex items-center justify-end gap-2 px-4 py-3 text-sm">
+            <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-3 text-sm">
               <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</Button>
               <span>{page} / {pages}</span>
               <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage(page + 1)}>ถัดไป</Button>
@@ -179,7 +195,7 @@ export function Submissions() {
           <p className="py-6 text-center text-sm text-muted-foreground">กำลังโหลด…</p>
         ) : (
           <div className="space-y-3 text-sm">
-            <div className="grid grid-cols-2 gap-1 max-w-xl">
+            <div className="grid grid-cols-1 gap-1 max-w-xl min-[420px]:grid-cols-2">
               <span className="text-muted-foreground">ผู้ส่ง</span><span>{s.sender_name || s.customer?.display_name || s.line_user_id || "—"}</span>
               <span className="text-muted-foreground">รหัสลูกค้า</span><span className="fig">{s.customer?.customer_code || "—"}</span>
               <span className="text-muted-foreground">LINE user ID</span><span className="fig break-all">{s.line_user_id || "—"}</span>
@@ -205,8 +221,8 @@ export function Submissions() {
                   ))}
                 </Select>
                 <Button size="sm" disabled={!instId} onClick={() => doMatch.mutate({ id: s.id, inst: instId })}>ผูกงวด</Button>
-                <Button size="sm" variant="success" onClick={() => { if (confirm("ยืนยันอนุมัติ? จะสร้าง payment + ส่ง LINE")) approve.mutate(s.id); }}>อนุมัติ ✅</Button>
-                <Button size="sm" variant="destructive" onClick={() => { const r = prompt("เหตุผลที่ปฏิเสธ:"); if (r) reject.mutate({ id: s.id, reason: r }); }}>ปฏิเสธ</Button>
+                <Button size="sm" variant="success" onClick={() => void approveOne(s.id, "ยืนยันอนุมัติ? จะสร้าง payment + ส่ง LINE")}>อนุมัติ ✅</Button>
+                <Button size="sm" variant="destructive" onClick={() => void rejectOne(s.id)}>ปฏิเสธ</Button>
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">สิทธิ์ viewer — ดูได้อย่างเดียว</p>

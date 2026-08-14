@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "react-toastify";
 import { apiGet, apiRaw } from "@/lib/api";
 import { statusBadge } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
@@ -43,15 +43,15 @@ export function Reports() {
       <Card>
         <CardHeader className="flex-row items-center gap-2">
           <CardTitle>รายงาน</CardTitle>
-          <div className="ml-auto flex items-end gap-2">
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" />
-            <span className="pb-2">–</span>
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" />
-            <Button size="sm" onClick={downloadCsv}><Download className="h-3 w-3 mr-1" /> CSV การชำระ</Button>
+          <div className="ml-0 grid w-full grid-cols-1 items-end gap-2 sm:ml-auto sm:flex sm:w-auto">
+            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-full sm:w-40" />
+            <span className="hidden pb-2 sm:block">–</span>
+            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-full sm:w-40" />
+            <Button size="sm" className="w-full sm:w-auto" onClick={downloadCsv}><Download className="h-3 w-3 mr-1" /> CSV การชำระ</Button>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:grid-cols-3">
             {stat("ยอดเก็บได้ (บาท)", fmt(s?.collected ?? 0))}
             {stat("จำนวนรายการชำระ", String(s?.payment_count ?? 0))}
             {stat("สลิปรอตรวจ", String(s?.pending_count ?? 0))}
@@ -65,7 +65,7 @@ export function Reports() {
       <Card>
         <CardHeader className="flex-row items-center gap-2">
           <CardTitle>รายงานรายวัน — ต่อกลุ่ม LINE</CardTitle>
-          <Input type="date" value={day} onChange={(e) => setDay(e.target.value)} className="ml-auto w-40" />
+          <Input type="date" value={day} onChange={(e) => setDay(e.target.value)} className="ml-0 w-full sm:ml-auto sm:w-40" />
         </CardHeader>
         <CardContent>
           <Table>

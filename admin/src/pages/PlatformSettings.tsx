@@ -8,18 +8,21 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Dialog } from "@/components/ui/dialog";
+import { useConfirm, usePrompt } from "@/components/ui/confirm";
 import { MenuManager } from "@/components/MenuManager";
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between border-b border-border py-2 last:border-0">
+    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-b border-border py-2 last:border-0">
       <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{k}</span>
-      <span className="fig text-sm">{v}</span>
+      <span className="fig max-w-full break-words text-left text-sm sm:text-right">{v}</span>
     </div>
   );
 }
 
 export function PlatformSettings() {
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const s = useQuery({ queryKey: ["platform-settings"], queryFn: () => apiGet("/api/platform/settings") });
   const orgs = useQuery({ queryKey: ["orgs"], queryFn: () => apiGet("/api/platform/organizations") });
   const info = useQuery({ queryKey: ["system-info"], queryFn: () => apiGet("/api/platform/system-info"), refetchInterval: 15000 });
@@ -27,6 +30,16 @@ export function PlatformSettings() {
   const editOrg = useMut((b: { id: string; data: any }) => apiSend(`/api/platform/organizations/${b.id}`, "PATCH", b.data), { success: "อัปเดตองค์กรแล้ว", invalidate: ["orgs"] });
   const removeOrg = useMut((id: string) => apiSend(`/api/platform/organizations/${id}`, "DELETE"), { success: "ลบองค์กรแล้ว", invalidate: ["orgs", "system-info"] });
   const [storageOrg, setStorageOrg] = useState<any | null>(null);
+
+  const renameOrg = async (org: any) => {
+    const name = await prompt({ title: "เปลี่ยนชื่อองค์กร", message: "ชื่อองค์กรใหม่", defaultValue: org.name, confirmLabel: "บันทึก" });
+    if (name?.trim()) editOrg.mutate({ id: org.id, data: { name: name.trim() } });
+  };
+  const deleteOrg = async (org: any) => {
+    if (await confirm({ title: "ยืนยันลบองค์กร", message: `ต้องการลบองค์กร “${org.name}” ใช่หรือไม่? ลบได้เฉพาะองค์กรที่ยังไม่มีข้อมูล`, confirmLabel: "ลบองค์กร", destructive: true })) {
+      removeOrg.mutate(org.id);
+    }
+  };
 
   const saveStorage = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -63,15 +76,13 @@ export function PlatformSettings() {
     { key: "act", header: "", stop: true, cell: (o) => (
       <div className="flex justify-end gap-1">
         <Button size="sm" variant="outline" onClick={() => setStorageOrg(o)}>ตั้งค่า Storage</Button>
-        <Button size="sm" variant="outline" onClick={() => { const n = prompt("ชื่อองค์กรใหม่:", o.name); if (n && n.trim()) editOrg.mutate({ id: o.id, data: { name: n.trim() } }); }}>เปลี่ยนชื่อ</Button>
+        <Button size="sm" variant="outline" onClick={() => void renameOrg(o)}>เปลี่ยนชื่อ</Button>
         <Button size="sm" variant={o.is_active ? "destructive" : "success"} onClick={() => editOrg.mutate({ id: o.id, data: { is_active: !o.is_active } })}>{o.is_active ? "ปิด" : "เปิด"}</Button>
         <Button
           size="sm"
           variant="destructive"
           disabled={removeOrg.isPending}
-          onClick={() => {
-            if (window.confirm(`ต้องการลบองค์กร “${o.name}” ใช่หรือไม่? ลบได้เฉพาะองค์กรที่ยังไม่มีข้อมูล`)) removeOrg.mutate(o.id);
-          }}
+          onClick={() => void deleteOrg(o)}
         >ลบ</Button>
       </div>
     ) },

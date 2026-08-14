@@ -2,7 +2,7 @@ import { useContext, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Send, CheckCircle2, Circle, CalendarDays, AlertTriangle, Receipt, Clock } from "lucide-react";
 import { NavCtx } from "@/App";
-import { toast } from "sonner";
+import { toast } from "react-toastify";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut, statusBadge } from "@/lib/ui";
 import { baht, thDate } from "@/lib/format";
@@ -141,10 +141,10 @@ export function Dashboard() {
       )}
 
       {/* toolbar: ledger date + action */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="fig text-sm text-muted-foreground">ประจำวันที่ {today}</div>
-        <Button size="sm" disabled={remind.isPending}
-          onClick={() => remind.mutate(undefined as any, { onSuccess: (r: any) => toast.message(`ส่งเตือน ${r.sent}/${r.candidates} ราย`) })}>
+        <Button size="sm" className="w-full sm:w-auto" disabled={remind.isPending}
+          onClick={() => remind.mutate(undefined as any, { onSuccess: (r: any) => toast.info(`ส่งเตือน ${r.sent}/${r.candidates} ราย`) })}>
           <Send className="h-3.5 w-3.5" /> ส่งเตือนวันนี้
         </Button>
       </div>

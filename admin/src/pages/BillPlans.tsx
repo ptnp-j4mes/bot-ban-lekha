@@ -9,22 +9,35 @@ import { Input, Select, Field } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Dialog } from "@/components/ui/dialog";
+import { useConfirm } from "@/components/ui/confirm";
 
 export function BillPlans() {
+  const confirm = useConfirm();
   const custs = useQuery({ queryKey: ["customers"], queryFn: () => apiGet("/api/customers?limit=200") });
   const banks = useQuery({ queryKey: ["banks"], queryFn: () => apiGet("/api/bank-accounts") });
   const [viewCust, setViewCust] = useState("");
   const [mode, setMode] = useState<"interval" | "custom">("interval");
-  const [rows, setRows] = useState([{ due_date: "", amount_due: "" }]);
+  const [rows, setRows] = useState([{ due_date: "", amount_due: "", penalty_amount: "" }]);
 
   const [payInst, setPayInst] = useState<any>(null);
   const [editInst, setEditInst] = useState<any>(null);
+  const [previewBill, setPreviewBill] = useState<{ id: string; billNo: number } | null>(null);
+  const [penaltyPlan, setPenaltyPlan] = useState<any>(null);
 
   const plans = useQuery({ queryKey: ["bill-plans", viewCust], queryFn: () => apiGet(`/api/customers/${viewCust}/bill-plans`), enabled: !!viewCust });
+  const preview = useQuery({
+    queryKey: ["bill-preview", previewBill?.id],
+    queryFn: () => apiGet(`/api/bill-plans/${previewBill!.id}/preview`),
+    enabled: !!previewBill,
+  });
   const create = useMut((b: any) => apiSend("/api/bill-plans", "POST", b), { success: "สร้างบิลแล้ว", invalidate: ["bill-plans"] });
   const createCustom = useMut((b: any) => apiSend("/api/bill-plans/custom-dates", "POST", b), { success: "สร้างบิลแล้ว", invalidate: ["bill-plans"] });
   const cancel = useMut((id: string) => apiSend(`/api/bill-plans/${id}/cancel`, "PATCH"), { success: "ยกเลิกบิลแล้ว", invalidate: ["bill-plans"] });
+  const cancelBill = async (id: string) => {
+    if (await confirm({ title: "ยืนยันยกเลิกบิล", message: "ยกเลิกบิลนี้? งวดที่ยังไม่จ่ายจะถูกยกเลิก", confirmLabel: "ยกเลิกบิล", destructive: true })) cancel.mutate(id);
+  };
   const sendBill = useMut((id: string) => apiSend(`/api/bill-plans/${id}/send`, "POST"), { success: "ส่งบิลให้ลูกค้าแล้ว" });
+  const editPlanPenalty = useMut((b: { id: string; amount: number }) => apiSend(`/api/bill-plans/${b.id}/penalty`, "PATCH", { bill_penalty_amount: b.amount }), { success: "บันทึกค่าปรับหัวบิลแล้ว", invalidate: ["bill-plans", "bill-preview"] });
   const inv = ["bill-plans", "due-today", "overdue"];
   const pay = useMut((b: { id: string; amount: number }) => apiSend(`/api/installments/${b.id}/pay`, "POST", { amount: b.amount }), { success: "บันทึกรับชำระแล้ว", invalidate: inv });
   const editI = useMut((b: { id: string; data: any }) => apiSend(`/api/installments/${b.id}`, "PATCH", b.data), { success: "แก้งวดแล้ว", invalidate: inv });
@@ -36,10 +49,11 @@ export function BillPlans() {
     { key: "due", header: "ครบกำหนด", sortValue: (i) => i.due_date, cell: (i) => <span className="fig">{thDate(i.due_date)}</span> },
     { key: "amt", header: "ยอด", align: "right", sortValue: (i) => Number(i.amount_due), cell: (i) => <span className="fig">{baht(i.amount_due)}</span> },
     { key: "paid", header: "จ่าย", align: "right", sortValue: (i) => Number(i.amount_paid), cell: (i) => <span className="fig">{baht(i.amount_paid)}</span> },
+    { key: "penalty", header: "ค่าปรับ", align: "right", sortValue: (i) => Number(i.penalty_amount), cell: (i) => <span className="fig text-danger-text">{Number(i.penalty_amount ?? 0) > 0 ? baht(i.penalty_amount) : "—"}</span> },
     { key: "status", header: "สถานะ", sortValue: (i) => i.status, cell: (i) => statusBadge(i.status) },
-    { key: "act", header: "", stop: true, cell: (i) => (i.status === "paid" || i.status === "cancelled") ? null : (
+    { key: "act", header: "", stop: true, cell: (i) => i.status === "cancelled" ? null : (
       <div className="flex justify-end gap-1">
-        <Button size="sm" onClick={() => setPayInst(i)}>รับชำระ</Button>
+        {i.status !== "paid" && <Button size="sm" onClick={() => setPayInst(i)}>รับชำระ</Button>}
         <Button size="sm" variant="outline" onClick={() => setEditInst(i)}>แก้</Button>
       </div>
     ) },
@@ -61,19 +75,20 @@ export function BillPlans() {
       customer_id: fd.get("customer_id"), bill_no: num("bill_no"), principal_amount: num("principal_amount"),
       installment_amount: num("installment_amount"), cycle_type: "interval_days", cycle_days: num("cycle_days"),
       total_installments: num("total_installments"), start_date: fd.get("start_date"),
+      bill_penalty_amount: num("bill_penalty_amount"), installment_penalty_amount: num("installment_penalty_amount"),
       bank_account_id: fd.get("bank_account_id") || undefined, note: fd.get("note") || undefined,
     });
   };
   const submitCustom = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const installments = rows.filter((r) => r.due_date && r.amount_due).map((r, i) => ({ installment_no: i + 1, due_date: r.due_date, amount_due: Number(r.amount_due) }));
+    const installments = rows.filter((r) => r.due_date && r.amount_due).map((r, i) => ({ installment_no: i + 1, due_date: r.due_date, amount_due: Number(r.amount_due), penalty_amount: Number(r.penalty_amount || 0) }));
     if (!installments.length) return;
     createCustom.mutate({
       customer_id: fd.get("customer_id"), bill_no: Number(fd.get("bill_no")), principal_amount: Number(fd.get("principal_amount")),
-      cycle_type: "custom_dates", bank_account_id: fd.get("bank_account_id") || undefined, note: fd.get("note") || undefined, installments,
+      cycle_type: "custom_dates", bank_account_id: fd.get("bank_account_id") || undefined, bill_penalty_amount: Number(fd.get("bill_penalty_amount") || 0), note: fd.get("note") || undefined, installments,
     });
-    setRows([{ due_date: "", amount_due: "" }]);
+    setRows([{ due_date: "", amount_due: "", penalty_amount: "" }]);
   };
 
   return (
@@ -81,7 +96,7 @@ export function BillPlans() {
       <Card>
         <CardHeader className="flex-row items-center gap-2">
           <CardTitle>สร้างบิล</CardTitle>
-          <div className="ml-auto flex gap-1">
+          <div className="ml-0 flex w-full flex-wrap gap-1 sm:ml-auto sm:w-auto">
             <Button size="sm" variant={mode === "interval" ? "default" : "outline"} onClick={() => setMode("interval")}>ทุก X วัน</Button>
             <Button size="sm" variant={mode === "custom" ? "default" : "outline"} onClick={() => setMode("custom")}>กำหนดวันเอง</Button>
           </div>
@@ -97,6 +112,8 @@ export function BillPlans() {
               <Field label="จำนวนงวด"><Input name="total_installments" type="number" required /></Field>
               <Field label="วันเริ่ม"><Input name="start_date" type="date" required /></Field>
               <Field label="บัญชีรับโอน">{bankSelect}</Field>
+              <Field label="ค่าปรับหัวบิลรวม"><Input name="bill_penalty_amount" type="number" min="0" step="0.01" placeholder="เช่น 500" /></Field>
+              <Field label="ค่าปรับทุกงวด (default)"><Input name="installment_penalty_amount" type="number" min="0" step="0.01" placeholder="เช่น 500" /></Field>
               <Field label="หมายเหตุ" className="sm:col-span-2 lg:col-span-3"><Input name="note" /></Field>
               <Button type="submit">สร้างบิล</Button>
             </form>
@@ -107,19 +124,21 @@ export function BillPlans() {
                 <Field label="Bill No."><Input name="bill_no" type="number" required /></Field>
                 <Field label="เงินต้น"><Input name="principal_amount" type="number" required /></Field>
                 <Field label="บัญชีรับโอน">{bankSelect}</Field>
+                <Field label="ค่าปรับหัวบิลรวม"><Input name="bill_penalty_amount" type="number" min="0" step="0.01" placeholder="เช่น 500" /></Field>
                 <Field label="หมายเหตุ" className="sm:col-span-2 lg:col-span-4"><Input name="note" /></Field>
               </div>
               <div className="space-y-1">
                 <div className="text-sm text-muted-foreground">งวด (วันครบกำหนด + ยอด)</div>
                 {rows.map((r, i) => (
-                  <div key={i} className="flex gap-2 items-center">
+                  <div key={i} className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[1.5rem_minmax(0,1fr)_8rem_7rem_auto]">
                     <span className="w-6 text-sm text-muted-foreground">{i + 1}</span>
-                    <Input type="date" value={r.due_date} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, due_date: e.target.value } : x))} className="w-44" />
-                    <Input type="number" placeholder="ยอด" value={r.amount_due} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, amount_due: e.target.value } : x))} className="w-32" />
-                    {rows.length > 1 && <Button size="icon" variant="ghost" type="button" onClick={() => setRows(rows.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" /></Button>}
+                    <Input type="date" value={r.due_date} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, due_date: e.target.value } : x))} className="min-w-0" />
+                    <Input type="number" placeholder="ยอด" value={r.amount_due} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, amount_due: e.target.value } : x))} className="col-start-2 row-start-2 w-full sm:col-start-auto sm:row-start-auto sm:w-full" />
+                    <Input type="number" min="0" step="0.01" placeholder="ค่าปรับ" value={r.penalty_amount} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, penalty_amount: e.target.value } : x))} className="col-start-2 row-start-3 w-full sm:col-start-auto sm:row-start-auto sm:w-full" />
+                    {rows.length > 1 && <Button size="icon" variant="ghost" type="button" className="col-start-3 row-start-3 sm:col-start-auto sm:row-start-auto" onClick={() => setRows(rows.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" /></Button>}
                   </div>
                 ))}
-                <Button size="sm" variant="outline" type="button" onClick={() => setRows([...rows, { due_date: "", amount_due: "" }])}><Plus className="h-3 w-3 mr-1" /> เพิ่มงวด</Button>
+                <Button size="sm" variant="outline" type="button" onClick={() => setRows([...rows, { due_date: "", amount_due: "", penalty_amount: "" }])}><Plus className="h-3 w-3 mr-1" /> เพิ่มงวด</Button>
               </div>
               <Button size="sm" type="submit">สร้างบิล</Button>
             </form>
@@ -130,18 +149,21 @@ export function BillPlans() {
       <Card>
         <CardHeader><CardTitle>ดูบิลของลูกค้า</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <Select value={viewCust} onChange={(e) => setViewCust(e.target.value)} className="w-72"><option value="">— เลือกลูกค้า —</option>{custOptions}</Select>
+          <Select value={viewCust} onChange={(e) => setViewCust(e.target.value)} className="w-full sm:w-72"><option value="">— เลือกลูกค้า —</option>{custOptions}</Select>
           {(plans.data ?? []).map((p: any) => (
             <Card key={p.id}>
               <CardHeader className="py-2 flex-row items-center gap-2">
                 <CardTitle className="text-base">บิล {p.bill_no}</CardTitle>
                 {statusBadge(p.status)}
-                {p.status === "active" && (
-                  <div className="ml-auto flex gap-1">
+                {Number(p.penalty_amount ?? 0) > 0 && <span className="text-xs text-danger-text">ค่าปรับหัวบิล {baht(p.penalty_amount)}</span>}
+                <div className="ml-0 flex w-full flex-wrap gap-1 sm:ml-auto sm:w-auto">
+                  <Button size="sm" variant="outline" onClick={() => setPreviewBill({ id: p.id, billNo: p.bill_no })}>Preview Bill</Button>
+                  <Button size="sm" variant="outline" onClick={() => setPenaltyPlan(p)}>แก้ค่าปรับหัวบิล</Button>
+                  {p.status === "active" && <>
                     <Button size="sm" variant="outline" onClick={() => sendBill.mutate(p.id)}>ส่งบิล</Button>
-                    <Button size="sm" variant="destructive" onClick={() => { if (confirm("ยกเลิกบิลนี้? งวดที่ยังไม่จ่ายจะถูกยกเลิก")) cancel.mutate(p.id); }}>ยกเลิกบิล</Button>
-                  </div>
-                )}
+                    <Button size="sm" variant="destructive" onClick={() => void cancelBill(p.id)}>ยกเลิกบิล</Button>
+                  </>}
+                </div>
               </CardHeader>
               <CardContent className="p-0">
                 <DataTable data={p.installments} columns={instCols} rowKey={(i) => i.id} initialSort={{ key: "no", dir: "asc" }} maxHeight="none" empty="ไม่มีงวด" />
@@ -166,7 +188,7 @@ export function BillPlans() {
         <form className="space-y-3" onSubmit={(e) => {
           e.preventDefault();
           const f = e.currentTarget.elements as any;
-          editI.mutate({ id: editInst.id, data: { amount_due: Number(f.amount_due.value), due_date: f.due_date.value, status: f.status.value } }, { onSuccess: () => setEditInst(null) });
+          editI.mutate({ id: editInst.id, data: { amount_due: Number(f.amount_due.value), due_date: f.due_date.value, status: f.status.value, penalty_amount: Number(f.penalty_amount.value || 0) } }, { onSuccess: () => setEditInst(null) });
         }}>
           <div>
             <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">ยอด (บาท)</label>
@@ -182,8 +204,36 @@ export function BillPlans() {
               {["pending", "partial_paid", "overdue", "paid", "cancelled"].map((s) => <option key={s} value={s}>{statusTh(s)}</option>)}
             </Select>
           </div>
+          <div>
+            <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">ค่าปรับงวดนี้ (บาท)</label>
+            <Input name="penalty_amount" type="number" min="0" step="0.01" defaultValue={editInst?.penalty_amount ?? 0} className="mt-1" />
+          </div>
           <Button size="sm" type="submit" className="w-full" disabled={editI.isPending}>บันทึก</Button>
         </form>
+      </Dialog>
+
+      <Dialog open={!!penaltyPlan} onClose={() => setPenaltyPlan(null)} title={`ค่าปรับหัวบิล ${penaltyPlan?.bill_no ?? ""}`} className="max-w-sm">
+        <form className="space-y-3" onSubmit={(e) => {
+          e.preventDefault();
+          const amount = Number((e.currentTarget.elements.namedItem("bill_penalty_amount") as HTMLInputElement).value || 0);
+          editPlanPenalty.mutate({ id: penaltyPlan.id, amount }, { onSuccess: () => setPenaltyPlan(null) });
+        }}>
+          <p className="text-xs text-muted-foreground">ค่าปรับหัวบิลจะแสดงแยกจากยอดงวดหลักใน Preview และข้อความ LINE</p>
+          <Input name="bill_penalty_amount" type="number" min="0" step="0.01" defaultValue={penaltyPlan?.penalty_amount ?? 0} autoFocus />
+          <Button size="sm" type="submit" className="w-full" disabled={editPlanPenalty.isPending}>บันทึกค่าปรับ</Button>
+        </form>
+      </Dialog>
+
+      {/* Preview is the exact text sent by the bill renderer. */}
+      <Dialog open={!!previewBill} onClose={() => setPreviewBill(null)} title={`Preview Bill ${previewBill?.billNo ?? ""}`} className="max-w-xl">
+        <p className="mb-3 text-xs text-muted-foreground">ตัวอย่างข้อความนี้ใช้ renderer เดียวกับข้อความที่จะส่งให้ลูกค้าทาง LINE</p>
+        {preview.isLoading && <p className="text-sm text-muted-foreground">กำลังโหลดตัวอย่างบิล…</p>}
+        {preview.error && <p className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger-text">โหลด Preview ไม่สำเร็จ</p>}
+        {preview.data?.text && (
+          <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-background px-4 py-3 font-sans text-[15px] leading-7 text-foreground">
+            {preview.data.text}
+          </pre>
+        )}
       </Dialog>
     </>
   );

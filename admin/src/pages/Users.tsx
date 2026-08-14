@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "react-toastify";
 import { LogIn } from "lucide-react";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut } from "@/lib/ui";
@@ -9,15 +9,21 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Field } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { usePrompt } from "@/components/ui/confirm";
 
 // Super-admin console: manage users + the org each operates in, and "enter" a user's org.
 export function Users() {
   const { enterOrg } = useAuth();
+  const prompt = usePrompt();
   const users = useQuery({ queryKey: ["admin-users"], queryFn: () => apiGet("/api/platform/admin-users") });
   const orgs = useQuery({ queryKey: ["orgs"], queryFn: () => apiGet("/api/platform/organizations") });
 
   const create = useMut((b: any) => apiSend("/api/platform/admin-users", "POST", b), { success: "สร้างผู้ใช้แล้ว", invalidate: ["admin-users", "orgs"] });
   const update = useMut((b: { id: string; data: any }) => apiSend(`/api/platform/admin-users/${b.id}`, "PATCH", b.data), { success: "อัปเดตแล้ว", invalidate: ["admin-users", "orgs"] });
+  const resetPassword = async (user: any) => {
+    const password = await prompt({ title: "รีเซ็ตรหัสผ่าน", message: `กำหนดรหัสผ่านใหม่สำหรับ ${user.display_name || user.username}`, placeholder: "รหัสผ่านใหม่", confirmLabel: "บันทึก" });
+    if (password) update.mutate({ id: user.id, data: { password } });
+  };
 
   const submit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -55,7 +61,7 @@ export function Users() {
     { key: "act", header: "", stop: true, cell: (u) => (
       <div className="flex justify-end gap-1">
         {u.org && <Button size="sm" onClick={() => enterOrg(u.org)}><LogIn className="h-3 w-3 mr-1" /> เข้าจัดการ</Button>}
-        <Button size="sm" variant="outline" onClick={() => { const p = prompt("รหัสผ่านใหม่:"); if (p) update.mutate({ id: u.id, data: { password: p } }); }}>รีเซ็ตรหัส</Button>
+        <Button size="sm" variant="outline" onClick={() => void resetPassword(u)}>รีเซ็ตรหัส</Button>
         <Button size="sm" variant={u.is_active ? "destructive" : "success"} onClick={() => update.mutate({ id: u.id, data: { is_active: !u.is_active } })}>{u.is_active ? "ปิด" : "เปิด"}</Button>
       </div>
     ) },

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, Upload } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "react-toastify";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut, statusTh } from "@/lib/ui";
 import { CustomerDetail } from "./CustomerDetail";
@@ -89,13 +89,13 @@ export function Customers() {
       <Card>
         <CardHeader className="flex-row items-center gap-2">
           <CardTitle>ลูกค้าทั้งหมด ({total})</CardTitle>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-0 flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
             <label className="cursor-pointer">
               <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && importCsv(e.target.files[0])} />
               <span className="inline-flex h-9 items-center gap-1 rounded-lg bg-background neu-raised-sm px-3.5 text-xs"><Upload className="h-3 w-3" /> นำเข้า CSV</span>
             </label>
-            <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); setPage(1); setQ(search); }}>
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหา รหัส/ชื่อ/เบอร์" className="w-56" />
+            <form className="flex min-w-0 flex-1 gap-2 sm:flex-none" onSubmit={(e) => { e.preventDefault(); setPage(1); setQ(search); }}>
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหา รหัส/ชื่อ/เบอร์" className="min-w-0 w-full sm:w-56" />
               <Button size="sm" type="submit">ค้นหา</Button>
             </form>
           </div>
@@ -103,7 +103,7 @@ export function Customers() {
         <CardContent className="p-0">
           <DataTable data={list.data?.items ?? []} columns={columns} rowKey={(c) => c.id} initialSort={{ key: "code", dir: "asc" }} empty="ยังไม่มีลูกค้า" loading={list.isLoading} />
           {pages > 1 && (
-            <div className="flex items-center justify-end gap-2 px-4 py-3 text-sm">
+            <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-3 text-sm">
               <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</Button>
               <span>{page} / {pages}</span>
               <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage(page + 1)}>ถัดไป</Button>

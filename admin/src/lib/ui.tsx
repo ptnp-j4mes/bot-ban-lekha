@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "react-toastify";
 import { Badge } from "@/components/ui/badge";
 
 // Thin mutation wrapper: toast on success/error + invalidate the given query keys.

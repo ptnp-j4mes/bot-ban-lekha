@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { toast } from "sonner";
+import { toast } from "react-toastify";
 import { loginUrl, setDevKey, setToken, clearAuth } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,7 +87,7 @@ export function Login() {
           <details className="mt-5 font-mono text-[11px] text-muted-foreground">
             <summary className="cursor-pointer hover:text-foreground">dev · ใช้ API key</summary>
             <form className="mt-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); clearAuth(); setDevKey(dev.trim()); window.location.reload(); }}>
-              <Input type="password" placeholder="ADMIN_API_KEY" value={dev} onChange={(e) => setDev(e.target.value)} className="h-9" />
+              <Input type="password" placeholder="ADMIN_API_KEY" value={dev} onChange={(e) => setDev(e.target.value)} className="h-9 min-w-0 flex-1" />
               <Button size="sm" type="submit">เข้า</Button>
             </form>
           </details>

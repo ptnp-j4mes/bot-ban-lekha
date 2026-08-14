@@ -1,6 +1,7 @@
 import { createContext, useEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { Toaster, toast } from "sonner";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 import { LayoutDashboard, Users as UsersIcon, Landmark, FileText, Receipt, Menu, LogOut, MessageSquare, Reply, ArrowLeft, Settings as SettingsIcon, HardDrive, BarChart3, History, UserCheck, Users2, Sun, Moon } from "lucide-react";
 import { apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -25,11 +26,21 @@ import { PlatformSettings } from "@/pages/PlatformSettings";
 import { GoogleDriveSettings } from "@/pages/GoogleDriveSettings";
 import { Login } from "@/pages/Login";
 import { NotificationBell, type Notif } from "@/components/NotificationBell";
+import { ConfirmProvider } from "@/components/ui/confirm";
+import { menuIdFromPath, menuPath, platformMenuIdFromPath, platformMenuPath } from "@/lib/menu";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
 // Lets pages jump to another nav tab (e.g. the Dashboard setup checklist).
 export const NavCtx = createContext<(tabId: string) => void>(() => {});
+
+function currentPath() {
+  if (window.location.pathname === "/") {
+    window.history.replaceState(null, "", "/dashboard");
+    return "/dashboard";
+  }
+  return window.location.pathname;
+}
 
 function applyTheme(dark: boolean) {
   document.documentElement.classList.toggle("dark", dark);
@@ -110,28 +121,64 @@ function Frame({ title, brand, right, children, nav }: any) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-[62px] shrink-0 flex-wrap items-center gap-3 border-b border-foreground/15 bg-background/95 px-4 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <Button size="icon" variant="ghost" className="lg:hidden" onClick={() => setOpen(true)}>
-            <Menu className="h-5 w-5" />
-          </Button>
-          <div className="leading-snug">
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">หน้าหลัก</div>
-            <h1 className="text-[17px] font-bold tracking-tight">{title}</h1>
+        <header className="sticky top-0 z-20 flex min-h-[62px] shrink-0 flex-col items-stretch gap-2 border-b border-foreground/15 bg-background/95 px-3 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:flex-row sm:items-center sm:gap-3 sm:px-4">
+          <div className="flex min-h-10 min-w-0 items-center gap-3">
+            <Button size="icon" variant="ghost" className="lg:hidden" onClick={() => setOpen(true)}>
+              <Menu className="h-5 w-5" />
+            </Button>
+            <div className="leading-snug">
+              <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">หน้าหลัก</div>
+              <h1 className="text-[17px] font-bold tracking-tight">{title}</h1>
+            </div>
           </div>
-          <div className="ml-auto flex items-center gap-2.5"><ThemeToggle />{right}</div>
+          <div className="flex min-w-0 w-full flex-wrap items-center justify-start gap-1.5 border-t border-border/60 pt-2 sm:ml-auto sm:w-auto sm:justify-end sm:border-t-0 sm:pt-0 lg:flex-nowrap lg:gap-2.5"><ThemeToggle />{right}</div>
         </header>
-        <main className="space-y-5 p-4 md:p-6 lg:p-7">{children}</main>
+        <main className="min-w-0 space-y-5 overflow-x-hidden p-4 md:p-6 lg:p-7">{children}</main>
       </div>
-      <Toaster richColors position="top-right" />
     </div>
   );
 }
 
 function Shell() {
   const { me, loading, isPlatformAdmin, impersonating, orgId, orgName, exitOrg, logout, menuPrefs } = useAuth();
-  const [tab, setTab] = useState("dashboard");
-  const [ptab, setPtab] = useState("users");
+  const [pathname, setPathname] = useState(currentPath);
   const opEnabled = !!orgId && (!isPlatformAdmin || impersonating);
+
+  useEffect(() => {
+    const onPopState = () => setPathname(currentPath());
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const navigate = (id: string, replace = false) => {
+    const path = menuPath(id);
+    if (window.location.pathname === path) return;
+    if (replace) window.history.replaceState(null, "", path);
+    else window.history.pushState(null, "", path);
+    setPathname(path);
+  };
+
+  const navigatePlatform = (id: string, replace = false) => {
+    const path = platformMenuPath(id);
+    if (window.location.pathname === path) return;
+    if (replace) window.history.replaceState(null, "", path);
+    else window.history.pushState(null, "", path);
+    setPathname(path);
+  };
+
+  const tab = menuIdFromPath(pathname) ?? "dashboard";
+  const ptab = platformMenuIdFromPath(pathname) ?? "users";
+
+  // Keep the URL in the correct menu namespace when auth mode changes, e.g.
+  // entering or leaving an organization from the platform user console.
+  useEffect(() => {
+    if (loading || !me) return;
+    if (isPlatformAdmin && !impersonating) {
+      if (!platformMenuIdFromPath(pathname)) navigatePlatform("users", true);
+    } else if (!menuIdFromPath(pathname)) {
+      navigate("dashboard", true);
+    }
+  }, [loading, me, isPlatformAdmin, impersonating, pathname]);
   const pending = useQuery({
     queryKey: ["subs-pending-nav"],
     queryFn: () => apiGet("/api/admin/payment-submissions?review_status=pending_review&limit=1"),
@@ -148,15 +195,15 @@ function Shell() {
   useEffect(() => {
     if (!opEnabled) { prevPending.current = null; return; }
     if (prevPending.current != null && pendingCount > prevPending.current) {
-      toast.message(`มีสลิปใหม่รอตรวจ ${pendingCount - prevPending.current} รายการ`, { description: "เปิดเมนู สลิป / อนุมัติ เพื่อตรวจสอบ" });
+      toast.info(`มีสลิปใหม่รอตรวจ ${pendingCount - prevPending.current} รายการ — เปิดเมนู สลิป / อนุมัติ เพื่อตรวจสอบ`);
     }
     prevPending.current = pendingCount;
   }, [pendingCount, opEnabled]);
 
   const notifs: Notif[] = [
-    { id: "subs", label: "สลิปรอตรวจสอบ", count: pendingCount, tone: "warn", onClick: () => setTab("subs") },
-    { id: "due", label: "ครบกำหนดวันนี้", count: dueToday.data?.length ?? 0, tone: "info", onClick: () => setTab("dashboard") },
-    { id: "overdue", label: "ค้างชำระ", count: overdue.data?.length ?? 0, tone: "danger", onClick: () => setTab("dashboard") },
+    { id: "subs", label: "สลิปรอตรวจสอบ", count: pendingCount, tone: "warn", onClick: () => navigate("subs") },
+    { id: "due", label: "ครบกำหนดวันนี้", count: dueToday.data?.length ?? 0, tone: "info", onClick: () => navigate("dashboard") },
+    { id: "overdue", label: "ค้างชำระ", count: overdue.data?.length ?? 0, tone: "danger", onClick: () => navigate("dashboard") },
   ];
 
   if (loading) return (
@@ -201,7 +248,7 @@ function Shell() {
               {group.items.map((p) => (
                 <button
                   key={p.id}
-                  onClick={() => { setPtab(p.id); close(); }}
+                  onClick={() => { navigatePlatform(p.id); close(); }}
                   className={cn(
                     "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-colors",
                     pActive.id === p.id
@@ -243,7 +290,7 @@ function Shell() {
     const item = (n: typeof NAV[number]) => (
       <button
         key={n.id}
-        onClick={() => { setTab(n.id); close(); }}
+        onClick={() => { navigate(n.id); close(); }}
         className={cn(
           "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-colors",
           active.id === n.id
@@ -315,12 +362,12 @@ function Shell() {
               <ArrowLeft className="h-3 w-3 mr-1" /> ออกจาก org
             </Button>
           )}
-          <span className="hidden text-sm text-muted-foreground sm:inline">{orgName}</span>
+          <span className="hidden max-w-56 truncate text-sm text-muted-foreground sm:inline">{orgName}</span>
           {impersonating && <Badge variant="warning">ดูในมุม user</Badge>}
         </>
       }
     >
-      <NavCtx.Provider value={setTab}>{active.el}</NavCtx.Provider>
+      <NavCtx.Provider value={navigate}>{active.el}</NavCtx.Provider>
     </Frame>
   );
 }
@@ -329,7 +376,18 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <Shell />
+        <ConfirmProvider>
+          <Shell />
+          <ToastContainer
+            position="top-right"
+            autoClose={5000}
+            closeButton
+            closeOnClick
+            pauseOnHover
+            newestOnTop
+            theme="colored"
+          />
+        </ConfirmProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

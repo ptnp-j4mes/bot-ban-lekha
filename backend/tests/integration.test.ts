@@ -23,11 +23,18 @@ async function mkMember(orgId: string, role: string) {
 const hdr = (token: string, orgId: string) => ({ authorization: `Bearer ${token}`, "x-org-id": orgId });
 const apiHdr = (orgId: string) => ({ "x-api-key": "change-me", "x-org-id": orgId });
 
-async function makePlan(orgId: string, amount = 490) {
+async function makePlan(orgId: string, amount = 490, lineOaId?: string) {
   const bank = await prisma.bankAccount.create({
     data: { orgId, accountName: "n", accountNo: "1", bankName: "b", isDefault: true, isActive: true },
   });
-  const customer = await prisma.customer.create({ data: { orgId, customerCode: `C${rnd()}`, status: "active" } });
+  const customer = await prisma.customer.create({
+    data: {
+      orgId,
+      customerCode: `C${rnd()}`,
+      status: "active",
+      ...(lineOaId ? { lineOaId, lineUserId: `U${rnd()}` } : {}),
+    },
+  });
   const plan = await prisma.billPlan.create({
     data: {
       orgId, customerId: customer.id, bankAccountId: bank.id, billNo: 1, principalAmount: amount,
@@ -439,7 +446,7 @@ test("effectiveRetentionDays: org override > system default > env default; 0 is 
 test("purgeSlipImage: clears image but keeps OCR/match metadata + image_hash, idempotent, audited", async () => {
   const org = await mkOrg();
   const oa = await mkOa(org.id);
-  const { customer, inst } = await makePlan(org.id);
+  const { customer, inst } = await makePlan(org.id, 490, oa.id);
   const res = await webhook(oa.id, imageEvent(customer.lineUserId!, `pm${rnd()}`));
   expect(res.status).toBe(200);
   const sub = await prisma.paymentSubmission.findFirst({ where: { lineOaId: oa.id, customerId: customer.id }, orderBy: { createdAt: "desc" } });
@@ -477,7 +484,7 @@ test("purgeSlipImage: never deletes a file outside the storage root, still clear
   const r = await purgeSlipImage(sub.id);
   expect(r.purged).toBe(true); // DB pointer cleared, but...
   const { access } = await import("node:fs/promises");
-  await expect(access("/etc/passwd")).resolves.toBeUndefined(); // ...the outside file is untouched
+  await access("/etc/passwd"); // ...the outside file is untouched
   const after = await prisma.paymentSubmission.findUnique({ where: { id: sub.id } });
   expect(after!.ocrRawText).toBe("raw"); // metadata untouched either way
 });
@@ -520,7 +527,7 @@ test("retention 0: webhook purges the slip immediately after OCR, metadata survi
   const org = await mkOrg();
   await prisma.organization.update({ where: { id: org.id }, data: { slipRetentionDays: 0 } });
   const oa = await mkOa(org.id);
-  const { customer } = await makePlan(org.id);
+  const { customer } = await makePlan(org.id, 490, oa.id);
   const res = await webhook(oa.id, imageEvent(customer.lineUserId!, `z${rnd()}`));
   expect(res.status).toBe(200);
   const sub = await prisma.paymentSubmission.findFirst({ where: { lineOaId: oa.id, customerId: customer.id }, orderBy: { createdAt: "desc" } });

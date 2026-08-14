@@ -1,13 +1,15 @@
 import { Elysia } from "elysia";
 import { prisma } from "../lib/prisma";
 import { ApiError } from "../lib/response";
-import { verifySignature, getMessageContent, getGroupMemberName, getGroupName } from "../lib/line";
+import type { Prisma } from "@prisma/client";
+import { verifySignature, getMessageContent, getGroupMemberName, getGroupName, getUserProfile } from "../lib/line";
 import { sha256 } from "../lib/hash";
 import { dateOnly } from "../lib/date";
 import { storeSlip } from "../services/storage";
 import { getOcrService, detectImageMime, mimeExt } from "../services/ocr";
 import { processSubmission } from "../services/payment";
 import { effectiveRetentionDaysForOrg, purgeSlipImage } from "../services/retention";
+import { audit } from "../services/audit";
 import { captureError } from "../lib/logger";
 import { env } from "../env";
 import {
@@ -18,9 +20,11 @@ import {
   renderUnsupportedSlip,
   renderRateLimited,
   renderNeedsAdminMatch,
+  getOrgMessageTemplates,
 } from "../services/messages";
 
 type Oa = { id: string; orgId: string; channelSecret: string; channelAccessToken: string };
+type InboundContext = { customer: any | null; senderName: string | null; userName: string | null };
 
 export const lineRoutes = new Elysia().post(
   // One webhook URL per OA. Each LINE OA is configured with /api/line/webhook/<its id>.
@@ -37,9 +41,16 @@ export const lineRoutes = new Elysia().post(
     const events: any[] = body.events ?? [];
     for (const ev of events) {
       try {
+        const context = await resolveInboundContext(oa, ev);
+        try {
+          await recordInboundEvent(oa, ev, context);
+        } catch (error) {
+          // Logging must never stop the actual webhook workflow.
+          captureError(error, { scope: "inbound_message_log", oaId: oa.id, eventType: ev.type });
+        }
         if (ev.type !== "message") continue;
-        if (ev.message?.type === "image") await handleImage(ev, oa);
-        else await handleNonImage(ev, oa);
+        if (ev.message?.type === "image") await handleImage(ev, oa, context);
+        else await handleNonImage(ev, oa, context);
       } catch (e) {
         captureError(e, { scope: "webhook_event", oaId: oa.id, eventType: ev.type });
       }
@@ -62,6 +73,95 @@ const findCustomer = (oaId: string, lineUserId?: string) =>
   lineUserId ? prisma.customer.findFirst({ where: { lineOaId: oaId, lineUserId } }) : Promise.resolve(null);
 
 const groupOf = (ev: any): string | undefined => ev.source?.groupId ?? ev.source?.roomId;
+
+async function ensureAutoCustomer(oa: Oa, lineUserId: string, displayName: string | null): Promise<any> {
+  const name = displayName?.trim() || lineUserId;
+  const codeBase = `LINE-${lineUserId.slice(-8).toUpperCase()}`;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const customerCode = attempt === 0 ? codeBase : `${codeBase}-${attempt + 1}`;
+    try {
+      const customer = await prisma.customer.create({
+        data: {
+          orgId: oa.orgId,
+          lineOaId: oa.id,
+          lineUserId,
+          customerCode,
+          displayName: name,
+        },
+      });
+      await prisma.paymentSubmission.updateMany({
+        where: { orgId: oa.orgId, lineOaId: oa.id, lineUserId, customerId: null },
+        data: { customerId: customer.id, senderName: name },
+      });
+      try {
+        await audit(prisma, {
+          action: "auto_create_customer_from_line",
+          entityType: "customer",
+          entityId: customer.id,
+          orgId: oa.orgId,
+          actorType: "line_user",
+          actorId: lineUserId,
+          newValue: { customerCode, displayName: name, lineOaId: oa.id },
+        });
+      } catch (error) {
+        captureError(error, { scope: "auto_customer_audit", oaId: oa.id, customerId: customer.id });
+      }
+      return customer;
+    } catch (error: any) {
+      if (error?.code !== "P2002") throw error;
+      const existing = await findCustomer(oa.id, lineUserId);
+      if (existing) return existing;
+    }
+  }
+  throw new Error("Could not generate a unique customer code");
+}
+
+async function resolveInboundContext(oa: Oa, ev: any): Promise<InboundContext> {
+  const lineUserId: string | undefined = ev.source?.userId;
+  const groupId = groupOf(ev);
+  let customer = ev.type === "message" && !groupId ? await findCustomer(oa.id, lineUserId) : null;
+  const senderName = groupId ? await resolveSenderName(oa, ev.source) : null;
+  let userName = senderName ?? customer?.displayName ?? customer?.customerCode ?? null;
+  if (!userName && lineUserId && !groupId) userName = await getUserProfile(lineUserId, oa.channelAccessToken);
+  if (!customer && ev.type === "message" && lineUserId && !groupId) {
+    const createdCustomer = await ensureAutoCustomer(oa, lineUserId, userName);
+    customer = createdCustomer;
+    userName = userName ?? createdCustomer.displayName ?? createdCustomer.customerCode;
+  }
+  if (customer && userName && !customer.displayName && userName !== customer.customerCode) {
+    await prisma.customer.update({ where: { id: customer.id }, data: { displayName: userName } });
+    customer.displayName = userName;
+  }
+  return { customer, senderName, userName };
+}
+
+async function recordInboundEvent(oa: Oa, ev: any, context: InboundContext) {
+  const messageType = ev.message?.type ?? ev.type ?? "unknown";
+  const messageText = ev.message?.type === "text"
+    ? ev.message.text ?? ""
+    : ev.message?.type === "image"
+      ? "[image]"
+      : ev.message?.type
+        ? `[${ev.message.type}]`
+        : `[${ev.type ?? "event"}]`;
+  const { replyToken: _replyToken, ...safeEvent } = ev;
+  await prisma.messageLog.create({
+    data: {
+      orgId: oa.orgId,
+      lineOaId: oa.id,
+      customerId: context.customer?.id ?? undefined,
+      lineUserId: ev.source?.userId ?? undefined,
+      direction: "inbound",
+      sourceType: ev.source?.type ?? undefined,
+      sourceName: context.userName ?? undefined,
+      lineMessageId: ev.message?.id ?? undefined,
+      messageType: `inbound_${messageType}`,
+      messageText,
+      lineEvent: safeEvent as Prisma.InputJsonValue,
+      status: "received",
+    },
+  });
+}
 
 // Resolve (and remember) the slip sender's name, so admins can track who submitted it.
 async function resolveSenderName(oa: Oa, source: any): Promise<string | null> {
@@ -93,19 +193,20 @@ export async function customerBalance(customerId: string) {
   return { outstanding, count: insts.length, nextDue: insts[0]?.dueDate ?? null };
 }
 
-async function handleNonImage(ev: any, oa: Oa) {
+async function handleNonImage(ev: any, oa: Oa, context: InboundContext) {
   // In a group, stay quiet on non-image messages (don't spam the group). Only help in 1:1.
   if (groupOf(ev)) return;
   const lineUserId: string | undefined = ev.source?.userId;
-  const customer = await findCustomer(oa.id, lineUserId);
+  const customer = context.customer;
   const text: string = ev.message?.type === "text" ? ev.message.text ?? "" : "";
+  const templates = await getOrgMessageTemplates(oa.orgId);
 
   // Self-service balance check: linked customer types "ยอด / คงเหลือ / เช็ค / ค้าง / balance".
-  let reply = renderTextHelp();
+  let reply = renderTextHelp(templates);
   let messageType = "text_help";
   if (customer && /ยอด|คงเหลือ|เช็ค|ค้าง|balance/i.test(text)) {
     const b = await customerBalance(customer.id);
-    reply = renderCustomerBalance(b.outstanding, b.count, b.nextDue);
+    reply = renderCustomerBalance(b.outstanding, b.count, b.nextDue, templates);
     messageType = "balance_inquiry";
   }
 
@@ -127,13 +228,14 @@ async function overRateLimit(oaId: string, lineUserId: string): Promise<boolean>
   return n >= env.ocrRateMax;
 }
 
-async function handleImage(ev: any, oa: Oa) {
+async function handleImage(ev: any, oa: Oa, context: InboundContext) {
   const lineUserId: string | undefined = ev.source?.userId;
   const groupId = groupOf(ev);
   const messageId: string = ev.message.id;
   // Group slips come from staff/collectors — not tied to a specific customer (matched org-wide).
-  const customer = groupId ? null : await findCustomer(oa.id, lineUserId);
-  const senderName = groupId ? await resolveSenderName(oa, ev.source) : null;
+  const customer = groupId ? null : context.customer;
+  const senderName = groupId ? context.senderName : context.userName;
+  const templates = await getOrgMessageTemplates(oa.orgId);
   if (groupId) await ensureGroup(oa, groupId);
   const replyTo = groupId ?? lineUserId; // push back to the group, or the 1:1 chat
   const reply = (text: string, messageType: string, paymentSubmissionId?: string) =>
@@ -149,7 +251,7 @@ async function handleImage(ev: any, oa: Oa) {
     });
 
   if (lineUserId && (await overRateLimit(oa.id, lineUserId))) {
-    await reply(renderRateLimited(), "payment_rate_limited");
+    await reply(renderRateLimited(templates), "payment_rate_limited");
     return;
   }
 
@@ -158,7 +260,7 @@ async function handleImage(ev: any, oa: Oa) {
 
   const dup = await prisma.paymentSubmission.findFirst({ where: { lineOaId: oa.id, imageHash } });
   if (dup) {
-    await reply(renderDuplicateSlip(), "payment_received", dup.id);
+    await reply(renderDuplicateSlip(templates), "payment_received", dup.id);
     return;
   }
 
@@ -181,7 +283,10 @@ async function handleImage(ev: any, oa: Oa) {
       ocrStatus: "processing",
     },
   });
-  const imageUrl = await storeSlip(oa.orgId, oa.id, sub.id, buffer, ext);
+  const imageUrl = await storeSlip(oa.orgId, oa.id, sub.id, buffer, ext, {
+    userId: lineUserId,
+    userName: senderName,
+  });
 
   if (badType || tooBig) {
     await prisma.paymentSubmission.update({
@@ -193,7 +298,7 @@ async function handleImage(ev: any, oa: Oa) {
         matchReason: badType ? "ชนิดไฟล์ไม่รองรับ" : `ไฟล์ใหญ่เกิน ${env.maxSlipMb}MB`,
       },
     });
-    await reply(badType ? renderUnsupportedSlip() : renderNeedsAdminMatch(), "payment_need_admin", sub.id);
+    await reply(badType ? renderUnsupportedSlip(templates) : renderNeedsAdminMatch(templates), "payment_need_admin", sub.id);
     return;
   }
 

@@ -7,7 +7,8 @@ import { audit } from "../services/audit";
 const bankBody = t.Object({
   account_name: t.String({ minLength: 1 }),
   account_no: t.String({ minLength: 1 }),
-  bank_name: t.String({ minLength: 1 }),
+  bank_master_id: t.Optional(t.String({ minLength: 1 })),
+  bank_name: t.Optional(t.String({ minLength: 1 })),
   bank_code: t.Optional(t.String()),
   branch_name: t.Optional(t.String()),
   is_default: t.Optional(t.Boolean()),
@@ -15,16 +16,30 @@ const bankBody = t.Object({
   note: t.Optional(t.String()),
 });
 
+async function resolveBankMaster(id?: string) {
+  if (!id) return null;
+  const master = await prisma.bankMaster.findFirst({ where: { id, isActive: true } });
+  if (!master) throw new ApiError("VALIDATION_ERROR", "ไม่พบธนาคารที่เลือกใน master");
+  return master;
+}
+
 export const bankAccountRoutes = new Elysia({ prefix: "/api/bank-accounts" })
   .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
 
-  .get("/", async ({ ctx }: any) => ok(await prisma.bankAccount.findMany({ where: { orgId: ctx.orgId }, orderBy: { createdAt: "asc" } })))
+  .get("/master", async () =>
+    ok(await prisma.bankMaster.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }))
+  )
+
+  .get("/", async ({ ctx }: any) =>
+    ok(await prisma.bankAccount.findMany({ where: { orgId: ctx.orgId }, include: { bankMaster: true }, orderBy: { createdAt: "asc" } }))
+  )
 
   .post("/", async ({ body, ctx }: any) => {
-    const { account_name, account_no, bank_name, bank_code, branch_name, is_default, is_active, note } = body ?? {};
+    const { account_name, account_no, bank_master_id, bank_name, bank_code, branch_name, is_default, is_active, note } = body ?? {};
     if (!account_no) throw new ApiError("VALIDATION_ERROR", "account_no is required");
     if (!account_name) throw new ApiError("VALIDATION_ERROR", "account_name is required");
-    if (!bank_name) throw new ApiError("VALIDATION_ERROR", "bank_name is required");
+    if (!bank_master_id && !bank_name) throw new ApiError("VALIDATION_ERROR", "bank_master_id is required");
+    const master = await resolveBankMaster(bank_master_id);
     const acc = await prisma.$transaction(async (tx) => {
       if (is_default) await tx.bankAccount.updateMany({ where: { orgId: ctx.orgId }, data: { isDefault: false } });
       const a = await tx.bankAccount.create({
@@ -32,8 +47,9 @@ export const bankAccountRoutes = new Elysia({ prefix: "/api/bank-accounts" })
           orgId: ctx.orgId,
           accountName: account_name,
           accountNo: account_no,
-          bankName: bank_name,
-          bankCode: bank_code,
+          bankMasterId: master?.id,
+          bankName: master?.name ?? bank_name,
+          bankCode: master?.code ?? bank_code,
           branchName: branch_name,
           isDefault: !!is_default,
           isActive: is_active ?? true,
@@ -50,6 +66,12 @@ export const bankAccountRoutes = new Elysia({ prefix: "/api/bank-accounts" })
     const old = await prisma.bankAccount.findFirst({ where: { id: params.id, orgId: ctx.orgId } });
     if (!old) throw new ApiError("BANK_ACCOUNT_NOT_FOUND", "Bank account not found");
     const data: any = {};
+    const master = body?.bank_master_id !== undefined ? await resolveBankMaster(body.bank_master_id) : undefined;
+    if (master) {
+      data.bankMasterId = master.id;
+      data.bankName = master.name;
+      data.bankCode = master.code;
+    }
     for (const [k, col] of [
       ["account_name", "accountName"],
       ["account_no", "accountNo"],
@@ -59,7 +81,7 @@ export const bankAccountRoutes = new Elysia({ prefix: "/api/bank-accounts" })
       ["is_active", "isActive"],
       ["note", "note"],
     ] as const)
-      if (body?.[k] !== undefined) data[col] = body[k];
+      if (body?.[k] !== undefined && !(master && (k === "bank_name" || k === "bank_code"))) data[col] = body[k];
     const acc = await prisma.$transaction(async (tx) => {
       if (body?.is_default === true) await tx.bankAccount.updateMany({ where: { orgId: ctx.orgId }, data: { isDefault: false } });
       if (body?.is_default !== undefined) data.isDefault = body.is_default;

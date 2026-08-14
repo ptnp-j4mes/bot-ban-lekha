@@ -1,4 +1,22 @@
 import { prisma } from "../lib/prisma";
+import { env } from "../env";
+
+type DriveServiceAccount = { client_email: string; private_key: string };
+
+const envDriveServiceAccount = (() => {
+  const raw = env.googleDriveServiceAccountJson.trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.client_email !== "string" || typeof parsed?.private_key !== "string") return null;
+    return {
+      client_email: parsed.client_email,
+      private_key: parsed.private_key.replace(/\\n/g, "\n"),
+    } satisfies DriveServiceAccount;
+  } catch {
+    return null;
+  }
+})();
 
 // Platform-wide settings live in a single row (id = "system"). Read on nearly every
 // bill render + slip upload, so cache in memory and bust on write.
@@ -17,9 +35,9 @@ const shape = (row: any): Settings => ({
   defaultBillFooter: row.defaultBillFooter,
   defaultTimezone: row.defaultTimezone,
   defaultSlipRetentionDays: row.defaultSlipRetentionDays,
-  storageDriver: row.storageDriver,
-  gdriveServiceAccount: row.gdriveServiceAccount ?? null,
-  gdriveRootFolderId: row.gdriveRootFolderId,
+  storageDriver: env.storageDriver === "gdrive" || env.storageDriver === "s3" ? env.storageDriver : row.storageDriver,
+  gdriveServiceAccount: envDriveServiceAccount ?? row.gdriveServiceAccount ?? null,
+  gdriveRootFolderId: env.googleDriveRootFolderId.trim() || row.gdriveRootFolderId,
 });
 
 export async function getSystemSettings() {

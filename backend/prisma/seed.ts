@@ -2,76 +2,47 @@ import { prisma } from "../src/lib/prisma";
 import { env } from "../src/env";
 
 async function main() {
-  // Super admin (platform admin) with username/password login. Idempotent — safe on every boot.
-  const existing = await prisma.adminUser.findUnique({ where: { username: env.superAdminUsername } });
-  if (!existing) {
-    await prisma.adminUser.create({
+  const bankMasters = [
+    { code: "SCB", name: "ธนาคารไทยพาณิชย์", sortOrder: 10 },
+    { code: "KTB", name: "ธนาคารกรุงไทย", sortOrder: 20 },
+    { code: "BBL", name: "ธนาคารกรุงเทพ", sortOrder: 30 },
+    { code: "KBANK", name: "ธนาคารกสิกรไทย", sortOrder: 40 },
+    { code: "BAY", name: "ธนาคารกรุงศรีอยุธยา", sortOrder: 50 },
+  ];
+  for (const bank of bankMasters) {
+    await prisma.bankMaster.upsert({
+      where: { code: bank.code },
+      update: { name: bank.name, isActive: true, sortOrder: bank.sortOrder },
+      create: bank,
+    });
+  }
+
+  // Single local/platform admin with username/password login. Idempotent — safe on every boot.
+  const adminUsername = "admin1";
+  let admin = await prisma.adminUser.findUnique({ where: { username: adminUsername } });
+  if (!admin) {
+    admin = await prisma.adminUser.create({
       data: {
-        username: env.superAdminUsername,
+        username: adminUsername,
         passwordHash: await Bun.password.hash(env.superAdminPassword),
-        displayName: "Super Admin",
+        displayName: "Admin 1",
         isPlatformAdmin: true,
         isActive: true,
       },
     });
-    console.log(`super admin created: ${env.superAdminUsername}`);
+    console.log(`admin created: ${adminUsername}`);
   }
 
-  // Everything below is dev-only mock data. Never in production — orgs/OAs/banks
-  // are created through the app by the super admin.
-  if (process.env.NODE_ENV === "production") {
-    console.log("seed done (production: super admin only)");
-    return;
-  }
+  let org = await prisma.organization.findFirst({ where: { name: "บ้านขุมทรัพย์" } });
+  if (!org) org = await prisma.organization.create({ data: { name: "บ้านขุมทรัพย์" } });
 
-  // A default organization (tenant) + its default OA and bank account, so dev works out of the box.
-  let org = await prisma.organization.findFirst();
-  if (!org) org = await prisma.organization.create({ data: { name: "Default Org" } });
-
-  if ((await prisma.lineOaAccount.count({ where: { orgId: org.id } })) === 0) {
-    await prisma.lineOaAccount.create({
-      data: {
-        orgId: org.id,
-        name: "Default OA",
-        channelId: env.lineLoginChannelId || "dev",
-        channelSecret: "",
-        channelAccessToken: "",
-      },
-    });
-  }
-  if ((await prisma.bankAccount.count({ where: { orgId: org.id } })) === 0) {
-    await prisma.bankAccount.create({
-      data: {
-        orgId: org.id,
-        accountName: "ชลดา พรมเมศ",
-        accountNo: "2509480357",
-        bankName: "ธนาคารกรุงศรีอยุธยา",
-        bankCode: "BAY",
-        isDefault: true,
-        isActive: true,
-      },
-    });
-  }
-  // A regular org user for dev login.
-  const mockUser = await prisma.adminUser.upsert({
-    where: { username: "admin" },
-    update: {},
-    create: {
-      username: "admin",
-      passwordHash: await Bun.password.hash("admin1234"),
-      displayName: "สมชาย ใจดี",
-      isPlatformAdmin: false,
-      isActive: true,
-    },
-  });
   await prisma.membership.upsert({
-    where: { orgId_adminUserId: { orgId: org.id, adminUserId: mockUser.id } },
-    update: {},
-    create: { orgId: org.id, adminUserId: mockUser.id },
+    where: { orgId_adminUserId: { orgId: org.id, adminUserId: admin.id } },
+    update: { role: "user" },
+    create: { orgId: org.id, adminUserId: admin.id, role: "user" },
   });
-  console.log("mock user: admin / admin1234 (org:", org.id, ")");
 
-  console.log("seed done. default org:", org.id);
+  console.log("seed done (bank masters, admin1 and บ้านขุมทรัพย์)");
 }
 
 main().finally(() => prisma.$disconnect());

@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { prisma } from "../lib/prisma";
 import { toEmojiNumber } from "../lib/emoji-number";
 import { dayOfMonth, thaiMonth, beYear2 } from "../lib/date";
 import { pushMessage } from "../lib/line";
@@ -11,6 +12,53 @@ export const fmtAmount = (n: number) =>
 
 type InstallmentView = { dueDate: Date; amountDue: number; status: string };
 type BankView = { accountNo: string; bankName: string; accountName: string } | null;
+
+export const MESSAGE_TEMPLATE_KEYS = [
+  "text_help",
+  "customer_balance_empty",
+  "customer_balance_due",
+  "payment_received",
+  "cash_bill_received",
+  "needs_admin_match",
+  "payment_approved",
+  "payment_rejected",
+  "duplicate_slip",
+  "unsupported_slip",
+  "rate_limited",
+] as const;
+export type MessageTemplateKey = (typeof MESSAGE_TEMPLATE_KEYS)[number];
+export type MessageTemplates = Record<MessageTemplateKey, string>;
+
+export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplates = {
+  text_help: `สวัสดีค่ะ 🙏\nหากต้องการแจ้งชำระเงิน กรุณาส่ง "รูปสลิป" โอนเงินเข้ามาในแชทนี้ได้เลยค่ะ\nหรือพิมพ์ "ยอด" เพื่อเช็คยอดค้างชำระค่ะ`,
+  customer_balance_empty: `คุณไม่มียอดค้างชำระค่ะ ✅ ขอบคุณค่ะ 🙏`,
+  customer_balance_due: `ยอดค้างชำระของคุณ 💰\n\nคงเหลือ {outstanding} บาท ({count} งวด)\nงวดถัดไปครบกำหนด {next_due}\n\nหากต้องการแจ้งชำระ ส่งรูปสลิปเข้ามาได้เลยค่ะ 🙏`,
+  payment_received: `📌 ได้รับสลิปแล้วค่ะ\n\nระบบกำลังตรวจสอบยอดชำระ\nหากตรวจสอบเรียบร้อยแล้ว จะแจ้งสถานะกลับทางแชทนี้ค่ะ 🙏`,
+  cash_bill_received: `รับบิลเงินสดแล้วค่ะ 🧾\nเจ้าหน้าที่จะตรวจสอบและยืนยันยอดให้นะคะ 🙏`,
+  needs_admin_match: `📌 ได้รับสลิปแล้วค่ะ\n\nระบบยังไม่สามารถจับคู่ยอดกับงวดในบิลได้อัตโนมัติ\nแอดมินจะตรวจสอบและอัปเดตสถานะให้ค่ะ 🙏`,
+  payment_approved: `รับยอดค่ะ✅\n\n{bill_text}`,
+  payment_rejected: `ขออภัยค่ะ สลิปที่ส่งมายังไม่สามารถยืนยันยอดได้\n\nเหตุผล: {reason}\n\nกรุณาตรวจสอบและส่งสลิปใหม่อีกครั้งค่ะ`,
+  duplicate_slip: `📌 สลิปนี้เคยส่งเข้ามาแล้วค่ะ\nระบบกำลังตรวจสอบรายการเดิมอยู่ ไม่ต้องส่งซ้ำนะคะ 🙏`,
+  unsupported_slip: `ขออภัยค่ะ ไฟล์ที่ส่งมาไม่สามารถอ่านเป็นสลิปได้\nกรุณาส่งเป็นรูปภาพสลิป (jpg, png, webp) อีกครั้งค่ะ`,
+  rate_limited: `ขออภัยค่ะ คุณส่งสลิปเข้ามาบ่อยเกินไป\nกรุณารอสักครู่แล้วลองใหม่อีกครั้งค่ะ`,
+};
+
+export function mergeMessageTemplates(raw: unknown): MessageTemplates {
+  const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  return Object.fromEntries(MESSAGE_TEMPLATE_KEYS.map((key) => [
+    key,
+    typeof source[key] === "string" && source[key].trim() ? source[key] : DEFAULT_MESSAGE_TEMPLATES[key],
+  ])) as MessageTemplates;
+}
+
+export async function getOrgMessageTemplates(orgId: string | null | undefined): Promise<MessageTemplates> {
+  if (!orgId) return DEFAULT_MESSAGE_TEMPLATES;
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { messageTemplates: true } });
+  return mergeMessageTemplates(org?.messageTemplates);
+}
+
+const fill = (template: string, values: Record<string, string | number>) =>
+  template.replace(/\{([a-z_]+)\}/g, (_, key) => values[key] == null ? "" : String(values[key]));
 
 // `15💸 490✅` (paid) / `29💸 490` (unpaid) — 💸 stays, ✅ appended when paid.
 export function renderBillStatusLines(installments: InstallmentView[]): string {
@@ -58,39 +106,33 @@ export function renderBillText(args: {
   );
 }
 
-export const renderPaymentReceived = () =>
-  `📌 ได้รับสลิปแล้วค่ะ\n\nระบบกำลังตรวจสอบยอดชำระ\nหากตรวจสอบเรียบร้อยแล้ว จะแจ้งสถานะกลับทางแชทนี้ค่ะ 🙏`;
+export const renderPaymentReceived = (templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) => templates.payment_received;
 
-export const renderCashBillReceived = () =>
-  `รับบิลเงินสดแล้วค่ะ 🧾\nเจ้าหน้าที่จะตรวจสอบและยืนยันยอดให้นะคะ 🙏`;
+export const renderCashBillReceived = (templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) => templates.cash_bill_received;
 
-export const renderNeedsAdminMatch = () =>
-  `📌 ได้รับสลิปแล้วค่ะ\n\nระบบยังไม่สามารถจับคู่ยอดกับงวดในบิลได้อัตโนมัติ\nแอดมินจะตรวจสอบและอัปเดตสถานะให้ค่ะ 🙏`;
+export const renderNeedsAdminMatch = (templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) => templates.needs_admin_match;
 
 // Approval reply = "รับยอดค่ะ✅" header followed by the latest full bill (with ✅ on paid rows).
-export const renderPaymentApproved = (billText: string) => `รับยอดค่ะ✅\n\n${billText}`;
+export const renderPaymentApproved = (billText: string, templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) => fill(templates.payment_approved, { bill_text: billText });
 
-export const renderTextHelp = () =>
-  `สวัสดีค่ะ 🙏\nหากต้องการแจ้งชำระเงิน กรุณาส่ง "รูปสลิป" โอนเงินเข้ามาในแชทนี้ได้เลยค่ะ\nหรือพิมพ์ "ยอด" เพื่อเช็คยอดค้างชำระค่ะ`;
+export const renderTextHelp = (templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) => templates.text_help;
 
-export const renderCustomerBalance = (outstanding: number, count: number, nextDue: Date | null) =>
+export const renderCustomerBalance = (outstanding: number, count: number, nextDue: Date | null, templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) =>
   count === 0
-    ? `คุณไม่มียอดค้างชำระค่ะ ✅ ขอบคุณค่ะ 🙏`
-    : `ยอดค้างชำระของคุณ 💰\n\nคงเหลือ ${fmtAmount(outstanding)} บาท (${count} งวด)` +
-      (nextDue ? `\nงวดถัดไปครบกำหนด ${dayOfMonth(nextDue)} ${thaiMonth(nextDue)} ${beYear2(nextDue)}` : "") +
-      `\n\nหากต้องการแจ้งชำระ ส่งรูปสลิปเข้ามาได้เลยค่ะ 🙏`;
+    ? templates.customer_balance_empty
+    : fill(templates.customer_balance_due, {
+      outstanding: fmtAmount(outstanding),
+      count,
+      next_due: nextDue ? `${dayOfMonth(nextDue)} ${thaiMonth(nextDue)} ${beYear2(nextDue)}` : "—",
+    });
 
-export const renderDuplicateSlip = () =>
-  `📌 สลิปนี้เคยส่งเข้ามาแล้วค่ะ\nระบบกำลังตรวจสอบรายการเดิมอยู่ ไม่ต้องส่งซ้ำนะคะ 🙏`;
+export const renderDuplicateSlip = (templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) => templates.duplicate_slip;
 
-export const renderUnsupportedSlip = () =>
-  `ขออภัยค่ะ ไฟล์ที่ส่งมาไม่สามารถอ่านเป็นสลิปได้\nกรุณาส่งเป็นรูปภาพสลิป (jpg, png, webp) อีกครั้งค่ะ 🙏`;
+export const renderUnsupportedSlip = (templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) => templates.unsupported_slip;
 
-export const renderRateLimited = () =>
-  `ขออภัยค่ะ คุณส่งสลิปเข้ามาบ่อยเกินไป\nกรุณารอสักครู่แล้วลองใหม่อีกครั้งค่ะ 🙏`;
+export const renderRateLimited = (templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) => templates.rate_limited;
 
-export const renderPaymentRejected = (reason: string) =>
-  `ขออภัยค่ะ สลิปที่ส่งมายังไม่สามารถยืนยันยอดได้\n\nเหตุผล: ${reason}\n\nกรุณาตรวจสอบและส่งสลิปใหม่อีกครั้งค่ะ 🙏`;
+export const renderPaymentRejected = (reason: string, templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) => fill(templates.payment_rejected, { reason });
 
 // Send a LINE push (using the OA's access token) and record a message_log row.
 // Never throws on LINE failure — the log captures it.

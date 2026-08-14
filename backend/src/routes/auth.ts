@@ -128,12 +128,13 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
     return ok({ userId: ctx.userId, name: ctx.name, isPlatformAdmin: ctx.isPlatformAdmin, org, menu_prefs: menuPrefs });
   })
 
-  // Save the current user's sidebar menu preferences (order + hidden item ids).
+  // Save sidebar menu preferences for super admins only.
   .patch(
     "/menu-prefs",
     async ({ headers, body }: any) => {
       const ctx = await authContext(headers);
       if (ctx.userId === "apikey") throw new ApiError("VALIDATION_ERROR", "api key has no menu prefs");
+      if (!ctx.isPlatformAdmin) throw new ApiError("FORBIDDEN", "ต้องเป็น super admin เพื่อจัดการเมนู");
       const u = await prisma.adminUser.update({ where: { id: ctx.userId }, data: { menuPrefs: body } });
       return ok({ menu_prefs: u.menuPrefs });
     },

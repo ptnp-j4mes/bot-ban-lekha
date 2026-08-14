@@ -13,6 +13,7 @@ import {
   renderNeedsAdminMatch,
   renderPaymentApproved,
   renderPaymentRejected,
+  getOrgMessageTemplates,
 } from "./messages";
 
 type Tx = PrismaClient | Prisma.TransactionClient;
@@ -104,7 +105,8 @@ export async function processSubmission(submissionId: string) {
     }
   }
 
-  const text = isCash ? renderCashBillReceived() : effective.status === "auto_matched" ? renderPaymentReceived() : renderNeedsAdminMatch();
+  const templates = await getOrgMessageTemplates(sub.orgId);
+  const text = isCash ? renderCashBillReceived(templates) : effective.status === "auto_matched" ? renderPaymentReceived(templates) : renderNeedsAdminMatch(templates);
   const messageType = isCash ? "cash_bill_received" : effective.status === "auto_matched" ? "payment_received" : "payment_need_admin";
   const oa = await oaForSubmission(prisma, sub.lineOaId);
   await sendAndLog(prisma, {
@@ -148,6 +150,7 @@ export async function matchInstallment(submissionId: string, installmentId: stri
 
 // Approve: create the real payment, update installment + plan, notify customer. All in one transaction.
 export async function approveSubmission(submissionId: string, actorId: string, orgId: string) {
+  const templates = await getOrgMessageTemplates(orgId);
   return prisma.$transaction(async (tx) => {
     const sub = await tx.paymentSubmission.findFirst({ where: { id: submissionId, orgId } });
     if (!sub) throw new ApiError("NOT_FOUND", "Submission not found");
@@ -200,7 +203,7 @@ export async function approveSubmission(submissionId: string, actorId: string, o
       await tx.billPlan.update({ where: { id: inst.billPlanId }, data: { status: "completed" } });
 
     const bill = await renderPlanBill(tx, inst.billPlanId);
-    const text = renderPaymentApproved(bill.text);
+    const text = renderPaymentApproved(bill.text, templates);
     const oa = await oaForSubmission(tx, sub.lineOaId);
     await sendAndLog(tx, {
       lineUserId: sub.lineGroupId ?? sub.lineUserId,
@@ -230,6 +233,7 @@ export async function approveSubmission(submissionId: string, actorId: string, o
 // installment paid/partial, completes the plan, and notifies the customer if LINE-linked.
 export async function recordManualPayment(installmentId: string, amount: number, actorId: string, orgId: string, method = "cash") {
   if (!(amount > 0)) throw new ApiError("VALIDATION_ERROR", "amount must be > 0");
+  const templates = await getOrgMessageTemplates(orgId);
   return prisma.$transaction(async (tx) => {
     const inst = await tx.billInstallment.findFirst({
       where: { id: installmentId, billPlan: { orgId } },
@@ -255,7 +259,7 @@ export async function recordManualPayment(installmentId: string, amount: number,
     if (cust?.lineUserId) {
       const bill = await renderPlanBill(tx, inst.billPlanId);
       await sendAndLog(tx, {
-        lineUserId: cust.lineUserId, text: renderPaymentApproved(bill.text), messageType: "payment_approved",
+        lineUserId: cust.lineUserId, text: renderPaymentApproved(bill.text, templates), messageType: "payment_approved",
         accessToken: cust.lineOa?.channelAccessToken, orgId, lineOaId: cust.lineOaId, customerId: cust.id,
         billPlanId: inst.billPlanId, billInstallmentId: inst.id,
       });
@@ -268,6 +272,7 @@ export async function recordManualPayment(installmentId: string, amount: number,
 export async function rejectSubmission(submissionId: string, reason: string, actorId: string, orgId: string) {
   const sub = await prisma.paymentSubmission.findFirst({ where: { id: submissionId, orgId } });
   if (!sub) throw new ApiError("NOT_FOUND", "Submission not found");
+  const templates = await getOrgMessageTemplates(orgId);
   return prisma.$transaction(async (tx) => {
     const u = await tx.paymentSubmission.update({
       where: { id: submissionId },
@@ -276,7 +281,7 @@ export async function rejectSubmission(submissionId: string, reason: string, act
     const oa = await oaForSubmission(tx, sub.lineOaId);
     await sendAndLog(tx, {
       lineUserId: sub.lineGroupId ?? sub.lineUserId,
-      text: renderPaymentRejected(reason),
+      text: renderPaymentRejected(reason, templates),
       messageType: "payment_rejected",
       accessToken: oa.accessToken,
       orgId,

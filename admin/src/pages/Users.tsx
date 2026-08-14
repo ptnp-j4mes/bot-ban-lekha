@@ -54,7 +54,7 @@ export function Users() {
     { key: "login", header: "เข้าใช้ล่าสุด", sortValue: (u) => u.last_login_at ?? "", cell: (u) => <span className="text-xs">{u.last_login_at?.slice(0, 10) ?? "—"}</span> },
     { key: "act", header: "", stop: true, cell: (u) => (
       <div className="flex justify-end gap-1">
-        {!u.is_platform_admin && u.org && <Button size="sm" onClick={() => enterOrg(u.org)}><LogIn className="h-3 w-3 mr-1" /> เข้าจัดการ</Button>}
+        {u.org && <Button size="sm" onClick={() => enterOrg(u.org)}><LogIn className="h-3 w-3 mr-1" /> เข้าจัดการ</Button>}
         <Button size="sm" variant="outline" onClick={() => { const p = prompt("รหัสผ่านใหม่:"); if (p) update.mutate({ id: u.id, data: { password: p } }); }}>รีเซ็ตรหัส</Button>
         <Button size="sm" variant={u.is_active ? "destructive" : "success"} onClick={() => update.mutate({ id: u.id, data: { is_active: !u.is_active } })}>{u.is_active ? "ปิด" : "เปิด"}</Button>
       </div>

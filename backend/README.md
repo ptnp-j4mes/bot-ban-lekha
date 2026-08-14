@@ -126,7 +126,7 @@ JWT-based (`Authorization: Bearer`). Two roles only:
 ## Notes / deliberate shortcuts (`ponytail:`)
 
 - OCR: `OCR_PROVIDER=mock` (reads slip bytes as JSON in dev/test) or `gemini` (Google Gemini vision, set `OCR_API_KEY` + optional `OCR_MODEL`, default `gemini-2.5-flash`). Other providers slot into `getOcrService()`.
-- Storage: local disk or Google Drive; an S3 driver can be added behind `storeSlip()` when needed.
+- Storage: switchable between local disk, Google Drive, and AWS S3/S3-compatible storage. `local` needs no external config; `gdrive` and `s3` are rejected until their required config is complete.
 - LINE push/getContent: no-op stubs when no access token, so the flow runs offline.
 - Auto-approve disabled (`PAYMENT_AUTO_APPROVE_ENABLED=false`); auto-matched slips stay `pending_review`.
 - Responses serialized to snake_case to match the spec contract.

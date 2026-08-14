@@ -5,6 +5,7 @@ import { authorize } from "../lib/auth";
 import { matchInstallment, approveSubmission, rejectSubmission } from "../services/payment";
 import { scoreInstallment, describeCandidate } from "../services/matching";
 import { bangkokToday } from "../lib/date";
+import { readS3Object } from "../services/storage";
 
 export const adminSubmissionRoutes = new Elysia({ prefix: "/api/admin/payment-submissions" })
   .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
@@ -74,7 +75,7 @@ export const adminSubmissionRoutes = new Elysia({ prefix: "/api/admin/payment-su
     return ok({ submission: sub, candidate_installments: scoredCandidates, audit_logs: auditLogs });
   })
 
-  // Serve the stored slip image. Local driver = file on disk; gdrive = redirect to the Drive link.
+  // Serve the stored slip image. Local = disk, Drive = redirect, S3 = signed backend read.
   .get("/:id/image", async ({ params, ctx, set }: any) => {
     const sub = await prisma.paymentSubmission.findFirst({
       where: { id: params.id, orgId: ctx.orgId },
@@ -85,6 +86,7 @@ export const adminSubmissionRoutes = new Elysia({ prefix: "/api/admin/payment-su
       set.redirect = sub.imageUrl;
       return;
     }
+    if (sub.imageUrl.startsWith("s3://")) return await readS3Object(sub.imageUrl);
     const file = Bun.file(sub.imageUrl);
     if (!(await file.exists())) throw new ApiError("NOT_FOUND", "Image file missing from storage");
     return new Response(file);

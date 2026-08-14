@@ -1,7 +1,7 @@
 import { createContext, useEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
-import { LayoutDashboard, Users as UsersIcon, Landmark, FileText, Receipt, Menu, LogOut, MessageSquare, ArrowLeft, Settings as SettingsIcon, BarChart3, History, UserCheck, Users2, Sun, Moon } from "lucide-react";
+import { LayoutDashboard, Users as UsersIcon, Landmark, FileText, Receipt, Menu, LogOut, MessageSquare, Reply, ArrowLeft, Settings as SettingsIcon, HardDrive, BarChart3, History, UserCheck, Users2, Sun, Moon } from "lucide-react";
 import { apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,12 +15,14 @@ import { BillPlans } from "@/pages/BillPlans";
 import { Submissions } from "@/pages/Submissions";
 import { LineOa } from "@/pages/LineOa";
 import { Settings } from "@/pages/Settings";
+import { MessageResponseSettings } from "@/pages/MessageResponseSettings";
 import { Reports } from "@/pages/Reports";
 import { Logs } from "@/pages/Logs";
 import { Senders } from "@/pages/Senders";
 import { Groups } from "@/pages/Groups";
 import { Users } from "@/pages/Users";
 import { PlatformSettings } from "@/pages/PlatformSettings";
+import { GoogleDriveSettings } from "@/pages/GoogleDriveSettings";
 import { Login } from "@/pages/Login";
 import { NotificationBell, type Notif } from "@/components/NotificationBell";
 
@@ -70,18 +72,16 @@ const NAV_GROUPS = [
       { id: "oa", label: "LINE OA", icon: MessageSquare, el: <LineOa /> },
       { id: "logs", label: "ประวัติ", icon: History, el: <Logs /> },
       { id: "settings", label: "ตั้งค่า", icon: SettingsIcon, el: <Settings /> },
+      { id: "message-settings", label: "ข้อความตอบกลับ LINE", icon: Reply, el: <MessageResponseSettings /> },
     ],
   },
 ];
 
 const NAV = NAV_GROUPS.flatMap((g) => g.items);
 // Flat (id,label) list + default categories for the menu-management UI in Settings.
-export const MENU = NAV.map((n) => ({ id: n.id, label: n.label }));
-export const DEFAULT_GROUPS = NAV_GROUPS.map((g) => ({ label: g.label, items: g.items.map((i) => i.id) }));
-
 function SidebarBrand() {
   return (
-    <div className="flex items-center gap-3 px-4 pt-5 pb-4 border-b border-border">
+    <div className="flex h-[62px] shrink-0 items-center gap-3 border-b border-border px-4 py-3">
       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
         <span className="fig text-base font-bold text-white">฿</span>
       </div>
@@ -99,7 +99,7 @@ function Frame({ title, brand, right, children, nav }: any) {
     <div className="min-h-screen lg:flex">
       {open && <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => setOpen(false)} />}
       <aside className={cn(
-        "sidebar-light fixed inset-y-0 left-0 z-40 flex w-60 flex-col text-foreground transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0 lg:shrink-0",
+        "sidebar-light fixed inset-y-0 left-0 z-40 flex w-60 flex-col text-foreground transition-transform duration-200 lg:sticky lg:top-0 lg:h-screen lg:z-auto lg:translate-x-0 lg:shrink-0",
         open ? "translate-x-0" : "-translate-x-full"
       )}>
         <SidebarBrand />
@@ -110,7 +110,7 @@ function Frame({ title, brand, right, children, nav }: any) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex flex-wrap items-center gap-3 border-b border-foreground/15 bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <header className="sticky top-0 z-20 flex h-[62px] shrink-0 flex-wrap items-center gap-3 border-b border-foreground/15 bg-background/95 px-4 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <Button size="icon" variant="ghost" className="lg:hidden" onClick={() => setOpen(true)}>
             <Menu className="h-5 w-5" />
           </Button>
@@ -185,28 +185,37 @@ function Shell() {
     const PLATFORM = [
       { id: "users", label: "ผู้ใช้ & องค์กร", icon: UsersIcon, el: <Users /> },
       { id: "system", label: "ตั้งค่าระบบ", icon: SettingsIcon, el: <PlatformSettings /> },
+      { id: "gdrive", label: "Google Drive", icon: HardDrive, el: <GoogleDriveSettings /> },
     ];
     const pActive = PLATFORM.find((p) => p.id === ptab) ?? PLATFORM[0];
+    const platformGroups = [
+      { label: "แพลตฟอร์ม", items: PLATFORM.filter((p) => p.id === "users") },
+      { label: "ตั้งค่า", items: PLATFORM.filter((p) => p.id !== "users") },
+    ];
     const platformNav = (close: () => void) => (
       <nav>
-        <div className="nav-section">แพลตฟอร์ม</div>
-        <div className="space-y-0.5">
-          {PLATFORM.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => { setPtab(p.id); close(); }}
-              className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-colors",
-                pActive.id === p.id
-                  ? "bg-secondary font-semibold text-foreground"
-                  : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-              )}
-            >
-              <p.icon className={cn("h-[18px] w-[18px] shrink-0", pActive.id === p.id ? "text-primary" : "")} />
-              {p.label}
-            </button>
-          ))}
-        </div>
+        {platformGroups.map((group) => (
+          <div key={group.label}>
+            <div className="nav-section">{group.label}</div>
+            <div className="space-y-0.5">
+              {group.items.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => { setPtab(p.id); close(); }}
+                  className={cn(
+                    "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-colors",
+                    pActive.id === p.id
+                      ? "bg-secondary font-semibold text-foreground"
+                      : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                  )}
+                >
+                  <p.icon className={cn("h-[18px] w-[18px] shrink-0", pActive.id === p.id ? "text-primary" : "")} />
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
         <p className="px-3 pt-5 text-[12px] leading-relaxed text-muted-foreground">
           กด <span className="font-medium text-foreground">เข้าจัดการ</span> ที่ผู้ใช้รายใดในตาราง เพื่อเข้าไปดูแลบิล/ลูกค้าขององค์กรนั้น
         </p>
@@ -252,9 +261,12 @@ function Shell() {
 
     // Custom categories take precedence, then custom flat order, else the default grouped layout.
     if (customGroups) {
+      const placed = new Set(customGroups.flatMap((g) => g.items));
+      const missing = NAV.filter((n) => !placed.has(n.id));
+      const groups = missing.length ? [...customGroups, { label: "อื่นๆ", items: missing.map((n) => n.id) }] : customGroups;
       return (
         <nav>
-          {customGroups.map((g, gi) => {
+          {groups.map((g, gi) => {
             const items = g.items.map((id) => NAV.find((n) => n.id === id)).filter((n): n is typeof NAV[number] => !!n && !hidden.has(n.id));
             if (!items.length) return null;
             return (

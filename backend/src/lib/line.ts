@@ -72,6 +72,21 @@ export async function getGroupMemberName(
   }
 }
 
+// Fetch a direct user's LINE display name. LINE only returns this for users who
+// have interacted with the OA, which is exactly the case for webhook senders.
+export async function getUserProfile(userId: string | undefined, accessToken: string): Promise<string | null> {
+  if (!accessToken || !userId) return null;
+  try {
+    const res = await fetch(`https://api.line.me/v2/bot/profile/${encodeURIComponent(userId)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    return ((await res.json()) as any)?.displayName ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Fetch a LINE group's name (for reports).
 export async function getGroupName(groupId: string, accessToken: string): Promise<string | null> {
   if (!accessToken || !groupId) return null;

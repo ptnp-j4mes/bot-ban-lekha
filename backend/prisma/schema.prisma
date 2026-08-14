@@ -17,7 +17,7 @@ model SystemSetting {
   // Slip storage gateway (super-admin configured). Driver switches local <-> gdrive <-> s3.
   storageDriver        String  @default("local") @map("storage_driver") // local | gdrive | s3
   gdriveServiceAccount Json?   @map("gdrive_service_account") // service-account JSON — secret, never returned by API
-  gdriveRootFolderId   String? @map("gdrive_root_folder_id") // Drive folder that holds <orgId>/<lineOaId>/ trees
+  gdriveRootFolderId   String? @map("gdrive_root_folder_id") // Drive folder that holds organization/slip/user trees
 
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -36,6 +36,8 @@ model Organization {
   reminderText String? @map("reminder_text")              // overrides the default daily reminder body
   slipRetentionDays Int? @map("slip_retention_days")      // days to keep slip images; 0 = purge right after OCR; null = use system/env default
   autoApproveEnabled Boolean @default(false) @map("auto_approve_enabled") // auto-approve slips that auto-match (opt-in)
+  gdriveFolderId String? @map("gdrive_folder_id") // optional Drive folder selected by the super admin for this org
+  messageTemplates Json? @map("message_templates") // LINE response message overrides for this org
 
   memberships    Membership[]
   lineOaAccounts LineOaAccount[]
@@ -147,11 +149,28 @@ model Customer {
   @@map("customers")
 }
 
+// Platform-wide bank master used by organization bank accounts.
+model BankMaster {
+  id        String  @id @default(uuid())
+  code      String  @unique
+  name      String
+  isActive  Boolean @default(true) @map("is_active")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  bankAccounts BankAccount[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("bank_masters")
+}
+
 model BankAccount {
   id          String  @id @default(uuid())
   orgId       String  @map("org_id")
   accountName String  @map("account_name")
   accountNo   String  @map("account_no")
+  bankMasterId String? @map("bank_master_id")
   bankName    String  @map("bank_name")
   bankCode    String? @map("bank_code")
   branchName  String? @map("branch_name")
@@ -160,6 +179,7 @@ model BankAccount {
   note        String?
 
   organization Organization @relation(fields: [orgId], references: [id])
+  bankMaster   BankMaster?   @relation(fields: [bankMasterId], references: [id], onDelete: SetNull)
   billPlans    BillPlan[]
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -313,9 +333,14 @@ model MessageLog {
   paymentSubmissionId String? @map("payment_submission_id")
 
   lineUserId   String?  @map("line_user_id")
+  direction    String   @default("outbound") // inbound | outbound
+  sourceType   String?  @map("source_type") // user | group | room
+  sourceName   String?  @map("source_name")
+  lineMessageId String? @map("line_message_id")
   messageType  String   @map("message_type")
   messageText  String?  @map("message_text")
   lineResponse Json?    @map("line_response")
+  lineEvent    Json?    @map("line_event") // sanitized inbound LINE event, never includes replyToken
   status       String   @default("sent")
   errorMessage String?  @map("error_message")
   sentAt       DateTime @default(now()) @map("sent_at")
@@ -328,6 +353,7 @@ model MessageLog {
   paymentSubmission PaymentSubmission? @relation(fields: [paymentSubmissionId], references: [id])
 
   @@index([orgId])
+  @@index([orgId, direction, sentAt])
   @@map("message_logs")
 }
 

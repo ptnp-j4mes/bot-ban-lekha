@@ -180,7 +180,10 @@ export function Submissions() {
         ) : (
           <div className="space-y-3 text-sm">
             <div className="grid grid-cols-2 gap-1 max-w-xl">
-              {s.line_group_id && <><span className="text-muted-foreground">ส่งโดย (กลุ่ม)</span><span>{s.sender_name || s.line_user_id || "—"}</span></>}
+              <span className="text-muted-foreground">ผู้ส่ง</span><span>{s.sender_name || s.customer?.display_name || s.line_user_id || "—"}</span>
+              <span className="text-muted-foreground">รหัสลูกค้า</span><span className="fig">{s.customer?.customer_code || "—"}</span>
+              <span className="text-muted-foreground">LINE user ID</span><span className="fig break-all">{s.line_user_id || "—"}</span>
+              {s.line_group_id && <><span className="text-muted-foreground">กลุ่ม LINE</span><span className="fig break-all">{s.line_group_id}</span></>}
               <span className="text-muted-foreground">ประเภท</span><span>{s.doc_type === "cash" ? <Badge variant="warning">บิลเงินสด</Badge> : s.doc_type === "slip" ? <Badge variant="secondary">สลิป</Badge> : "—"}</span>
               <span className="text-muted-foreground">ยอด (OCR)</span><span className="fig">{baht(s.parsed_amount)}</span>
               <span className="text-muted-foreground">วันโอน</span><span className="fig">{thDate(s.parsed_transfer_date)}</span>

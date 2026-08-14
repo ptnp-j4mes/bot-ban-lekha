@@ -7,7 +7,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
       type={type}
       ref={ref}
       className={cn(
-        "flex h-[42px] w-full rounded-lg border border-border bg-white px-3.5 py-1 text-sm transition-shadow placeholder:text-muted-foreground hover:border-primary focus-visible:outline-none focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-[#F1F5F9]",
+        "flex h-[42px] w-full rounded-lg border border-border bg-card px-3.5 py-1 text-sm text-foreground transition-shadow placeholder:text-muted-foreground hover:border-primary focus-visible:outline-none focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-muted",
         className
       )}
       {...props}
@@ -21,7 +21,7 @@ export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttrib
     <select
       ref={ref}
       className={cn(
-        "flex h-[42px] w-full rounded-lg border border-border bg-white px-3.5 py-1 text-sm hover:border-primary focus-visible:outline-none focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/10",
+        "flex h-[42px] w-full rounded-lg border border-border bg-card px-3.5 py-1 text-sm text-foreground hover:border-primary focus-visible:outline-none focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/10",
         className
       )}
       {...props}

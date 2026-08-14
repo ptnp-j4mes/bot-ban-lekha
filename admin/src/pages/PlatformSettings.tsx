@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut } from "@/lib/ui";
@@ -6,6 +7,8 @@ import { Input, Select, Field } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { Dialog } from "@/components/ui/dialog";
+import { MenuManager } from "@/components/MenuManager";
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return (
@@ -20,9 +23,10 @@ export function PlatformSettings() {
   const s = useQuery({ queryKey: ["platform-settings"], queryFn: () => apiGet("/api/platform/settings") });
   const orgs = useQuery({ queryKey: ["orgs"], queryFn: () => apiGet("/api/platform/organizations") });
   const info = useQuery({ queryKey: ["system-info"], queryFn: () => apiGet("/api/platform/system-info"), refetchInterval: 15000 });
-
-  const save = useMut((b: any) => apiSend("/api/platform/settings", "PATCH", b), { success: "บันทึกแล้ว", invalidate: ["platform-settings"] });
+  const save = useMut((b: any) => apiSend("/api/platform/settings", "PATCH", b), { success: "บันทึกแล้ว", invalidate: ["platform-settings", "gdrive-status", "gdrive-files", "system-info"] });
   const editOrg = useMut((b: { id: string; data: any }) => apiSend(`/api/platform/organizations/${b.id}`, "PATCH", b.data), { success: "อัปเดตองค์กรแล้ว", invalidate: ["orgs"] });
+  const removeOrg = useMut((id: string) => apiSend(`/api/platform/organizations/${id}`, "DELETE"), { success: "ลบองค์กรแล้ว", invalidate: ["orgs", "system-info"] });
+  const [storageOrg, setStorageOrg] = useState<any | null>(null);
 
   const saveStorage = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -49,14 +53,26 @@ export function PlatformSettings() {
   const i = info.data;
 
   const orgCols: Column<any>[] = [
-    { key: "name", header: "องค์กร", sortValue: (o) => o.name, cell: (o) => <span className="font-medium">{o.name}</span> },
+    { key: "name", header: "องค์กร", sortValue: (o) => o.name, cell: (o) => (
+      <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={() => setStorageOrg(o)}>{o.name}</button>
+    ) },
     { key: "users", header: "ผู้ใช้", align: "right", sortValue: (o) => o._count?.memberships ?? 0, cell: (o) => <span className="text-muted-foreground">{o._count?.memberships ?? 0}</span> },
     { key: "custs", header: "ลูกค้า", align: "right", sortValue: (o) => o._count?.customers ?? 0, cell: (o) => <span className="text-muted-foreground">{o._count?.customers ?? 0}</span> },
-    { key: "status", header: "สถานะ", sortValue: (o) => (o.isActive ? 1 : 0), cell: (o) => <Badge variant={o.isActive ? "success" : "secondary"}>{o.isActive ? "active" : "off"}</Badge> },
+    { key: "storage", header: "โฟลเดอร์สลิป", cell: (o) => o.gdrive_folder_id ? <Badge variant="success">กำหนดแล้ว</Badge> : <Badge variant="secondary">อัตโนมัติ</Badge> },
+    { key: "status", header: "สถานะ", sortValue: (o) => (o.is_active ? 1 : 0), cell: (o) => <Badge variant={o.is_active ? "success" : "secondary"}>{o.is_active ? "active" : "off"}</Badge> },
     { key: "act", header: "", stop: true, cell: (o) => (
       <div className="flex justify-end gap-1">
+        <Button size="sm" variant="outline" onClick={() => setStorageOrg(o)}>ตั้งค่า Storage</Button>
         <Button size="sm" variant="outline" onClick={() => { const n = prompt("ชื่อองค์กรใหม่:", o.name); if (n && n.trim()) editOrg.mutate({ id: o.id, data: { name: n.trim() } }); }}>เปลี่ยนชื่อ</Button>
-        <Button size="sm" variant={o.isActive ? "destructive" : "success"} onClick={() => editOrg.mutate({ id: o.id, data: { is_active: !o.isActive } })}>{o.isActive ? "ปิด" : "เปิด"}</Button>
+        <Button size="sm" variant={o.is_active ? "destructive" : "success"} onClick={() => editOrg.mutate({ id: o.id, data: { is_active: !o.is_active } })}>{o.is_active ? "ปิด" : "เปิด"}</Button>
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={removeOrg.isPending}
+          onClick={() => {
+            if (window.confirm(`ต้องการลบองค์กร “${o.name}” ใช่หรือไม่? ลบได้เฉพาะองค์กรที่ยังไม่มีข้อมูล`)) removeOrg.mutate(o.id);
+          }}
+        >ลบ</Button>
       </div>
     ) },
   ];
@@ -99,6 +115,7 @@ export function PlatformSettings() {
                 <Select name="driver" defaultValue={d.storage_driver}>
                   <option value="local">Local disk (เซิร์ฟเวอร์)</option>
                   <option value="gdrive">Google Drive</option>
+                  <option value="s3">Amazon S3 / S3-compatible</option>
                 </Select>
               </Field>
               <Field label="Google Drive — Root Folder ID">
@@ -110,12 +127,15 @@ export function PlatformSettings() {
                   {d.gdrive_configured ? <Badge variant="success">ตั้งค่าแล้ว</Badge> : <Badge variant="secondary">ยังไม่ตั้ง</Badge>}
                 </div>
                 <textarea name="sa" rows={4}
-                  className="flex w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/10"
+                  className="flex w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/10"
                   placeholder='วาง service account JSON (เว้นว่าง = คงค่าเดิม) — เก็บฝั่ง server ไม่ถูกส่งกลับ' />
               </div>
               <Button type="submit" disabled={save.isPending}>บันทึก Storage</Button>
               <p className="text-xs text-muted-foreground">
-                สลิปเก็บที่ <span className="fig">โฟลเดอร์ราก / orgId / lineOaId /</span> · path แยกตาม org และ OA (บอท) · S3 เลือกได้แต่ยังไม่เปิด สลับได้เมื่อพร้อม
+                สถานะ config: <Badge variant={d.storage_configured ? "success" : "warning"}>{d.storage_configured ? "ครบ" : "ยังไม่ครบ"}</Badge>
+                {!d.storage_configured && d.storage_missing?.length ? ` · ขาด: ${d.storage_missing.join(", ")}` : ""}
+                <br />
+                Google Drive ใช้โฟลเดอร์องค์กร / slip / lineUserId-ชื่อ · S3 ใช้ค่า env: S3_BUCKET, S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY
               </p>
             </form>
           )}
@@ -129,6 +149,42 @@ export function PlatformSettings() {
           <DataTable data={orgs.data ?? []} columns={orgCols} rowKey={(o) => o.id} initialSort={{ key: "name", dir: "asc" }} empty="ยังไม่มีองค์กร" />
         </CardContent>
       </Card>
+
+      <Dialog open={!!storageOrg} onClose={() => setStorageOrg(null)} title={storageOrg ? `ที่เก็บไฟล์สลิป (Storage) — ${storageOrg.name}` : "ที่เก็บไฟล์สลิป (Storage)"} className="max-w-xl">
+        {storageOrg && (
+          <form
+            key={storageOrg.id}
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const folderId = String(new FormData(e.currentTarget).get("gdrive_folder_id") ?? "").trim();
+              editOrg.mutate({ id: storageOrg.id, data: { gdrive_folder_id: folderId } }, { onSuccess: () => setStorageOrg(null) });
+            }}
+          >
+            <div className="rounded-lg bg-secondary/60 px-3 py-2 text-sm text-muted-foreground">
+              ตั้งค่าได้โดย Super Admin เท่านั้น และใช้เฉพาะองค์กร <span className="font-semibold text-foreground">{storageOrg.name}</span>
+            </div>
+            <Field label="Google Drive — Folder ID ขององค์กร">
+              <Input name="gdrive_folder_id" defaultValue={storageOrg.gdrive_folder_id ?? ""} placeholder="ปล่อยว่าง = สร้างโฟลเดอร์ชื่อองค์กรใต้ Root อัตโนมัติ" />
+            </Field>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              เส้นทางจัดเก็บ: <span className="fig">{storageOrg.gdrive_folder_id ? "โฟลเดอร์ที่กำหนด" : "Root / ชื่อองค์กร"} / slip / lineUserId-ชื่อ / ไฟล์</span>
+              <br />เช่น <span className="fig">บ้านขุมทรัพย์ / slip / Uxxxxxxxx-คุณสมชาย / slip.jpg</span>
+            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {storageOrg.gdrive_folder_id && (
+                <a href={`https://drive.google.com/drive/folders/${encodeURIComponent(storageOrg.gdrive_folder_id)}`} target="_blank" rel="noreferrer" className="text-sm font-semibold text-primary underline-offset-2 hover:underline">เปิดโฟลเดอร์ใน Drive</a>
+              )}
+              <div className="ml-auto flex gap-2">
+                <Button type="button" variant="outline" onClick={() => setStorageOrg(null)}>ยกเลิก</Button>
+                <Button type="submit" disabled={editOrg.isPending}>{editOrg.isPending ? "กำลังบันทึก…" : "บันทึก Storage"}</Button>
+              </div>
+            </div>
+          </form>
+        )}
+      </Dialog>
+
+      <MenuManager />
 
       {/* System status + OCR */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -144,7 +200,7 @@ export function PlatformSettings() {
                 <Row k="ฐานข้อมูล" v={<Badge variant={i.db_ok ? "success" : "destructive"}>{i.db_ok ? "เชื่อมต่อ" : "ขัดข้อง"}</Badge>} />
                 <Row k="Uptime" v={`${Math.floor(i.uptime_sec / 60)} นาที`} />
                 <Row k="องค์กร / ผู้ใช้" v={`${i.orgs} / ${i.users}`} />
-                <Row k="Storage" v={i.storage_driver === "gdrive" ? <Badge variant={i.storage_gdrive_configured ? "success" : "warning"}>Google Drive</Badge> : <Badge variant="secondary">{i.storage_driver}</Badge>} />
+                <Row k="Storage" v={<Badge variant={i.storage_configured ? "success" : "warning"}>{i.storage_driver}{i.storage_configured ? " · config ครบ" : " · config ไม่ครบ"}</Badge>} />
               </>
             )}
           </CardContent>

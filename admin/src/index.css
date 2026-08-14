@@ -23,28 +23,47 @@
     --input: 214 32% 91%;
     --ring: 222 47% 11%;
     --sage: 160 90% 30%;           /* #059669 — links, CTAs, positive */
+    --success: 160 90% 30%;
+    --success-foreground: 0 0% 100%;
+    --success-soft: 160 60% 94%;
+    --success-text: 160 90% 30%;
+    --warning-soft: 45 100% 95%;
+    --warning-text: 38 92% 36%;
+    --danger-soft: 0 86% 96%;
+    --danger-text: 0 72% 46%;
     --radius: 0.75rem;             /* 12px */
   }
 
   .dark {
-    --background: 222 47% 9%;
+    --background: 222 47% 8%;
     --foreground: 210 40% 96%;
     --card: 222 40% 13%;
     --card-foreground: 210 40% 96%;
-    --primary: 160 84% 39%;        /* sage carries actions on dark */
+    --primary: 160 78% 43%;        /* sage carries actions on dark */
     --primary-foreground: 222 47% 9%;
-    --secondary: 217 33% 18%;
+    --secondary: 220 31% 20%;
     --secondary-foreground: 210 40% 96%;
-    --muted: 217 33% 18%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 217 33% 18%;
+    --muted: 220 31% 16%;
+    --muted-foreground: 215 20% 70%;
+    --accent: 220 31% 22%;
     --accent-foreground: 210 40% 96%;
-    --border: 217 33% 20%;
-    --input: 217 33% 20%;
-    --ring: 160 84% 39%;
+    --border: 217 26% 27%;
+    --input: 217 30% 23%;
+    --ring: 160 78% 43%;
+    --success: 160 78% 43%;
+    --success-foreground: 222 47% 9%;
+    --success-soft: 160 42% 18%;
+    --success-text: 160 72% 62%;
+    --warning-soft: 38 32% 22%;
+    --warning-text: 43 96% 56%;
+    --danger-soft: 0 45% 22%;
+    --danger-text: 0 82% 68%;
   }
-  .dark .neu-raised, .dark .neu-raised-sm { background: hsl(var(--card)); }
-  .dark .neu-inset { background: hsl(222 40% 15%); }
+  .dark select option {
+    background: hsl(var(--card));
+    color: hsl(var(--foreground));
+  }
+  .dark input[type="checkbox"] { accent-color: hsl(var(--primary)); }
 
   body {
     min-height: 100vh;
@@ -115,6 +134,17 @@
     border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
   }
+  .dark .neu-raised, .dark .neu-raised-sm {
+    background: hsl(var(--card));
+    border-color: hsl(var(--border));
+    box-shadow: 0 8px 24px hsl(222 47% 3% / 0.24);
+  }
+  .dark .neu-inset { background: hsl(var(--muted)); }
+  .dark .sidebar-light {
+    background: hsl(222 42% 11%);
+    border-right-color: hsl(var(--border));
+  }
+  .dark .ledger-strip { background: hsl(var(--card)); }
 
   /* Stat strip accents. */
   .stat-card        { border-left: 3px solid hsl(var(--sage)); }
@@ -127,7 +157,7 @@
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #64748b;
+    color: hsl(var(--muted-foreground));
     padding: 1rem 0.85rem 0.35rem;
   }
 }

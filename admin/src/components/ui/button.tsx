@@ -8,12 +8,12 @@ const buttonVariants = cva(
     variants: {
       variant: {
         // Primary: navy fill. Secondary(outline): navy border. Ghost: slate text. Sage for positive.
-        default: "bg-primary text-primary-foreground hover:bg-[#020617]",
-        destructive: "bg-destructive text-destructive-foreground hover:bg-[#DC2626]",
-        outline: "border border-primary bg-transparent text-primary hover:bg-primary/[0.04]",
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        outline: "border border-primary bg-transparent text-primary hover:bg-primary/10",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/70",
-        ghost: "text-[#475569] hover:bg-[#F1F5F9]",
-        success: "bg-[#059669] text-white hover:bg-[#047857]",
+        ghost: "text-muted-foreground hover:bg-secondary hover:text-foreground",
+        success: "bg-success text-success-foreground hover:bg-success/90",
       },
       size: {
         default: "h-[42px] px-[22px]",

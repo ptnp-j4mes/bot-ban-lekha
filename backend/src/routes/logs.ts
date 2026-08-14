@@ -20,6 +20,17 @@ export const logRoutes = new Elysia()
     return ok({ items, total, page, limit });
   })
 
+  .get("/api/message-logs", async ({ query, ctx }: any) => {
+    const page = Math.max(1, Number(query.page ?? 1));
+    const limit = Math.min(100, Number(query.limit ?? 30));
+    const where = { orgId: ctx.orgId, direction: "inbound" };
+    const [items, total] = await Promise.all([
+      prisma.messageLog.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { sentAt: "desc" } }),
+      prisma.messageLog.count({ where }),
+    ]);
+    return ok({ items, total, page, limit });
+  })
+
   .post("/api/messages/:id/resend", async ({ params, ctx }: any) => {
     const log = await prisma.messageLog.findFirst({ where: { id: params.id, orgId: ctx.orgId } });
     if (!log) throw new ApiError("NOT_FOUND", "Message not found");

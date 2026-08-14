@@ -10,9 +10,9 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between border-b border-border py-2 last:border-0">
+    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-b border-border py-2 last:border-0">
       <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{k}</span>
-      <span className="fig text-sm">{v}</span>
+      <span className="fig max-w-full break-words text-left text-sm sm:text-right">{v}</span>
     </div>
   );
 }

@@ -10,7 +10,7 @@ type Tx = PrismaClient | Prisma.TransactionClient;
 export const fmtAmount = (n: number) =>
   n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 
-type InstallmentView = { dueDate: Date; amountDue: number; status: string };
+type InstallmentView = { dueDate: Date; amountDue: number; status: string; penaltyAmount?: number };
 type BankView = { accountNo: string; bankName: string; accountName: string } | null;
 
 export const MESSAGE_TEMPLATE_KEYS = [
@@ -28,6 +28,7 @@ export const MESSAGE_TEMPLATE_KEYS = [
 ] as const;
 export type MessageTemplateKey = (typeof MESSAGE_TEMPLATE_KEYS)[number];
 export type MessageTemplates = Record<MessageTemplateKey, string>;
+export type CustomMessageTemplate = { id: string; name: string; trigger: string; text: string; enabled: boolean };
 
 export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplates = {
   text_help: `สวัสดีค่ะ 🙏\nหากต้องการแจ้งชำระเงิน กรุณาส่ง "รูปสลิป" โอนเงินเข้ามาในแชทนี้ได้เลยค่ะ\nหรือพิมพ์ "ยอด" เพื่อเช็คยอดค้างชำระค่ะ`,
@@ -43,6 +44,19 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplates = {
   rate_limited: `ขออภัยค่ะ คุณส่งสลิปเข้ามาบ่อยเกินไป\nกรุณารอสักครู่แล้วลองใหม่อีกครั้งค่ะ`,
 };
 
+export function normalizeCustomMessageTemplates(raw: unknown): CustomMessageTemplate[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item: any, index) => {
+    if (!item || typeof item !== "object") return [];
+    const id = typeof item.id === "string" && item.id.trim() ? item.id.trim().slice(0, 80) : `custom-${index + 1}`;
+    const name = typeof item.name === "string" ? item.name.trim().slice(0, 120) : "";
+    const trigger = typeof item.trigger === "string" ? item.trigger.trim().slice(0, 120) : "";
+    const text = typeof item.text === "string" ? item.text.slice(0, 4000) : "";
+    if (!name || !trigger || !text.trim()) return [];
+    return [{ id, name, trigger, text, enabled: item.enabled !== false }];
+  });
+}
+
 export function mergeMessageTemplates(raw: unknown): MessageTemplates {
   const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
   return Object.fromEntries(MESSAGE_TEMPLATE_KEYS.map((key) => [
@@ -57,13 +71,27 @@ export async function getOrgMessageTemplates(orgId: string | null | undefined): 
   return mergeMessageTemplates(org?.messageTemplates);
 }
 
+export async function getOrgMessageConfig(orgId: string | null | undefined): Promise<{ templates: MessageTemplates; customMessages: CustomMessageTemplate[] }> {
+  if (!orgId) return { templates: DEFAULT_MESSAGE_TEMPLATES, customMessages: [] };
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { messageTemplates: true } });
+  const raw = org?.messageTemplates as any;
+  return { templates: mergeMessageTemplates(raw), customMessages: normalizeCustomMessageTemplates(raw?.custom_messages) };
+}
+
 const fill = (template: string, values: Record<string, string | number>) =>
   template.replace(/\{([a-z_]+)\}/g, (_, key) => values[key] == null ? "" : String(values[key]));
+
+export const renderCustomMessage = (template: string, customerName?: string | null) =>
+  fill(template, { customer_name: customerName?.trim() || "ลูกค้า" });
 
 // `15💸 490✅` (paid) / `29💸 490` (unpaid) — 💸 stays, ✅ appended when paid.
 export function renderBillStatusLines(installments: InstallmentView[]): string {
   return installments
-    .map((i) => `${dayOfMonth(i.dueDate)}💸 ${fmtAmount(i.amountDue)}${i.status === "paid" ? "✅" : ""}`)
+    .map((i) => {
+      const penalty = Number(i.penaltyAmount ?? 0);
+      const penaltyText = penalty > 0 ? `🔴ปรับ${fmtAmount(penalty)}` : "";
+      return `${dayOfMonth(i.dueDate)}💸 ${fmtAmount(i.amountDue)}${i.status === "paid" ? "✅" : ""}${penaltyText}`;
+    })
     .join("\n");
 }
 
@@ -84,6 +112,7 @@ export function renderBillText(args: {
   totalInstallments: number;
   installments: InstallmentView[];
   bank: BankView;
+  billPenaltyAmount?: number | null;
   note?: string | null;
   footer?: string | null; // per-org override; falls back to env default
 }): string {
@@ -96,11 +125,14 @@ export function renderBillText(args: {
   const bank = args.bank
     ? `\n\n💸 ช่องทางการโอนเงิน 💸\n\nเลขที่บัญชี ${args.bank.accountNo}\n${args.bank.bankName}\nชื่อบัญชี ${args.bank.accountName}`
     : "";
+  const billPenalty = Number(args.billPenaltyAmount ?? 0);
+  const billPenaltyText = billPenalty > 0 ? `\n\n🔴ค่าปรับหัวบิล ${fmtAmount(billPenalty)}` : "";
   return (
     `บิล ${toEmojiNumber(args.billNo)}\n\n` +
     `${head}\n\n` +
     `${renderBillStatusLines(args.installments)}\n\n` +
     `จบ🙏` +
+    billPenaltyText +
     bank +
     `\n\n${args.footer?.trim() || env.billFooter}`
   );

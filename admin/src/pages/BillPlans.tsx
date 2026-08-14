@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Trash2, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, Trash2, Plus } from "lucide-react";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut, statusBadge, statusTh } from "@/lib/ui";
 import { baht, thDate } from "@/lib/format";
@@ -16,8 +16,12 @@ export function BillPlans() {
   const custs = useQuery({ queryKey: ["customers"], queryFn: () => apiGet("/api/customers?limit=200") });
   const banks = useQuery({ queryKey: ["banks"], queryFn: () => apiGet("/api/bank-accounts") });
   const [viewCust, setViewCust] = useState("");
+  const [billFilter, setBillFilter] = useState("");
+  const [billStatus, setBillStatus] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
   const [mode, setMode] = useState<"interval" | "custom">("interval");
   const [rows, setRows] = useState([{ due_date: "", amount_due: "", penalty_amount: "" }]);
+  const [expandedPlans, setExpandedPlans] = useState<Record<string, boolean>>({});
 
   const [payInst, setPayInst] = useState<any>(null);
   const [editInst, setEditInst] = useState<any>(null);
@@ -25,6 +29,11 @@ export function BillPlans() {
   const [penaltyPlan, setPenaltyPlan] = useState<any>(null);
 
   const plans = useQuery({ queryKey: ["bill-plans", viewCust], queryFn: () => apiGet(`/api/customers/${viewCust}/bill-plans`), enabled: !!viewCust });
+  const filteredPlans = (plans.data ?? []).filter((p: any) => {
+    const matchesNumber = !billFilter.trim() || String(p.bill_no).includes(billFilter.trim());
+    const matchesStatus = !billStatus || p.status === billStatus;
+    return matchesNumber && matchesStatus;
+  });
   const preview = useQuery({
     queryKey: ["bill-preview", previewBill?.id],
     queryFn: () => apiGet(`/api/bill-plans/${previewBill!.id}/preview`),
@@ -71,37 +80,38 @@ export function BillPlans() {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const num = (k: string) => Number(fd.get(k));
+    const customerId = String(fd.get("customer_id") ?? "");
     create.mutate({
       customer_id: fd.get("customer_id"), bill_no: num("bill_no"), principal_amount: num("principal_amount"),
       installment_amount: num("installment_amount"), cycle_type: "interval_days", cycle_days: num("cycle_days"),
       total_installments: num("total_installments"), start_date: fd.get("start_date"),
       bill_penalty_amount: num("bill_penalty_amount"), installment_penalty_amount: num("installment_penalty_amount"),
       bank_account_id: fd.get("bank_account_id") || undefined, note: fd.get("note") || undefined,
-    });
+    }, { onSuccess: () => { setViewCust(customerId); setCreateOpen(false); } });
   };
   const submitCustom = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const installments = rows.filter((r) => r.due_date && r.amount_due).map((r, i) => ({ installment_no: i + 1, due_date: r.due_date, amount_due: Number(r.amount_due), penalty_amount: Number(r.penalty_amount || 0) }));
     if (!installments.length) return;
+    const customerId = String(fd.get("customer_id") ?? "");
     createCustom.mutate({
       customer_id: fd.get("customer_id"), bill_no: Number(fd.get("bill_no")), principal_amount: Number(fd.get("principal_amount")),
       cycle_type: "custom_dates", bank_account_id: fd.get("bank_account_id") || undefined, bill_penalty_amount: Number(fd.get("bill_penalty_amount") || 0), note: fd.get("note") || undefined, installments,
-    });
-    setRows([{ due_date: "", amount_due: "", penalty_amount: "" }]);
+    }, { onSuccess: () => { setRows([{ due_date: "", amount_due: "", penalty_amount: "" }]); setViewCust(customerId); setCreateOpen(false); } });
   };
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex-row items-center gap-2">
-          <CardTitle>สร้างบิล</CardTitle>
-          <div className="ml-0 flex w-full flex-wrap gap-1 sm:ml-auto sm:w-auto">
-            <Button size="sm" variant={mode === "interval" ? "default" : "outline"} onClick={() => setMode("interval")}>ทุก X วัน</Button>
-            <Button size="sm" variant={mode === "custom" ? "default" : "outline"} onClick={() => setMode("custom")}>กำหนดวันเอง</Button>
+      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} title="สร้างบิล" className="max-w-5xl">
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background/40 p-2">
+            <p className="text-sm text-muted-foreground">เลือกวิธีสร้างบิล แล้วกรอกข้อมูลให้ครบ</p>
+            <div className="flex flex-wrap gap-1">
+              <Button size="sm" type="button" variant={mode === "interval" ? "default" : "outline"} onClick={() => setMode("interval")}>ทุก X วัน</Button>
+              <Button size="sm" type="button" variant={mode === "custom" ? "default" : "outline"} onClick={() => setMode("custom")}>กำหนดวันเอง</Button>
+            </div>
           </div>
-        </CardHeader>
-        <CardContent>
           {mode === "interval" ? (
             <form className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-3" onSubmit={submitInterval}>
               <Field label="ลูกค้า"><Select name="customer_id" required defaultValue=""><option value="" disabled>— เลือกลูกค้า —</option>{custOptions}</Select></Field>
@@ -115,7 +125,7 @@ export function BillPlans() {
               <Field label="ค่าปรับหัวบิลรวม"><Input name="bill_penalty_amount" type="number" min="0" step="0.01" placeholder="เช่น 500" /></Field>
               <Field label="ค่าปรับทุกงวด (default)"><Input name="installment_penalty_amount" type="number" min="0" step="0.01" placeholder="เช่น 500" /></Field>
               <Field label="หมายเหตุ" className="sm:col-span-2 lg:col-span-3"><Input name="note" /></Field>
-              <Button type="submit">สร้างบิล</Button>
+              <Button type="submit" disabled={create.isPending}>สร้างบิล</Button>
             </form>
           ) : (
             <form className="space-y-2" onSubmit={submitCustom}>
@@ -140,23 +150,42 @@ export function BillPlans() {
                 ))}
                 <Button size="sm" variant="outline" type="button" onClick={() => setRows([...rows, { due_date: "", amount_due: "", penalty_amount: "" }])}><Plus className="h-3 w-3 mr-1" /> เพิ่มงวด</Button>
               </div>
-              <Button size="sm" type="submit">สร้างบิล</Button>
+              <Button size="sm" type="submit" disabled={createCustom.isPending}>สร้างบิล</Button>
             </form>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </Dialog>
 
       <Card>
-        <CardHeader><CardTitle>ดูบิลของลูกค้า</CardTitle></CardHeader>
+        <CardHeader className="items-start sm:items-center">
+          <div className="min-w-0">
+            <CardTitle>ดูบิลของลูกค้า</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">เลือกผู้ใช้เพื่อดูและกรองบิลของรายนั้น</p>
+          </div>
+          <Button size="sm" className="ml-0 w-full sm:ml-auto sm:w-auto" onClick={() => setCreateOpen(true)}><Plus className="h-3.5 w-3.5" /> สร้างบิล</Button>
+        </CardHeader>
         <CardContent className="space-y-3">
-          <Select value={viewCust} onChange={(e) => setViewCust(e.target.value)} className="w-full sm:w-72"><option value="">— เลือกลูกค้า —</option>{custOptions}</Select>
-          {(plans.data ?? []).map((p: any) => (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_12rem_12rem]">
+            <Select value={viewCust} onChange={(e) => { setViewCust(e.target.value); setBillFilter(""); setBillStatus(""); }}><option value="">— เลือกลูกค้า —</option>{custOptions}</Select>
+            <Input value={billFilter} onChange={(e) => setBillFilter(e.target.value)} placeholder="กรองเลขที่บิล" disabled={!viewCust} />
+            <Select value={billStatus} onChange={(e) => setBillStatus(e.target.value)} disabled={!viewCust}>
+              <option value="">ทุกสถานะ</option>
+              <option value="active">ใช้งาน</option>
+              <option value="cancelled">ยกเลิก</option>
+            </Select>
+          </div>
+          {viewCust && <div className="flex items-center justify-between text-xs text-muted-foreground"><span>แสดง {filteredPlans.length} จาก {(plans.data ?? []).length} บิล</span>{(billFilter || billStatus) && <button type="button" className="text-primary hover:underline" onClick={() => { setBillFilter(""); setBillStatus(""); }}>ล้างตัวกรอง</button>}</div>}
+          {filteredPlans.map((p: any) => (
             <Card key={p.id}>
               <CardHeader className="py-2 flex-row items-center gap-2">
                 <CardTitle className="text-base">บิล {p.bill_no}</CardTitle>
                 {statusBadge(p.status)}
                 {Number(p.penalty_amount ?? 0) > 0 && <span className="text-xs text-danger-text">ค่าปรับหัวบิล {baht(p.penalty_amount)}</span>}
                 <div className="ml-0 flex w-full flex-wrap gap-1 sm:ml-auto sm:w-auto">
+                  <Button size="sm" variant="ghost" type="button" aria-expanded={expandedPlans[p.id] ?? true} onClick={() => setExpandedPlans((current) => ({ ...current, [p.id]: !(current[p.id] ?? true) }))}>
+                    {(expandedPlans[p.id] ?? true) ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    {(expandedPlans[p.id] ?? true) ? "ย่อ" : "ขยาย"}
+                  </Button>
                   <Button size="sm" variant="outline" onClick={() => setPreviewBill({ id: p.id, billNo: p.bill_no })}>Preview Bill</Button>
                   <Button size="sm" variant="outline" onClick={() => setPenaltyPlan(p)}>แก้ค่าปรับหัวบิล</Button>
                   {p.status === "active" && <>
@@ -165,11 +194,13 @@ export function BillPlans() {
                   </>}
                 </div>
               </CardHeader>
-              <CardContent className="p-0">
+              {(expandedPlans[p.id] ?? true) && <CardContent className="p-0">
                 <DataTable data={p.installments} columns={instCols} rowKey={(i) => i.id} initialSort={{ key: "no", dir: "asc" }} maxHeight="none" empty="ไม่มีงวด" />
-              </CardContent>
+              </CardContent>}
             </Card>
           ))}
+          {viewCust && !plans.isLoading && filteredPlans.length === 0 && <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">ไม่พบบิลตามตัวกรอง</p>}
+          {!viewCust && <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">เลือกลูกค้าเพื่อแสดงรายการบิล</p>}
         </CardContent>
       </Card>
 

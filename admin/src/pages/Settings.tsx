@@ -51,7 +51,7 @@ export function Settings() {
                   className="flex w-full rounded-md border-0 px-3.5 py-2 text-sm neu-inset focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   placeholder="ปล่อยว่าง = ใช้ข้อความเริ่มต้นของระบบ" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
                 <div>
                   <label className="text-sm text-muted-foreground">เวลาส่งเตือน (เช้า)</label>
                   <Select name="reminder_hour" defaultValue={String(d.reminder_hour ?? 9)} className="mt-1">
@@ -92,8 +92,8 @@ export function Settings() {
         <CardHeader><CardTitle>เปลี่ยนรหัสผ่านของฉัน</CardTitle></CardHeader>
         <CardContent>
           <form className="flex flex-wrap gap-2 items-end" onSubmit={submitPw}>
-            <Input name="current_password" type="password" placeholder="รหัสปัจจุบัน" className="w-44" />
-            <Input name="new_password" type="password" placeholder="รหัสใหม่ (≥6)" className="w-44" required minLength={6} />
+            <Input name="current_password" type="password" placeholder="รหัสปัจจุบัน" className="w-full sm:w-44" />
+            <Input name="new_password" type="password" placeholder="รหัสใหม่ (≥6)" className="w-full sm:w-44" required minLength={6} />
             <Button size="sm" type="submit">เปลี่ยนรหัส</Button>
           </form>
         </CardContent>

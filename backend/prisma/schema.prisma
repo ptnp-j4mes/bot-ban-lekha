@@ -202,6 +202,7 @@ model BillPlan {
   totalInstallments Int      @map("total_installments")
   startDate         DateTime @map("start_date") @db.Date
   status            String   @default("active")
+  penaltyAmount     Decimal  @default(0) @map("penalty_amount")
   note              String?
   createdBy         String?  @map("created_by")
 
@@ -226,6 +227,7 @@ model BillInstallment {
   dueDate              DateTime  @map("due_date") @db.Date
   amountDue            Decimal   @map("amount_due")
   amountPaid           Decimal   @default(0) @map("amount_paid")
+  penaltyAmount        Decimal   @default(0) @map("penalty_amount")
   status               String    @default("pending")
   paidAt               DateTime? @map("paid_at")
   paidByPaymentId      String?   @map("paid_by_payment_id")

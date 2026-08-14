@@ -3,8 +3,8 @@ import { cn } from "@/lib/utils";
 
 // maxHeight enables a scroll area with a sticky header ("fix th").
 export const Table = ({ className, maxHeight, ...props }: React.HTMLAttributes<HTMLTableElement> & { maxHeight?: string }) => (
-  <div className="relative w-full overflow-auto" style={maxHeight ? { maxHeight } : undefined}>
-    <table className={cn("w-full caption-bottom text-sm [font-variant-numeric:tabular-nums]", className)} {...props} />
+  <div className="relative w-full overscroll-x-contain overflow-x-auto" style={maxHeight ? { maxHeight } : undefined}>
+    <table className={cn("w-full min-w-max caption-bottom text-sm [font-variant-numeric:tabular-nums]", className)} {...props} />
   </div>
 );
 export const THead = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => (

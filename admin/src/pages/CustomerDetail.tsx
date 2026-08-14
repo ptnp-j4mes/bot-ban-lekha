@@ -32,8 +32,8 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-3xl space-y-4 my-4" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/40 p-3 sm:p-4" onClick={onClose}>
+      <div className="my-1 w-full max-w-3xl space-y-4 sm:my-4" onClick={(e) => e.stopPropagation()}>
         <Card>
           <CardHeader className="flex-row items-center gap-2">
             <CardTitle>{data?.customer?.display_name || data?.customer?.customer_code || "ลูกค้า"}</CardTitle>
@@ -42,7 +42,7 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
           </CardHeader>
           {data?.customer && (
             <CardContent className="text-sm text-muted-foreground">
-              code {data.customer.customer_code} · {data.customer.phone || "ไม่มีเบอร์"} · LINE {data.customer.line_user_id ? "ผูกแล้ว" : "ยังไม่ผูก"}
+              <span className="break-words">code {data.customer.customer_code} · {data.customer.phone || "ไม่มีเบอร์"} · LINE {data.customer.line_user_id ? "ผูกแล้ว" : "ยังไม่ผูก"}</span>
             </CardContent>
           )}
         </Card>
@@ -52,7 +52,7 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
           <CardContent className="space-y-2">
             {(data?.bill_plans ?? []).map((p: any) => (
               <div key={p.id}>
-                <div className="mb-1 text-sm font-medium flex items-center gap-2">บิล {p.bill_no} {statusBadge(p.status)}</div>
+                <div className="mb-1 flex flex-wrap items-center gap-2 text-sm font-medium">บิล {p.bill_no} {statusBadge(p.status)}</div>
                 <DataTable data={p.installments} columns={instCols} rowKey={(i) => i.id} initialSort={{ key: "no", dir: "asc" }} maxHeight="none" />
               </div>
             ))}

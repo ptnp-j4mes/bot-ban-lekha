@@ -56,7 +56,7 @@ export function Logs() {
           />
         </CardContent>
         {inboundPages > 1 && (
-          <div className="flex items-center justify-end gap-2 px-4 py-3 text-sm">
+          <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-3 text-sm">
             <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</Button>
             <span>{page} / {inboundPages}</span>
             <Button size="sm" variant="outline" disabled={page >= inboundPages} onClick={() => setPage(page + 1)}>ถัดไป</Button>
@@ -87,7 +87,7 @@ export function Logs() {
           />
         </CardContent>
         {pages > 1 && (
-          <div className="flex items-center justify-end gap-2 px-4 py-3 text-sm">
+          <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-3 text-sm">
             <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</Button>
             <span>{page} / {pages}</span>
             <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage(page + 1)}>ถัดไป</Button>

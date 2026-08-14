@@ -47,7 +47,7 @@ function applyTheme(dark: boolean) {
   localStorage.theme = dark ? "dark" : "light";
 }
 // Init before first paint.
-applyTheme(localStorage.theme ? localStorage.theme === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches);
+applyTheme(localStorage.theme === "dark");
 
 function ThemeToggle() {
   const [dark, setDark] = useState(document.documentElement.classList.contains("dark"));
@@ -246,9 +246,10 @@ function Shell() {
             <div className="nav-section">{group.label}</div>
             <div className="space-y-0.5">
               {group.items.map((p) => (
-                <button
+                <a
                   key={p.id}
-                  onClick={() => { navigatePlatform(p.id); close(); }}
+                  href={platformMenuPath(p.id)}
+                  onClick={close}
                   className={cn(
                     "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-colors",
                     pActive.id === p.id
@@ -258,7 +259,7 @@ function Shell() {
                 >
                   <p.icon className={cn("h-[18px] w-[18px] shrink-0", pActive.id === p.id ? "text-primary" : "")} />
                   {p.label}
-                </button>
+                </a>
               ))}
             </div>
           </div>
@@ -288,9 +289,10 @@ function Shell() {
 
   const navFn = (close: () => void) => {
     const item = (n: typeof NAV[number]) => (
-      <button
+      <a
         key={n.id}
-        onClick={() => { navigate(n.id); close(); }}
+        href={menuPath(n.id)}
+        onClick={close}
         className={cn(
           "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-colors",
           active.id === n.id
@@ -303,7 +305,7 @@ function Shell() {
         {n.id === "subs" && pendingCount > 0 && (
           <span className="ml-auto rounded-full bg-[#EF4444] px-1.5 py-0.5 text-[10px] font-semibold text-white">{pendingCount}</span>
         )}
-      </button>
+      </a>
     );
 
     // Custom categories take precedence, then custom flat order, else the default grouped layout.

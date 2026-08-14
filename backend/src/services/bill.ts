@@ -52,10 +52,12 @@ export async function renderPlanBill(db: Tx, billPlanId: string) {
     installmentAmount: Number(plan.installmentAmount),
     cycleDays: plan.cycleDays,
     totalInstallments: plan.totalInstallments,
+    billPenaltyAmount: Number(plan.penaltyAmount),
     installments: plan.installments.map((i) => ({
       dueDate: i.dueDate,
       amountDue: Number(i.amountDue),
       status: i.status,
+      penaltyAmount: Number(i.penaltyAmount),
     })),
     bank: plan.bankAccount
       ? {

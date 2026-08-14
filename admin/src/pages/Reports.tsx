@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Download } from "lucide-react";
+import { Download, Search } from "lucide-react";
 import { toast } from "react-toastify";
 import { apiGet, apiRaw } from "@/lib/api";
 import { statusBadge } from "@/lib/ui";
@@ -14,18 +14,31 @@ import { thDate } from "@/lib/format";
 
 const fmt = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 const ocust = (i: any) => i.bill_plan?.customer?.display_name || i.bill_plan?.customer?.customer_code || "—";
+const bangkokTodayIso = () => {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+};
 
 export function Reports() {
+  const [fromDraft, setFromDraft] = useState("");
+  const [toDraft, setToDraft] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [day, setDay] = useState(new Date().toLocaleDateString("en-CA"));
+  const [dayDraft, setDayDraft] = useState(bangkokTodayIso);
+  const [day, setDay] = useState(bangkokTodayIso);
+  const applyRange = () => { setFrom(fromDraft); setTo(toDraft); };
+  const applyDay = () => setDay(dayDraft);
   const daily = useQuery({ queryKey: ["report-daily", day], queryFn: () => apiGet(`/api/reports/daily?date=${day}`) });
-  const range = `${from ? `from=${from}` : ""}${to ? `&to=${to}` : ""}`;
-  const summary = useQuery({ queryKey: ["report-summary", from, to], queryFn: () => apiGet(`/api/reports/summary?${range}`) });
+  const rangeParams = new URLSearchParams();
+  if (from) rangeParams.set("from", from);
+  if (to) rangeParams.set("to", to);
+  const range = rangeParams.toString();
+  const summary = useQuery({ queryKey: ["report-summary", from, to], queryFn: () => apiGet(`/api/reports/summary${range ? `?${range}` : ""}`) });
   const overdue = useQuery({ queryKey: ["overdue"], queryFn: () => apiGet("/api/installments/overdue") });
 
   const downloadCsv = async () => {
-    const res = await apiRaw(`/api/reports/payments.csv?${range}`);
+    const res = await apiRaw(`/api/reports/payments.csv${range ? `?${range}` : ""}`);
     if (!res.ok) return toast.error("ดาวน์โหลดไม่สำเร็จ");
     const url = URL.createObjectURL(await res.blob());
     const a = document.createElement("a");
@@ -44,9 +57,10 @@ export function Reports() {
         <CardHeader className="flex-row items-center gap-2">
           <CardTitle>รายงาน</CardTitle>
           <div className="ml-0 grid w-full grid-cols-1 items-end gap-2 sm:ml-auto sm:flex sm:w-auto">
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-full sm:w-40" />
+            <Input type="date" value={fromDraft} onChange={(e) => setFromDraft(e.target.value)} className="w-full sm:w-40" />
             <span className="hidden pb-2 sm:block">–</span>
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-full sm:w-40" />
+            <Input type="date" value={toDraft} onChange={(e) => setToDraft(e.target.value)} className="w-full sm:w-40" />
+            <Button size="sm" className="w-full sm:w-auto" onClick={applyRange}><Search className="h-3 w-3" /> ค้นหา</Button>
             <Button size="sm" className="w-full sm:w-auto" onClick={downloadCsv}><Download className="h-3 w-3 mr-1" /> CSV การชำระ</Button>
           </div>
         </CardHeader>
@@ -65,7 +79,10 @@ export function Reports() {
       <Card>
         <CardHeader className="flex-row items-center gap-2">
           <CardTitle>รายงานรายวัน — ต่อกลุ่ม LINE</CardTitle>
-          <Input type="date" value={day} onChange={(e) => setDay(e.target.value)} className="ml-0 w-full sm:ml-auto sm:w-40" />
+          <div className="ml-0 flex w-full flex-col gap-2 sm:ml-auto sm:w-auto sm:flex-row">
+            <Input type="date" value={dayDraft} onChange={(e) => setDayDraft(e.target.value)} className="w-full sm:w-40" />
+            <Button size="sm" className="w-full sm:w-auto" onClick={applyDay}><Search className="h-3 w-3" /> ค้นหา</Button>
+          </div>
         </CardHeader>
         <CardContent>
           <Table>

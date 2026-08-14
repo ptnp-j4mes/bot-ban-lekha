@@ -72,6 +72,50 @@ test("renderBillText: uses note verbatim + bank from DB", () => {
   expect(text).toContain("เลขที่บัญชี 2509480357");
 });
 
+test("renderBillText: preview follows the sample bill layout", () => {
+  const text = renderBillText({
+    billNo: 16,
+    principal: 8850,
+    installmentAmount: 500,
+    cycleDays: 10,
+    totalInstallments: 18,
+    note: "ยอด 8850 ส่ง500ราย10วัน",
+    installments: [
+      { dueDate: dateOnly("2026-05-28"), amountDue: 500, status: "paid" },
+      { dueDate: dateOnly("2026-06-01"), amountDue: 500, status: "pending" },
+      { dueDate: dateOnly("2026-06-11"), amountDue: 500, status: "paid" },
+    ],
+    bank: { accountNo: "2509480357", bankName: "ธนาคารกรุงศรีอยุธยา", accountName: "ชลดา พรมเมศ" },
+    footer: "‼️ชำระห้ามเกินเวลา 17.00น  เกินเวลา ปรับ ชม ละ500บาท และแบล็คลิสถาวร 📌",
+  });
+  expect(text).toBe(
+    "บิล 1️⃣6️⃣\n\nยอด 8850 ส่ง500ราย10วัน\n\n" +
+    "28💸 500✅\n1💸 500\n11💸 500✅\n\nจบ🙏\n\n" +
+    "💸 ช่องทางการโอนเงิน 💸\n\nเลขที่บัญชี 2509480357\nธนาคารกรุงศรีอยุธยา\nชื่อบัญชี ชลดา พรมเมศ" +
+    "\n\n‼️ชำระห้ามเกินเวลา 17.00น  เกินเวลา ปรับ ชม ละ500บาท และแบล็คลิสถาวร 📌"
+  );
+});
+
+test("renderBillText: renders per-installment and bill-header penalties separately", () => {
+  const text = renderBillText({
+    billNo: 16,
+    principal: 8850,
+    installmentAmount: 500,
+    cycleDays: 10,
+    totalInstallments: 2,
+    billPenaltyAmount: 500,
+    installments: [
+      { dueDate: dateOnly("2026-05-12"), amountDue: 500, status: "paid", penaltyAmount: 500 },
+      { dueDate: dateOnly("2026-05-22"), amountDue: 500, status: "pending" },
+    ],
+    bank: null,
+    footer: "footer",
+  });
+  expect(text).toContain("12💸 500✅🔴ปรับ500");
+  expect(text).toContain("22💸 500");
+  expect(text).toContain("🔴ค่าปรับหัวบิล 500");
+});
+
 test("renderBillText: per-org footer overrides default", () => {
   const base = { billNo: 1, principal: 1000, installmentAmount: 490, cycleDays: 7, totalInstallments: 1, bank: null,
     installments: [{ dueDate: dateOnly("2026-06-16"), amountDue: 490, status: "pending" }] };

@@ -25,7 +25,7 @@ export function NotificationBell({ items }: { items: Notif[] }) {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-50 mt-2 w-72 rounded-md border border-border bg-card shadow-xl">
+          <div className="absolute right-0 z-50 mt-2 w-72 max-w-[calc(100vw-1.5rem)] rounded-md border border-border bg-card shadow-xl">
             <div className="border-b border-border px-3 py-2 text-[13px] font-semibold">การแจ้งเตือน</div>
             {active.length === 0 ? (
               <p className="px-3 py-6 text-center text-sm text-muted-foreground">ไม่มีรายการต้องดำเนินการ</p>

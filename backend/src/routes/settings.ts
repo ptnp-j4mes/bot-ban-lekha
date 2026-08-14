@@ -3,7 +3,7 @@ import { prisma } from "../lib/prisma";
 import { ok, ApiError } from "../lib/response";
 import { authorize } from "../lib/auth";
 import { audit } from "../services/audit";
-import { MESSAGE_TEMPLATE_KEYS, mergeMessageTemplates } from "../services/messages";
+import { MESSAGE_TEMPLATE_KEYS, mergeMessageTemplates, normalizeCustomMessageTemplates } from "../services/messages";
 
 const view = (org: any) => ({
   id: org.id,
@@ -15,7 +15,7 @@ const view = (org: any) => ({
   reminder_text: org.reminderText,
   slip_retention_days: org.slipRetentionDays,
   auto_approve_enabled: org.autoApproveEnabled,
-  message_templates: mergeMessageTemplates(org.messageTemplates),
+  message_templates: { ...mergeMessageTemplates(org.messageTemplates), custom_messages: normalizeCustomMessageTemplates((org.messageTemplates as any)?.custom_messages) },
 });
 
 // Per-org settings (name, timezone, bill footer, reminder schedule/message). Any member can view/edit.
@@ -52,7 +52,23 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
             if (value.trim()) templates[key] = value;
           }
         }
-        data.messageTemplates = templates;
+        const rawCustom = body.message_templates.custom_messages;
+        if (rawCustom !== undefined) {
+          if (!Array.isArray(rawCustom) || rawCustom.length > 100)
+            throw new ApiError("VALIDATION_ERROR", "custom_messages ต้องเป็น array ไม่เกิน 100 รายการ");
+          for (const item of rawCustom) {
+            if (!item || typeof item !== "object" || typeof item.name !== "string" || typeof item.trigger !== "string" || typeof item.text !== "string")
+              throw new ApiError("VALIDATION_ERROR", "custom message ต้องมี name, trigger และ text");
+            if (item.name.length > 120 || item.trigger.length > 120 || item.text.length > 4000)
+              throw new ApiError("VALIDATION_ERROR", "custom message มีความยาวเกินกำหนด");
+          }
+        }
+        const currentOrg = await prisma.organization.findUnique({ where: { id: ctx.orgId }, select: { messageTemplates: true } });
+        const currentCustom = normalizeCustomMessageTemplates((currentOrg?.messageTemplates as any)?.custom_messages);
+        data.messageTemplates = {
+          ...templates,
+          custom_messages: normalizeCustomMessageTemplates(rawCustom === undefined ? currentCustom : rawCustom),
+        };
       }
       const org = await prisma.organization.update({ where: { id: ctx.orgId }, data });
       await audit(prisma, { action: "update_settings", entityType: "organization", entityId: org.id, orgId: ctx.orgId, actorId: ctx.userId, newValue: data });

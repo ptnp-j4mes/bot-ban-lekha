@@ -19,6 +19,8 @@ const intervalBody = t.Object({
   total_installments: t.Number(),
   start_date: t.String({ minLength: 1 }),
   bank_account_id: t.Optional(t.String()),
+  bill_penalty_amount: t.Optional(t.Number({ minimum: 0 })),
+  installment_penalty_amount: t.Optional(t.Number({ minimum: 0 })),
   note: t.Optional(t.String()),
 });
 const customDatesBody = t.Object({
@@ -27,9 +29,10 @@ const customDatesBody = t.Object({
   principal_amount: t.Number(),
   cycle_type: t.Optional(t.String()),
   bank_account_id: t.Optional(t.String()),
+  bill_penalty_amount: t.Optional(t.Number({ minimum: 0 })),
   note: t.Optional(t.String()),
   installments: t.Array(
-    t.Object({ installment_no: t.Number(), due_date: t.String({ minLength: 1 }), amount_due: t.Number() }),
+    t.Object({ installment_no: t.Number(), due_date: t.String({ minLength: 1 }), amount_due: t.Number(), penalty_amount: t.Optional(t.Number({ minimum: 0 })) }),
     { minItems: 1 }
   ),
 });
@@ -48,7 +51,8 @@ export const billPlanRoutes = new Elysia({ prefix: "/api/bill-plans" })
     const customer = await prisma.customer.findFirst({ where: { id: b.customer_id, orgId: ctx.orgId } });
     if (!customer) throw new ApiError("NOT_FOUND", "Customer not found");
 
-    const rows = generateInstallments(dateOnly(b.start_date), b.cycle_days, b.total_installments, b.installment_amount);
+    const rows = generateInstallments(dateOnly(b.start_date), b.cycle_days, b.total_installments, b.installment_amount)
+      .map((row) => ({ ...row, penaltyAmount: b.installment_penalty_amount ?? 0 }));
 
     const plan = await prisma.$transaction(async (tx) => {
       const bank = await resolveBankAccount(tx, ctx.orgId, b.bank_account_id);
@@ -60,6 +64,7 @@ export const billPlanRoutes = new Elysia({ prefix: "/api/bill-plans" })
           billNo: b.bill_no,
           principalAmount: b.principal_amount,
           installmentAmount: b.installment_amount,
+          penaltyAmount: b.bill_penalty_amount ?? 0,
           cycleType: "interval_days",
           cycleDays: b.cycle_days,
           totalInstallments: b.total_installments,
@@ -86,7 +91,7 @@ export const billPlanRoutes = new Elysia({ prefix: "/api/bill-plans" })
     const rows = b.installments.map((i: any) => {
       if (!(i.amount_due > 0)) throw new ApiError("VALIDATION_ERROR", "amount_due must be > 0");
       if (!i.due_date) throw new ApiError("VALIDATION_ERROR", "due_date is required");
-      return { installmentNo: i.installment_no, dueDate: dateOnly(i.due_date), amountDue: i.amount_due };
+      return { installmentNo: i.installment_no, dueDate: dateOnly(i.due_date), amountDue: i.amount_due, penaltyAmount: i.penalty_amount ?? 0 };
     });
 
     const plan = await prisma.$transaction(async (tx) => {
@@ -99,6 +104,7 @@ export const billPlanRoutes = new Elysia({ prefix: "/api/bill-plans" })
           billNo: b.bill_no,
           principalAmount: b.principal_amount,
           installmentAmount: 0,
+          penaltyAmount: b.bill_penalty_amount ?? 0,
           cycleType: "custom_dates",
           cycleDays: null,
           totalInstallments: rows.length,
@@ -113,6 +119,22 @@ export const billPlanRoutes = new Elysia({ prefix: "/api/bill-plans" })
     });
     return ok(plan);
   }, { body: customDatesBody })
+
+  // Preview uses the exact same renderer as the bill sent to LINE.
+  .get("/:id/preview", async ({ params, ctx }: any) => {
+    const p = await prisma.billPlan.findFirst({ where: { id: params.id, orgId: ctx.orgId }, select: { id: true } });
+    if (!p) throw new ApiError("NOT_FOUND", "Bill plan not found");
+    const bill = await renderPlanBill(prisma, p.id);
+    return ok({ bill_id: bill.plan.id, bill_no: bill.plan.billNo, completed: bill.completed, text: bill.text });
+  })
+
+  .patch("/:id/penalty", async ({ params, body, ctx }: any) => {
+    const plan = await prisma.billPlan.findFirst({ where: { id: params.id, orgId: ctx.orgId } });
+    if (!plan) throw new ApiError("NOT_FOUND", "Bill plan not found");
+    const updated = await prisma.billPlan.update({ where: { id: plan.id }, data: { penaltyAmount: body.bill_penalty_amount } });
+    await audit(prisma, { action: "update_bill_penalty", entityType: "bill_plan", entityId: plan.id, orgId: ctx.orgId, actorId: ctx.userId, oldValue: { penaltyAmount: plan.penaltyAmount }, newValue: { penaltyAmount: updated.penaltyAmount } });
+    return ok(updated);
+  }, { body: t.Object({ bill_penalty_amount: t.Number({ minimum: 0 }) }) })
 
   .get("/:id", async ({ params, ctx }: any) => {
     const p = await prisma.billPlan.findFirst({ where: { id: params.id, orgId: ctx.orgId }, include });

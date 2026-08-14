@@ -13,6 +13,54 @@ export const MENU = [
   { id: "message-settings", label: "ข้อความตอบกลับ LINE" },
 ];
 
+export const MENU_PATHS = {
+  dashboard: "/dashboard",
+  customers: "/customers",
+  banks: "/banks",
+  plans: "/plans",
+  subs: "/submissions",
+  senders: "/senders",
+  groups: "/groups",
+  reports: "/reports",
+  oa: "/line-oa",
+  logs: "/logs",
+  settings: "/settings",
+  "message-settings": "/message-settings",
+} as const;
+
+export const PLATFORM_MENU_PATHS = {
+  users: "/platform/users",
+  system: "/platform/settings",
+  gdrive: "/platform/google-drive",
+} as const;
+
+export type MenuId = keyof typeof MENU_PATHS;
+export type PlatformMenuId = keyof typeof PLATFORM_MENU_PATHS;
+
+function normalizePath(pathname: string) {
+  const path = pathname.replace(/\/+$/, "");
+  return path || "/";
+}
+
+export function menuPath(id: string) {
+  return MENU_PATHS[id as MenuId] ?? MENU_PATHS.dashboard;
+}
+
+export function platformMenuPath(id: string) {
+  return PLATFORM_MENU_PATHS[id as PlatformMenuId] ?? PLATFORM_MENU_PATHS.users;
+}
+
+export function menuIdFromPath(pathname: string): MenuId | undefined {
+  const path = normalizePath(pathname);
+  if (path === "/") return "dashboard";
+  return (Object.entries(MENU_PATHS).find(([, value]) => value === path)?.[0] as MenuId | undefined);
+}
+
+export function platformMenuIdFromPath(pathname: string): PlatformMenuId | undefined {
+  const path = normalizePath(pathname);
+  return (Object.entries(PLATFORM_MENU_PATHS).find(([, value]) => value === path)?.[0] as PlatformMenuId | undefined);
+}
+
 export const DEFAULT_GROUPS = [
   { label: "ภาพรวม", items: ["dashboard"] },
   { label: "จัดการ", items: ["customers", "banks", "plans", "subs", "senders", "groups"] },

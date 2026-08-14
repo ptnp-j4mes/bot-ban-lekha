@@ -93,6 +93,10 @@ export const installmentRoutes = new Elysia({ prefix: "/api/installments" })
       if (body.due_date !== undefined) data.dueDate = dateOnly(body.due_date);
     }
     if (body?.status !== undefined) data.status = body.status;
+    if (body?.penalty_amount !== undefined) {
+      if (!(body.penalty_amount >= 0)) throw new ApiError("VALIDATION_ERROR", "penalty_amount must be >= 0");
+      data.penaltyAmount = body.penalty_amount;
+    }
     const inst = await prisma.billInstallment.update({ where: { id: params.id }, data });
     await audit(prisma, { action: "update_installment", entityType: "bill_installment", entityId: inst.id, orgId: ctx.orgId, actorId: ctx.userId, oldValue: old, newValue: inst });
     return ok(inst);

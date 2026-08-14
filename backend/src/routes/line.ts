@@ -21,6 +21,8 @@ import {
   renderRateLimited,
   renderNeedsAdminMatch,
   getOrgMessageTemplates,
+  getOrgMessageConfig,
+  renderCustomMessage,
 } from "../services/messages";
 
 type Oa = { id: string; orgId: string; channelSecret: string; channelAccessToken: string };
@@ -199,12 +201,16 @@ async function handleNonImage(ev: any, oa: Oa, context: InboundContext) {
   const lineUserId: string | undefined = ev.source?.userId;
   const customer = context.customer;
   const text: string = ev.message?.type === "text" ? ev.message.text ?? "" : "";
-  const templates = await getOrgMessageTemplates(oa.orgId);
+  const config = await getOrgMessageConfig(oa.orgId);
+  const templates = config.templates;
 
   // Self-service balance check: linked customer types "ยอด / คงเหลือ / เช็ค / ค้าง / balance".
-  let reply = renderTextHelp(templates);
+  const custom = config.customMessages.find((m) => m.enabled && text.toLocaleLowerCase().includes(m.trigger.toLocaleLowerCase()));
+  let reply = custom ? renderCustomMessage(custom.text, customer?.displayName || context.userName) : renderTextHelp(templates);
   let messageType = "text_help";
-  if (customer && /ยอด|คงเหลือ|เช็ค|ค้าง|balance/i.test(text)) {
+  if (custom) {
+    messageType = `custom_${custom.id}`;
+  } else if (customer && /ยอด|คงเหลือ|เช็ค|ค้าง|balance/i.test(text)) {
     const b = await customerBalance(customer.id);
     reply = renderCustomerBalance(b.outstanding, b.count, b.nextDue, templates);
     messageType = "balance_inquiry";

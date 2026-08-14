@@ -54,16 +54,18 @@ export function MenuManager() {
     <Card>
       <CardHeader className="flex-row items-center gap-2">
         <CardTitle>จัดการเมนู & หมวด</CardTitle>
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={addGroup}><Plus className="h-3.5 w-3.5" /> เพิ่มหมวด</Button>
-        <Button size="sm" variant="ghost" onClick={() => { setGroups(seedGroups()); setHidden(new Set()); save.mutate({ groups: [], hidden: [], order: [] }); }}>คืนค่าเริ่มต้น</Button>
-        <Button size="sm" disabled={save.isPending} onClick={() => save.mutate({ groups, hidden: [...hidden] })}>บันทึก</Button>
+        <div className="ml-0 flex w-full flex-wrap gap-1 sm:ml-auto sm:w-auto">
+          <Button size="sm" variant="ghost" onClick={addGroup}><Plus className="h-3.5 w-3.5" /> เพิ่มหมวด</Button>
+          <Button size="sm" variant="ghost" onClick={() => { setGroups(seedGroups()); setHidden(new Set()); save.mutate({ groups: [], hidden: [], order: [] }); }}>คืนค่าเริ่มต้น</Button>
+          <Button size="sm" disabled={save.isPending} onClick={() => save.mutate({ groups, hidden: [...hidden] })}>บันทึก</Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
         {groups.map((g, gi) => (
           <div key={gi} className="rounded-md border border-border p-2" onDragOver={(e) => e.preventDefault()} onDrop={() => drop(gi, null)}>
-            <div className="mb-1.5 flex items-center gap-1">
-              <Input value={g.label} onChange={(e) => renameGroup(gi, e.target.value)} className="h-7 max-w-[200px] font-semibold" />
-              <div className="ml-auto flex items-center gap-1">
+            <div className="mb-1.5 flex flex-wrap items-center gap-1">
+              <Input value={g.label} onChange={(e) => renameGroup(gi, e.target.value)} className="h-7 min-w-0 max-w-none flex-1 font-semibold sm:max-w-[200px]" />
+              <div className="ml-0 flex items-center gap-1 sm:ml-auto">
                 <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => moveGroup(gi, -1)} disabled={gi === 0}><ChevronUp className="h-4 w-4" /></Button>
                 <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => moveGroup(gi, 1)} disabled={gi === groups.length - 1}><ChevronDown className="h-4 w-4" /></Button>
                 <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => removeGroup(gi)} disabled={groups.length <= 1} aria-label="ลบหมวด"><X className="h-4 w-4" /></Button>
@@ -73,7 +75,7 @@ export function MenuManager() {
               {g.items.map((id) => (
                 <div key={id} draggable onDragStart={() => setDragId(id)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.stopPropagation(); drop(gi, id); }} onDragEnd={() => setDragId(null)} className={cn("flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 cursor-grab active:cursor-grabbing", dragId === id && "opacity-40")}>
                   <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className={hidden.has(id) ? "text-muted-foreground line-through" : ""}>{label(id)}</span>
+                  <span className={cn("min-w-0 break-words", hidden.has(id) ? "text-muted-foreground line-through" : "")}>{label(id)}</span>
                   <Button size="icon" variant="ghost" className="ml-auto h-7 w-7" onClick={() => toggle(id)} aria-label="ซ่อน/แสดง">
                     {hidden.has(id) ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4" />}
                   </Button>

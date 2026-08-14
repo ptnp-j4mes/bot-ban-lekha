@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Search } from "lucide-react";
 import { apiGet, apiSend, apiRaw } from "@/lib/api";
 import { useMut, matchBadge, reviewBadge, statusTh } from "@/lib/ui";
 import { baht, thDate } from "@/lib/format";
@@ -36,8 +37,14 @@ export function Submissions() {
   const { canWrite } = useAuth();
   const confirm = useConfirm();
   const prompt = usePrompt();
-  const [match, setMatch] = useState("");
+  const [matchDraft, setMatchDraft] = useState("");
   // Reviewing pending slips is the page's job — land there by default.
+  const [reviewDraft, setReviewDraft] = useState("pending_review");
+  const [docTypeDraft, setDocTypeDraft] = useState("");
+  const [ocrDraft, setOcrDraft] = useState("");
+  const [fromDraft, setFromDraft] = useState("");
+  const [toDraft, setToDraft] = useState("");
+  const [match, setMatch] = useState("");
   const [review, setReview] = useState("pending_review");
   const [docType, setDocType] = useState("");
   const [ocr, setOcr] = useState("");
@@ -56,6 +63,17 @@ export function Submissions() {
   if (ocr) qs.set("ocr_status", ocr);
   if (from) qs.set("date_from", from);
   if (to) qs.set("date_to", to);
+
+  const applyFilters = () => {
+    setMatch(matchDraft);
+    setReview(reviewDraft);
+    setDocType(docTypeDraft);
+    setOcr(ocrDraft);
+    setFrom(fromDraft);
+    setTo(toDraft);
+    setPage(1);
+    setSel(new Set());
+  };
 
   const list = useQuery({
     queryKey: ["subs", match, review, docType, ocr, from, to, page],
@@ -139,32 +157,37 @@ export function Submissions() {
         <CardHeader><CardTitle>ตัวกรอง</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="สถานะจับคู่">
-            <Select value={match} onChange={(e) => { setMatch(e.target.value); setPage(1); }}>
+            <Select value={matchDraft} onChange={(e) => setMatchDraft(e.target.value)}>
               <option value="">ทั้งหมด</option>
               {MATCH.map((m) => <option key={m} value={m}>{statusTh(m)}</option>)}
             </Select>
           </Field>
           <Field label="สถานะตรวจสอบ">
-            <Select value={review} onChange={(e) => { setReview(e.target.value); setPage(1); }}>
+            <Select value={reviewDraft} onChange={(e) => setReviewDraft(e.target.value)}>
               <option value="">ทั้งหมด</option>
               {REVIEW.map((m) => <option key={m} value={m}>{statusTh(m)}</option>)}
             </Select>
           </Field>
           <Field label="ประเภท">
-            <Select value={docType} onChange={(e) => { setDocType(e.target.value); setPage(1); }}>
+            <Select value={docTypeDraft} onChange={(e) => setDocTypeDraft(e.target.value)}>
               <option value="">ทั้งหมด</option>
               <option value="slip">สลิป</option>
               <option value="cash">บิลเงินสด</option>
             </Select>
           </Field>
           <Field label="สถานะ OCR">
-            <Select value={ocr} onChange={(e) => { setOcr(e.target.value); setPage(1); }}>
+            <Select value={ocrDraft} onChange={(e) => setOcrDraft(e.target.value)}>
               <option value="">ทั้งหมด</option>
               {OCR.map((m) => <option key={m} value={m}>{statusTh(m)}</option>)}
             </Select>
           </Field>
-          <Field label="ตั้งแต่วันที่"><Input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }} /></Field>
-          <Field label="ถึงวันที่"><Input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }} /></Field>
+          <Field label="ตั้งแต่วันที่"><Input type="date" value={fromDraft} onChange={(e) => setFromDraft(e.target.value)} /></Field>
+          <Field label="ถึงวันที่"><Input type="date" value={toDraft} onChange={(e) => setToDraft(e.target.value)} /></Field>
+          <div className="flex items-end sm:col-span-2 lg:col-span-4">
+            <Button type="button" className="w-full sm:w-auto" onClick={applyFilters} disabled={list.isFetching}>
+              <Search className="h-3.5 w-3.5" /> ค้นหา
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

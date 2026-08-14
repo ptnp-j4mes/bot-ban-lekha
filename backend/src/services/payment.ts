@@ -9,6 +9,7 @@ import { oaForSubmission } from "./oa";
 import {
   sendAndLog,
   renderPaymentReceived,
+  renderCashBillReceived,
   renderNeedsAdminMatch,
   renderPaymentApproved,
   renderPaymentRejected,
@@ -40,7 +41,7 @@ export async function processSubmission(submissionId: string) {
   const matchable = !!sub.customerId || (isGroup && !!sub.orgId);
 
   let candidates: Candidate[] = [];
-  if (sub.customerId || isGroup) {
+  if (matchable) {
     const insts = await prisma.billInstallment.findMany({
       where: {
         status: { in: ["pending", "partial_paid", "overdue"] },
@@ -68,19 +69,43 @@ export async function processSubmission(submissionId: string) {
     { today, referenceUnique: refUnique, customerKnown: matchable }
   );
 
+  // A cash bill/receipt is never an auto-trusted transfer — always route to admin review.
+  const isCash = sub.docType === "cash";
+  const effective = isCash
+    ? { status: "needs_admin_match" as const, installmentId: null, score: decision.score, reason: "บิลเงินสด — รอแอดมินตรวจสอบ" }
+    : decision;
+
   const updated = await prisma.paymentSubmission.update({
     where: { id: sub.id },
     data: {
-      matchStatus: decision.status,
-      matchedInstallmentId: decision.installmentId,
-      matchConfidence: decision.score,
-      matchReason: decision.reason,
+      matchStatus: effective.status,
+      matchedInstallmentId: effective.installmentId,
+      matchConfidence: effective.score,
+      matchReason: effective.reason,
     },
   });
 
-  // Phase 1: auto_matched still waits for admin approval (pending_review).
-  const text = decision.status === "auto_matched" ? renderPaymentReceived() : renderNeedsAdminMatch();
-  const messageType = decision.status === "auto_matched" ? "payment_received" : "payment_need_admin";
+  await audit(prisma, {
+    action: "process_payment_submission",
+    entityType: "payment_submission",
+    entityId: sub.id,
+    orgId: sub.orgId,
+    actorType: "system",
+    newValue: { matchStatus: decision.status, score: decision.score },
+  });
+
+  // Org opt-in: an auto_matched transfer slip is approved on the spot (creates the payment
+  // and sends the "approved" message itself). Cash bills always wait for an admin.
+  if (!isCash && effective.status === "auto_matched" && sub.orgId) {
+    const org = await prisma.organization.findUnique({ where: { id: sub.orgId }, select: { autoApproveEnabled: true } });
+    if (org?.autoApproveEnabled) {
+      await approveSubmission(sub.id, "system", sub.orgId);
+      return prisma.paymentSubmission.findUnique({ where: { id: sub.id } });
+    }
+  }
+
+  const text = isCash ? renderCashBillReceived() : effective.status === "auto_matched" ? renderPaymentReceived() : renderNeedsAdminMatch();
+  const messageType = isCash ? "cash_bill_received" : effective.status === "auto_matched" ? "payment_received" : "payment_need_admin";
   const oa = await oaForSubmission(prisma, sub.lineOaId);
   await sendAndLog(prisma, {
     lineUserId: sub.lineGroupId ?? sub.lineUserId, // reply to the group, or the 1:1 chat
@@ -91,14 +116,6 @@ export async function processSubmission(submissionId: string) {
     lineOaId: sub.lineOaId,
     customerId: sub.customerId,
     paymentSubmissionId: sub.id,
-  });
-  await audit(prisma, {
-    action: "process_payment_submission",
-    entityType: "payment_submission",
-    entityId: sub.id,
-    orgId: sub.orgId,
-    actorType: "system",
-    newValue: { matchStatus: decision.status, score: decision.score },
   });
   return updated;
 }
@@ -160,6 +177,7 @@ export async function approveSubmission(submissionId: string, actorId: string, o
         billInstallmentId: inst.id,
         amount,
         paidAt,
+        paymentMethod: sub.docType === "cash" ? "cash" : "bank_transfer",
         approvedBy: actorId,
       },
     });

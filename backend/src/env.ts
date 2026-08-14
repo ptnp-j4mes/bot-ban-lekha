@@ -1,5 +1,5 @@
 export const env = {
-  port: Number(process.env.APP_PORT ?? 3000),
+  port: Number(process.env.APP_PORT ?? process.env.PORT ?? 3000),
   tz: process.env.APP_TIMEZONE ?? "Asia/Bangkok",
   adminApiKey: process.env.ADMIN_API_KEY ?? "change-me",
   jobApiKey: process.env.INTERNAL_JOB_API_KEY ?? "change-me",

@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { apiGet, apiSend } from "@/lib/api";
-import { useMut, statusBadge } from "@/lib/ui";
+import { useMut, statusBadge, statusTh } from "@/lib/ui";
+import { baht, thDate } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,19 +15,19 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
 
   const instCols: Column<any>[] = [
     { key: "no", header: "งวด", align: "right", sortValue: (i) => i.installment_no, cell: (i) => <span className="fig">{i.installment_no}</span> },
-    { key: "due", header: "ครบกำหนด", sortValue: (i) => i.due_date, cell: (i) => <span className="fig">{i.due_date}</span> },
-    { key: "amt", header: "ยอด", align: "right", sortValue: (i) => Number(i.amount_due), cell: (i) => <span className="fig">{i.amount_due}</span> },
+    { key: "due", header: "ครบกำหนด", sortValue: (i) => i.due_date, cell: (i) => <span className="fig">{thDate(i.due_date)}</span> },
+    { key: "amt", header: "ยอด", align: "right", sortValue: (i) => Number(i.amount_due), cell: (i) => <span className="fig">{baht(i.amount_due)}</span> },
     { key: "status", header: "สถานะ", sortValue: (i) => i.status, cell: (i) => statusBadge(i.status) },
   ];
   const payCols: Column<any>[] = [
-    { key: "paid", header: "วันชำระ", sortValue: (p) => p.paid_at, cell: (p) => <span className="fig">{p.paid_at?.slice(0, 10) ?? "—"}</span> },
-    { key: "amt", header: "ยอด", align: "right", sortValue: (p) => Number(p.amount), cell: (p) => <span className="fig">{p.amount}</span> },
-    { key: "appr", header: "อนุมัติเมื่อ", sortValue: (p) => p.approved_at, cell: (p) => <span className="fig text-xs">{p.approved_at?.slice(0, 10)}</span> },
+    { key: "paid", header: "วันชำระ", sortValue: (p) => p.paid_at, cell: (p) => <span className="fig">{thDate(p.paid_at)}</span> },
+    { key: "amt", header: "ยอด", align: "right", sortValue: (p) => Number(p.amount), cell: (p) => <span className="fig">{baht(p.amount)}</span> },
+    { key: "appr", header: "อนุมัติเมื่อ", sortValue: (p) => p.approved_at, cell: (p) => <span className="fig text-xs">{thDate(p.approved_at)}</span> },
   ];
   const msgCols: Column<any>[] = [
     { key: "sent", header: "เวลา", sortValue: (m) => m.sent_at, cell: (m) => <span className="fig text-xs">{m.sent_at?.replace("T", " ").slice(0, 16)}</span> },
     { key: "type", header: "ประเภท", sortValue: (m) => m.message_type, cell: (m) => <span className="text-xs">{m.message_type}</span> },
-    { key: "status", header: "สถานะ", sortValue: (m) => m.status, cell: (m) => <Badge variant={m.status === "sent" ? "success" : "destructive"}>{m.status}</Badge> },
+    { key: "status", header: "สถานะ", sortValue: (m) => m.status, cell: (m) => <Badge variant={m.status === "sent" ? "success" : "destructive"}>{m.status === "sent" ? "ส่งแล้ว" : "ส่งไม่สำเร็จ"}</Badge> },
     { key: "act", header: "", stop: true, cell: (m) => m.status === "failed" && <Button size="sm" variant="outline" onClick={() => resend.mutate(m.id)}>ส่งซ้ำ</Button> },
   ];
 
@@ -36,7 +37,7 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
         <Card>
           <CardHeader className="flex-row items-center gap-2">
             <CardTitle>{data?.customer?.display_name || data?.customer?.customer_code || "ลูกค้า"}</CardTitle>
-            {data?.customer && <Badge variant="secondary">{data.customer.status}</Badge>}
+            {data?.customer && <Badge variant={data.customer.status === "active" ? "success" : "secondary"}>{statusTh(data.customer.status)}</Badge>}
             <Button size="icon" variant="ghost" className="ml-auto" onClick={onClose}><X className="h-4 w-4" /></Button>
           </CardHeader>
           {data?.customer && (

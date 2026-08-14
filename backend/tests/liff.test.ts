@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { prisma } from "../src/lib/prisma";
-import { bangkokToday } from "../src/lib/date";
+import { addDays, bangkokToday } from "../src/lib/date";
 import { app } from "../src/app";
 import { env } from "../src/env";
 import { signLiffSession } from "../src/lib/auth";
@@ -21,7 +21,7 @@ async function makeLinkedCustomer(orgId: string, oaId: string, lineUserId: strin
     data: {
       orgId, customerId: customer.id, bankAccountId: bank.id, billNo: 1, principalAmount: amount,
       installmentAmount: amount, cycleType: "interval_days", cycleDays: 7, totalInstallments: 2, startDate: today,
-      installments: { create: [{ installmentNo: 1, dueDate: today, amountDue: amount }, { installmentNo: 2, dueDate: today, amountDue: amount }] },
+      installments: { create: [{ installmentNo: 1, dueDate: today, amountDue: amount }, { installmentNo: 2, dueDate: addDays(today, 7), amountDue: amount }] },
     },
     include: { installments: true },
   });

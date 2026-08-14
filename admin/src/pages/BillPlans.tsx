@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Trash2, Plus } from "lucide-react";
 import { apiGet, apiSend } from "@/lib/api";
-import { useMut, statusBadge } from "@/lib/ui";
+import { useMut, statusBadge, statusTh } from "@/lib/ui";
+import { baht, thDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Field } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,9 +33,9 @@ export function BillPlans() {
 
   const instCols: Column<any>[] = [
     { key: "no", header: "งวด", align: "right", sortValue: (i) => i.installment_no, cell: (i) => <span className="fig">{i.installment_no}</span> },
-    { key: "due", header: "ครบกำหนด", sortValue: (i) => i.due_date, cell: (i) => <span className="fig">{i.due_date}</span> },
-    { key: "amt", header: "ยอด", align: "right", sortValue: (i) => Number(i.amount_due), cell: (i) => <span className="fig">{i.amount_due}</span> },
-    { key: "paid", header: "จ่าย", align: "right", sortValue: (i) => Number(i.amount_paid), cell: (i) => <span className="fig">{i.amount_paid}</span> },
+    { key: "due", header: "ครบกำหนด", sortValue: (i) => i.due_date, cell: (i) => <span className="fig">{thDate(i.due_date)}</span> },
+    { key: "amt", header: "ยอด", align: "right", sortValue: (i) => Number(i.amount_due), cell: (i) => <span className="fig">{baht(i.amount_due)}</span> },
+    { key: "paid", header: "จ่าย", align: "right", sortValue: (i) => Number(i.amount_paid), cell: (i) => <span className="fig">{baht(i.amount_paid)}</span> },
     { key: "status", header: "สถานะ", sortValue: (i) => i.status, cell: (i) => statusBadge(i.status) },
     { key: "act", header: "", stop: true, cell: (i) => (i.status === "paid" || i.status === "cancelled") ? null : (
       <div className="flex justify-end gap-1">
@@ -178,7 +179,7 @@ export function BillPlans() {
           <div>
             <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">สถานะ</label>
             <Select name="status" defaultValue={editInst?.status} className="mt-1">
-              {["pending", "partial_paid", "overdue", "paid", "cancelled"].map((s) => <option key={s}>{s}</option>)}
+              {["pending", "partial_paid", "overdue", "paid", "cancelled"].map((s) => <option key={s} value={s}>{statusTh(s)}</option>)}
             </Select>
           </div>
           <Button size="sm" type="submit" className="w-full" disabled={editI.isPending}>บันทึก</Button>

@@ -61,6 +61,9 @@ export function renderBillText(args: {
 export const renderPaymentReceived = () =>
   `📌 ได้รับสลิปแล้วค่ะ\n\nระบบกำลังตรวจสอบยอดชำระ\nหากตรวจสอบเรียบร้อยแล้ว จะแจ้งสถานะกลับทางแชทนี้ค่ะ 🙏`;
 
+export const renderCashBillReceived = () =>
+  `รับบิลเงินสดแล้วค่ะ 🧾\nเจ้าหน้าที่จะตรวจสอบและยืนยันยอดให้นะคะ 🙏`;
+
 export const renderNeedsAdminMatch = () =>
   `📌 ได้รับสลิปแล้วค่ะ\n\nระบบยังไม่สามารถจับคู่ยอดกับงวดในบิลได้อัตโนมัติ\nแอดมินจะตรวจสอบและอัปเดตสถานะให้ค่ะ 🙏`;
 

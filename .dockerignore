@@ -1,0 +1,13 @@
+.git
+.github
+.claude
+.agents
+.codex
+admin
+backend/node_modules
+backend/storage
+docs
+vault
+*.md
+.env*
+docker-compose*.yml

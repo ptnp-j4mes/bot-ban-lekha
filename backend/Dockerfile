@@ -12,7 +12,8 @@ RUN bunx prisma generate
 # Copy the rest of the source
 COPY src ./src
 
-EXPOSE 8787
+EXPOSE 3000
 
-# Migrate then start. Using shell form so the shell expands env vars at runtime.
-CMD bunx prisma migrate deploy && bun src/app.ts
+# Migrate, run the idempotent seed (production creates only the super admin),
+# then replace the shell so SIGTERM reaches Bun during rolling deploys.
+CMD bunx prisma migrate deploy && bun prisma/seed.ts && exec bun src/app.ts

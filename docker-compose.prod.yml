@@ -1,0 +1,60 @@
+# Production stack for a VPS:
+#   cp .env.example .env  →  fill secrets  →  docker compose -f docker-compose.prod.yml up -d --build
+# Admin UI + API on port 80. Put TLS in front (Cloudflare proxied DNS or a reverse proxy) —
+# the LINE webhook requires HTTPS.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: billing
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: line_oa_billing
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U billing -d line_oa_billing"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      APP_PORT: 3000
+      DATABASE_URL: postgresql://billing:${POSTGRES_PASSWORD}@postgres:5432/line_oa_billing
+    volumes:
+      - slips:/app/storage # slip images when storage driver = local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # bun is always present in the image; wget/curl are not.
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://localhost:3000/ready'); if (!r.ok) process.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  admin:
+    build:
+      context: ./admin
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-}
+        VITE_LIFF_ID: ${VITE_LIFF_ID:-}
+    restart: unless-stopped
+    environment:
+      PORT: 5173
+      BACKEND_HOST: backend
+      BACKEND_PORT: 3000
+    ports:
+      - "80:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  slips:

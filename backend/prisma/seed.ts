@@ -2,7 +2,7 @@ import { prisma } from "../src/lib/prisma";
 import { env } from "../src/env";
 
 async function main() {
-  // Super admin (platform admin) with username/password login.
+  // Super admin (platform admin) with username/password login. Idempotent — safe on every boot.
   const existing = await prisma.adminUser.findUnique({ where: { username: env.superAdminUsername } });
   if (!existing) {
     await prisma.adminUser.create({
@@ -17,14 +17,11 @@ async function main() {
     console.log(`super admin created: ${env.superAdminUsername}`);
   }
 
-  // Global cycle presets (shared across all orgs).
-  for (const p of [
-    { name: "ทุก 3 วัน", cycleDays: 3 },
-    { name: "ทุก 5 วัน", cycleDays: 5 },
-    { name: "ทุก 7 วัน", cycleDays: 7 },
-  ]) {
-    if (!(await prisma.billingCyclePreset.findFirst({ where: { cycleDays: p.cycleDays } })))
-      await prisma.billingCyclePreset.create({ data: p });
+  // Everything below is dev-only mock data. Never in production — orgs/OAs/banks
+  // are created through the app by the super admin.
+  if (process.env.NODE_ENV === "production") {
+    console.log("seed done (production: super admin only)");
+    return;
   }
 
   // A default organization (tenant) + its default OA and bank account, so dev works out of the box.
@@ -37,8 +34,8 @@ async function main() {
         orgId: org.id,
         name: "Default OA",
         channelId: env.lineLoginChannelId || "dev",
-        channelSecret: env.lineChannelSecret || "",
-        channelAccessToken: env.lineAccessToken || "",
+        channelSecret: "",
+        channelAccessToken: "",
       },
     });
   }

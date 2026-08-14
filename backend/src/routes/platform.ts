@@ -57,13 +57,17 @@ export const platformRoutes = new Elysia({ prefix: "/api/platform" })
     return ok({ id: updated.id, name: updated.name, is_active: updated.isActive });
   }, { body: t.Object({ name: t.Optional(t.String({ minLength: 1 })), is_active: t.Optional(t.Boolean()) }) })
 
-  // Platform-wide defaults.
+  // Platform-wide defaults + slip storage gateway. The service-account JSON is write-only —
+  // it is never returned, only a `gdrive_configured` flag.
   .get("/settings", async () => {
     const s = await getSystemSettings();
     return ok({
       default_bill_footer: s.defaultBillFooter,
       default_timezone: s.defaultTimezone,
       default_slip_retention_days: s.defaultSlipRetentionDays,
+      storage_driver: s.storageDriver,
+      gdrive_root_folder_id: s.gdriveRootFolderId,
+      gdrive_configured: !!(s.gdriveServiceAccount?.client_email && s.gdriveServiceAccount?.private_key),
     });
   })
   .patch("/settings", async ({ body, ctx }: any) => {
@@ -71,18 +75,35 @@ export const platformRoutes = new Elysia({ prefix: "/api/platform" })
     if (body?.default_bill_footer !== undefined) data.defaultBillFooter = body.default_bill_footer || null;
     if (body?.default_timezone !== undefined) data.defaultTimezone = body.default_timezone;
     if (body?.default_slip_retention_days !== undefined) data.defaultSlipRetentionDays = body.default_slip_retention_days;
+    if (body?.storage_driver !== undefined) data.storageDriver = body.storage_driver;
+    if (body?.gdrive_root_folder_id !== undefined) data.gdriveRootFolderId = body.gdrive_root_folder_id || null;
+    if (body?.gdrive_service_account !== undefined) {
+      const raw = body.gdrive_service_account;
+      if (!raw) data.gdriveServiceAccount = null;
+      else {
+        const sa = typeof raw === "string" ? JSON.parse(raw) : raw;
+        if (!sa.client_email || !sa.private_key) throw new ApiError("VALIDATION_ERROR", "service account ต้องมี client_email และ private_key");
+        data.gdriveServiceAccount = sa;
+      }
+    }
+    if (data.storageDriver === "gdrive") {
+      const s = await getSystemSettings();
+      const sa = data.gdriveServiceAccount ?? s.gdriveServiceAccount;
+      const root = data.gdriveRootFolderId ?? s.gdriveRootFolderId;
+      if (!(sa?.client_email && sa?.private_key && root)) throw new ApiError("VALIDATION_ERROR", "ต้องตั้ง service account + root folder ก่อนเปิดใช้ Google Drive");
+    }
     const row = await updateSystemSettings(data);
-    await audit(prisma, { action: "update_system_settings", entityType: "system_setting", entityId: "system", actorId: ctx.userId, newValue: data });
-    return ok({
-      default_bill_footer: row.defaultBillFooter,
-      default_timezone: row.defaultTimezone,
-      default_slip_retention_days: row.defaultSlipRetentionDays,
-    });
+    // audit without the secret payload
+    await audit(prisma, { action: "update_system_settings", entityType: "system_setting", entityId: "system", actorId: ctx.userId, newValue: { ...data, gdriveServiceAccount: data.gdriveServiceAccount ? "[set]" : data.gdriveServiceAccount } });
+    return ok({ default_bill_footer: row.defaultBillFooter, default_timezone: row.defaultTimezone, default_slip_retention_days: row.defaultSlipRetentionDays, storage_driver: row.storageDriver, gdrive_root_folder_id: row.gdriveRootFolderId, gdrive_configured: !!(row.gdriveServiceAccount as any)?.client_email });
   }, {
     body: t.Object({
       default_bill_footer: t.Optional(t.String()),
       default_timezone: t.Optional(t.String({ minLength: 1 })),
       default_slip_retention_days: t.Optional(t.Union([t.Integer({ minimum: 0 }), t.Null()])),
+      storage_driver: t.Optional(t.Union([t.Literal("local"), t.Literal("gdrive")])),
+      gdrive_root_folder_id: t.Optional(t.String()),
+      gdrive_service_account: t.Optional(t.Any()),
     }),
   })
 
@@ -91,6 +112,7 @@ export const platformRoutes = new Elysia({ prefix: "/api/platform" })
     let dbOk = true;
     try { await prisma.$queryRaw`SELECT 1`; } catch { dbOk = false; }
     const [orgs, users] = await Promise.all([prisma.organization.count(), prisma.adminUser.count()]);
+    const s = await getSystemSettings();
     return ok({
       version: "0.1.0",
       runtime: `Bun ${Bun.version}`,
@@ -108,8 +130,9 @@ export const platformRoutes = new Elysia({ prefix: "/api/platform" })
         rate_window_sec: env.ocrRateWindowSec,
       },
       auto_approve: env.autoApprove,
-      storage_driver: env.storageDriver,
       slip_retention_days_env_default: env.slipRetentionDays,
+      storage_driver: s.storageDriver,
+      storage_gdrive_configured: !!(s.gdriveServiceAccount?.client_email && s.gdriveRootFolderId),
     });
   })
 

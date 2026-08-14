@@ -36,6 +36,7 @@ export function DataTable<T>({
   detail,
   detailTitle,
   empty = "ไม่มีข้อมูล",
+  loading = false,
   maxHeight = "65vh",
 }: {
   data: T[];
@@ -45,6 +46,7 @@ export function DataTable<T>({
   detail?: (row: T) => Detail<T>;        // provided → rows open a detail dialog
   detailTitle?: React.ReactNode;
   empty?: React.ReactNode;
+  loading?: boolean;
   maxHeight?: string;
 }) {
   const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(initialSort ?? null);
@@ -68,7 +70,7 @@ export function DataTable<T>({
   return (
     <>
       {sorted.length === 0 ? (
-        <p className="px-4 py-6 text-center text-sm text-muted-foreground">{empty}</p>
+        <p className="px-4 py-6 text-center text-sm text-muted-foreground">{loading ? "กำลังโหลด…" : empty}</p>
       ) : (
         <Table maxHeight={maxHeight}>
           <THead>

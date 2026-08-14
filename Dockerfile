@@ -13,4 +13,4 @@ COPY backend/src ./src
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["sh", "-c", "bunx prisma migrate deploy && bun prisma/seed.ts && bun src/app.ts"]
+CMD ["sh", "-c", "bunx prisma migrate deploy && bun prisma/seed.ts && exec bun src/app.ts"]

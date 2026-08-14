@@ -18,10 +18,15 @@ import { senderRoutes } from "./routes/senders";
 import { groupRoutes } from "./routes/groups";
 import { lineOaRoutes } from "./routes/line-oa";
 import { liffRoutes } from "./routes/liff";
+import { prisma } from "./lib/prisma";
 
 export const app = new Elysia({ aot: false })
   .onError(handleError)
   .get("/health", () => ok({ status: "up", tz: env.tz }))
+  .get("/ready", async () => {
+    await prisma.$queryRaw`SELECT 1`;
+    return ok({ status: "ready", tz: env.tz });
+  })
   .use(lineRoutes) // before others: has its own raw-body parser
   .use(authRoutes)
   .use(platformRoutes)

@@ -17,18 +17,10 @@ Services started:
 | Service  | URL                          | Notes                              |
 |----------|------------------------------|------------------------------------|
 | Admin UI | http://localhost:5173        | React SPA served by nginx          |
-| Backend  | http://localhost:8787/health | Elysia API; `/health` = readiness  |
+| Backend  | http://localhost:8787/health | `/health` liveness; `/ready` checks PostgreSQL |
 | Postgres | localhost:5433               | `line_oa_billing` db               |
 
-The backend runs `prisma migrate deploy` automatically on startup, so the schema is always up-to-date before the API accepts requests.
-
-### First-time seed
-
-```bash
-docker compose exec backend bunx bun prisma/seed.ts
-```
-
-This creates the default super admin account (`SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD` from `.env`), billing-cycle presets, and a default org/bank/OA.
+The backend runs `prisma migrate deploy` and the idempotent seed automatically before accepting requests. Production seeds only the super admin (`SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD`); development also creates demo data.
 
 ### Useful commands
 
@@ -50,6 +42,11 @@ cd admin   && bun install && bun run dev
 ```
 
 See [`backend/README.md`](backend/README.md) for the full setup guide including LINE webhooks and Cloudflare tunnels.
+
+## Production deployment
+
+- VPS/Docker Compose: use `docker-compose.prod.yml` behind an HTTPS reverse proxy.
+- Railway: create separate backend, admin, and PostgreSQL services following [`docs/railway-deploy.md`](docs/railway-deploy.md).
 
 ## Secrets
 

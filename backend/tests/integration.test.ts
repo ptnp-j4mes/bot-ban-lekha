@@ -354,6 +354,7 @@ test("P2/P3: bulk import, customer detail, reports, csv, audit, reminders", asyn
 
 test("health open; bare /api/customers needs auth", async () => {
   expect((await app.handle(new Request("http://localhost/health"))).status).toBe(200);
+  expect((await app.handle(new Request("http://localhost/ready"))).status).toBe(200);
   expect((await app.handle(new Request("http://localhost/api/customers"))).status).toBe(401);
 });
 

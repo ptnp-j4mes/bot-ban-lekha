@@ -61,9 +61,8 @@ export function Submissions() {
   const items: any[] = list.data?.items ?? [];
 
   const toggleSel = (id: string) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  // ponytail: bulk = N parallel approve calls; add a real bulk endpoint if this gets slow.
   const bulkApprove = useMut(
-    async () => { await Promise.all([...sel].map((id) => apiSend(`/api/admin/payment-submissions/${id}/approve`, "POST"))); },
+    async () => { await apiSend("/api/admin/payment-submissions/bulk-approve", "POST", { ids: [...sel] }); },
     { success: "อนุมัติที่เลือกแล้ว", invalidate: ["subs", "sub", "due-today", "overdue", "subs-pending"] }
   );
   const pages = Math.max(1, Math.ceil((list.data?.total ?? 0) / LIMIT));

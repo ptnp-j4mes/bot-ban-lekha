@@ -31,6 +31,105 @@ export const logRoutes = new Elysia()
     return ok({ items, total, page, limit });
   })
 
+  // Chatclone read model: message_logs already contains both inbound and outbound
+  // messages, so the admin can browse a conversation without a second transcript table.
+  .get("/api/conversations", async ({ query, ctx }: any) => {
+    const page = Math.max(1, Number(query.page ?? 1));
+    const limit = Math.min(50, Number(query.limit ?? 30));
+    const search = String(query.search ?? "").trim();
+    const where: any = {
+      orgId: ctx.orgId,
+      lineUserId: { not: null },
+    };
+    if (search) {
+      where.OR = [
+        { lineUserId: { contains: search, mode: "insensitive" } },
+        { sourceName: { contains: search, mode: "insensitive" } },
+        { messageText: { contains: search, mode: "insensitive" } },
+        { customer: { is: { displayName: { contains: search, mode: "insensitive" }, orgId: ctx.orgId } } },
+      ];
+    }
+
+    const grouped = await prisma.messageLog.groupBy({
+      by: ["lineUserId"],
+      where,
+      _count: { _all: true },
+      _max: { sentAt: true },
+      orderBy: { _max: { sentAt: "desc" } },
+    });
+    const total = grouped.length;
+    const pageGroups = grouped.slice((page - 1) * limit, page * limit);
+    const items = await Promise.all(pageGroups.map(async (group: any) => {
+      const lineUserId = group.lineUserId as string;
+      const latest = await prisma.messageLog.findFirst({
+        where: { ...where, lineUserId },
+        orderBy: { sentAt: "desc" },
+        select: {
+          id: true,
+          lineUserId: true,
+          direction: true,
+          messageType: true,
+          messageText: true,
+          sourceName: true,
+          sourceType: true,
+          status: true,
+          sentAt: true,
+          customer: { select: { id: true, customerCode: true, displayName: true } },
+        },
+      });
+      return {
+        key: lineUserId,
+        lineUserId,
+        title: latest?.customer?.displayName || latest?.sourceName || lineUserId,
+        customer: latest?.customer ?? null,
+        messageCount: group._count._all,
+        lastMessage: latest?.messageText ?? null,
+        lastDirection: latest?.direction ?? null,
+        lastMessageType: latest?.messageType ?? null,
+        lastStatus: latest?.status ?? null,
+        lastMessageAt: latest?.sentAt ?? group._max.sentAt,
+      };
+    }));
+    return ok({ items, total, page, limit });
+  })
+
+  .get("/api/conversations/:lineUserId", async ({ params, ctx }: any) => {
+    let lineUserId = String(params.lineUserId ?? "");
+    try { lineUserId = decodeURIComponent(lineUserId); } catch {}
+    if (!lineUserId) throw new ApiError("VALIDATION_ERROR", "lineUserId is required");
+    const messages = await prisma.messageLog.findMany({
+      where: { orgId: ctx.orgId, lineUserId },
+      orderBy: { sentAt: "asc" },
+      take: 300,
+      select: {
+        id: true,
+        lineUserId: true,
+        direction: true,
+        sourceType: true,
+        sourceName: true,
+        messageType: true,
+        messageText: true,
+        status: true,
+        errorMessage: true,
+        lineMessageId: true,
+        sentAt: true,
+        customer: { select: { id: true, customerCode: true, displayName: true } },
+      },
+    });
+    if (!messages.length) throw new ApiError("NOT_FOUND", "Conversation not found");
+    const latest = messages[messages.length - 1];
+    return ok({
+      conversation: {
+        key: lineUserId,
+        lineUserId,
+        title: latest.customer?.displayName || latest.sourceName || lineUserId,
+        customer: latest.customer ?? null,
+        messageCount: messages.length,
+      },
+      messages,
+    });
+  })
+
   .post("/api/messages/:id/resend", async ({ params, ctx }: any) => {
     const log = await prisma.messageLog.findFirst({ where: { id: params.id, orgId: ctx.orgId } });
     if (!log) throw new ApiError("NOT_FOUND", "Message not found");

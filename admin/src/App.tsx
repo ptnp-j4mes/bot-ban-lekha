@@ -2,7 +2,7 @@ import { createContext, useEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { LayoutDashboard, Users as UsersIcon, Landmark, FileText, Receipt, Menu, LogOut, MessageSquare, Reply, ArrowLeft, Settings as SettingsIcon, HardDrive, BarChart3, History, UserCheck, Users2, Sun, Moon } from "lucide-react";
+import { LayoutDashboard, Users as UsersIcon, Landmark, FileText, Receipt, Menu, LogOut, MessageSquare, Reply, ArrowLeft, Settings as SettingsIcon, HardDrive, BarChart3, History, UserCheck, Users2, Sun, Moon, MessagesSquare } from "lucide-react";
 import { apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,7 @@ import { Settings } from "@/pages/Settings";
 import { MessageResponseSettings } from "@/pages/MessageResponseSettings";
 import { Reports } from "@/pages/Reports";
 import { Logs } from "@/pages/Logs";
+import { ChatClone } from "@/pages/ChatClone";
 import { Senders } from "@/pages/Senders";
 import { Groups } from "@/pages/Groups";
 import { Users } from "@/pages/Users";
@@ -81,6 +82,7 @@ const NAV_GROUPS = [
     items: [
       { id: "reports", label: "รายงาน", icon: BarChart3, el: <Reports /> },
       { id: "oa", label: "LINE OA", icon: MessageSquare, el: <LineOa /> },
+      { id: "chat", label: "Chatclone", icon: MessagesSquare, el: <ChatClone /> },
       { id: "logs", label: "ประวัติ", icon: History, el: <Logs /> },
       { id: "settings", label: "ตั้งค่า", icon: SettingsIcon, el: <Settings /> },
       { id: "message-settings", label: "ข้อความตอบกลับ LINE", icon: Reply, el: <MessageResponseSettings /> },

@@ -5,6 +5,7 @@ const THAI_MONTHS = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
   "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
 ];
+export const BANGKOK_TIME_ZONE = "Asia/Bangkok";
 
 // Build a Date at UTC midnight from a YYYY-MM-DD string (for @db.Date storage).
 export function dateOnly(iso: string): Date {
@@ -18,8 +19,18 @@ export function addDays(base: Date, days: number): Date {
 
 // Today's calendar date in Asia/Bangkok, as a UTC-midnight Date (matches @db.Date).
 export function bangkokToday(): Date {
-  const s = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" }); // YYYY-MM-DD
+  const s = new Date().toLocaleDateString("en-CA", { timeZone: BANGKOK_TIME_ZONE }); // YYYY-MM-DD
   return dateOnly(s);
+}
+
+// Convert a calendar date from a date input into the UTC instant that starts
+// that day in Bangkok. Timestamp columns remain UTC in the database.
+export function bangkokDayStart(iso: string): Date {
+  return new Date(`${iso}T00:00:00+07:00`);
+}
+
+export function bangkokDayEndExclusive(iso: string): Date {
+  return new Date(bangkokDayStart(iso).getTime() + 86400000);
 }
 
 export const dayOfMonth = (d: Date) => d.getUTCDate();

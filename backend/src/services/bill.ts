@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { addDays } from "../lib/date";
 import { ApiError } from "../lib/response";
-import { renderBillText } from "./messages";
+import { renderGroupedBillText } from "./messages";
 import { getSystemSettings } from "./systemSettings";
 
 type Tx = PrismaClient | Prisma.TransactionClient;
@@ -45,29 +45,39 @@ export async function renderPlanBill(db: Tx, billPlanId: string) {
     include: { installments: { orderBy: { installmentNo: "asc" } }, bankAccount: true, organization: true },
   });
   if (!plan) throw new ApiError("NOT_FOUND", "Bill plan not found");
-  const completed = plan.installments.every((i) => i.status === "paid");
-  const text = renderBillText({
+  const plans = plan.status === "active"
+    ? await db.billPlan.findMany({
+        where: { customerId: plan.customerId, status: "active" },
+        include: { installments: { orderBy: { installmentNo: "asc" } }, bankAccount: true, organization: true },
+        orderBy: { billNo: "asc" },
+      })
+    : [plan];
+  const footer = plan.organization?.billFooter || (await getSystemSettings()).defaultBillFooter;
+  const text = renderGroupedBillText({
     billNo: plan.billNo,
-    principal: Number(plan.principalAmount),
-    installmentAmount: Number(plan.installmentAmount),
-    cycleDays: plan.cycleDays,
-    totalInstallments: plan.totalInstallments,
-    billPenaltyAmount: Number(plan.penaltyAmount),
-    installments: plan.installments.map((i) => ({
-      dueDate: i.dueDate,
-      amountDue: Number(i.amountDue),
-      status: i.status,
-      penaltyAmount: Number(i.penaltyAmount),
+    plans: plans.map((current) => ({
+      principal: Number(current.principalAmount),
+      installmentAmount: Number(current.installmentAmount),
+      cycleDays: current.cycleDays,
+      totalInstallments: current.totalInstallments,
+      billPenaltyAmount: Number(current.penaltyAmount),
+      installments: current.installments.map((i) => ({
+        dueDate: i.dueDate,
+        amountDue: Number(i.amountDue),
+        status: i.status,
+        penaltyAmount: Number(i.penaltyAmount),
+      })),
+      bank: current.bankAccount
+        ? {
+            accountNo: current.bankAccount.accountNo,
+            bankName: current.bankAccount.bankName,
+            accountName: current.bankAccount.accountName,
+          }
+        : null,
+      note: current.note,
     })),
-    bank: plan.bankAccount
-      ? {
-          accountNo: plan.bankAccount.accountNo,
-          bankName: plan.bankAccount.bankName,
-          accountName: plan.bankAccount.accountName,
-        }
-      : null,
-    note: plan.note,
-    footer: plan.organization?.billFooter || (await getSystemSettings()).defaultBillFooter,
+    footer,
   });
-  return { plan, completed, text };
+  const completed = plans.every((current) => current.installments.every((i) => i.status === "paid"));
+  return { plan, plans, completed, text };
 }

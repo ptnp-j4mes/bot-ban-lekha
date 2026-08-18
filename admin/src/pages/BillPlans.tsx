@@ -25,7 +25,7 @@ export function BillPlans() {
 
   const [payInst, setPayInst] = useState<any>(null);
   const [editInst, setEditInst] = useState<any>(null);
-  const [previewBill, setPreviewBill] = useState<{ id: string; billNo: number } | null>(null);
+  const [previewBill, setPreviewBill] = useState<{ id: string; billNo: number; title?: string } | null>(null);
   const [penaltyPlan, setPenaltyPlan] = useState<any>(null);
 
   const plans = useQuery({ queryKey: ["bill-plans", viewCust], queryFn: () => apiGet(`/api/customers/${viewCust}/bill-plans`), enabled: !!viewCust });
@@ -34,6 +34,12 @@ export function BillPlans() {
     const matchesStatus = !billStatus || p.status === billStatus;
     return matchesNumber && matchesStatus;
   });
+  const groupedPlans = [
+    { status: "active", label: "Active" },
+    { status: "completed", label: "Completed" },
+    { status: "cancelled", label: "Cancelled" },
+  ].map((group) => ({ ...group, plans: filteredPlans.filter((p: any) => p.status === group.status) }))
+    .filter((group) => group.plans.length > 0);
   const preview = useQuery({
     queryKey: ["bill-preview", previewBill?.id],
     queryFn: () => apiGet(`/api/bill-plans/${previewBill!.id}/preview`),
@@ -175,28 +181,46 @@ export function BillPlans() {
             </Select>
           </div>
           {viewCust && <div className="flex items-center justify-between text-xs text-muted-foreground"><span>แสดง {filteredPlans.length} จาก {(plans.data ?? []).length} บิล</span>{(billFilter || billStatus) && <button type="button" className="text-primary hover:underline" onClick={() => { setBillFilter(""); setBillStatus(""); }}>ล้างตัวกรอง</button>}</div>}
-          {filteredPlans.map((p: any) => (
-            <Card key={p.id}>
-              <CardHeader className="py-2 flex-row items-center gap-2">
-                <CardTitle className="text-base">บิล {p.bill_no}</CardTitle>
-                {statusBadge(p.status)}
-                {Number(p.penalty_amount ?? 0) > 0 && <span className="text-xs text-danger-text">ค่าปรับหัวบิล {baht(p.penalty_amount)}</span>}
-                <div className="ml-0 flex w-full flex-wrap gap-1 sm:ml-auto sm:w-auto">
-                  <Button size="sm" variant="ghost" type="button" aria-expanded={expandedPlans[p.id] ?? true} onClick={() => setExpandedPlans((current) => ({ ...current, [p.id]: !(current[p.id] ?? true) }))}>
-                    {(expandedPlans[p.id] ?? true) ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                    {(expandedPlans[p.id] ?? true) ? "ย่อ" : "ขยาย"}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setPreviewBill({ id: p.id, billNo: p.bill_no })}>Preview Bill</Button>
-                  <Button size="sm" variant="outline" onClick={() => setPenaltyPlan(p)}>แก้ค่าปรับหัวบิล</Button>
-                  {p.status === "active" && <>
-                    <Button size="sm" variant="outline" onClick={() => sendBill.mutate(p.id)}>ส่งบิล</Button>
-                    <Button size="sm" variant="destructive" onClick={() => void cancelBill(p.id)}>ยกเลิกบิล</Button>
-                  </>}
+          {groupedPlans.map((group) => (
+            <Card key={group.status} className="overflow-hidden">
+              <CardHeader className="border-b border-border bg-muted/30 py-3">
+                <div className="min-w-0">
+                  <CardTitle>บิล {group.label}</CardTitle>
+                  <p className="mt-1 text-xs text-muted-foreground">{group.plans.length} บิลในกลุ่มนี้</p>
                 </div>
+                {group.status === "active" && <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-0 sm:ml-auto"
+                  onClick={() => setPreviewBill({ id: group.plans[0].id, billNo: group.plans[0].bill_no, title: "Preview รวม — บิล Active" })}
+                >Preview รวม</Button>}
               </CardHeader>
-              {(expandedPlans[p.id] ?? true) && <CardContent className="p-0">
-                <DataTable data={p.installments} columns={instCols} rowKey={(i) => i.id} initialSort={{ key: "no", dir: "asc" }} maxHeight="none" empty="ไม่มีงวด" />
-              </CardContent>}
+              <CardContent className="space-y-3 p-3">
+                {group.plans.map((p: any) => (
+                  <Card key={p.id}>
+                    <CardHeader className="py-2 flex-row items-center gap-2">
+                      <CardTitle className="text-base">บิล {p.bill_no}</CardTitle>
+                      {statusBadge(p.status)}
+                      {Number(p.penalty_amount ?? 0) > 0 && <span className="text-xs text-danger-text">ค่าปรับหัวบิล {baht(p.penalty_amount)}</span>}
+                      <div className="ml-0 flex w-full flex-wrap gap-1 sm:ml-auto sm:w-auto">
+                        <Button size="sm" variant="ghost" type="button" aria-expanded={expandedPlans[p.id] ?? true} onClick={() => setExpandedPlans((current) => ({ ...current, [p.id]: !(current[p.id] ?? true) }))}>
+                          {(expandedPlans[p.id] ?? true) ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                          {(expandedPlans[p.id] ?? true) ? "ย่อ" : "ขยาย"}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setPreviewBill({ id: p.id, billNo: p.bill_no })}>Preview Bill</Button>
+                        <Button size="sm" variant="outline" onClick={() => setPenaltyPlan(p)}>แก้ค่าปรับหัวบิล</Button>
+                        {p.status === "active" && <>
+                          <Button size="sm" variant="outline" onClick={() => sendBill.mutate(p.id)}>ส่งบิล</Button>
+                          <Button size="sm" variant="destructive" onClick={() => void cancelBill(p.id)}>ยกเลิกบิล</Button>
+                        </>}
+                      </div>
+                    </CardHeader>
+                    {(expandedPlans[p.id] ?? true) && <CardContent className="p-0">
+                      <DataTable data={p.installments} columns={instCols} rowKey={(i) => i.id} initialSort={{ key: "no", dir: "asc" }} maxHeight="none" empty="ไม่มีงวด" />
+                    </CardContent>}
+                  </Card>
+                ))}
+              </CardContent>
             </Card>
           ))}
           {viewCust && !plans.isLoading && filteredPlans.length === 0 && <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">ไม่พบบิลตามตัวกรอง</p>}
@@ -256,7 +280,7 @@ export function BillPlans() {
       </Dialog>
 
       {/* Preview is the exact text sent by the bill renderer. */}
-      <Dialog open={!!previewBill} onClose={() => setPreviewBill(null)} title={`Preview Bill ${previewBill?.billNo ?? ""}`} className="max-w-xl">
+      <Dialog open={!!previewBill} onClose={() => setPreviewBill(null)} title={previewBill?.title ?? `Preview Bill ${previewBill?.billNo ?? ""}`} className="max-w-xl">
         <p className="mb-3 text-xs text-muted-foreground">ตัวอย่างข้อความนี้ใช้ renderer เดียวกับข้อความที่จะส่งให้ลูกค้าทาง LINE</p>
         {preview.isLoading && <p className="text-sm text-muted-foreground">กำลังโหลดตัวอย่างบิล…</p>}
         {preview.error && <p className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger-text">โหลด Preview ไม่สำเร็จ</p>}

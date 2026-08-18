@@ -1,5 +1,5 @@
 # Production stack for a VPS:
-#   cp .env.example .env  →  fill secrets  →  docker compose -f docker-compose.prod.yml up -d --build
+#   cp .env.example .env  →  fill secrets  →  ./scripts/deploy-prod.sh
 # Admin UI + API on port 80. Put TLS in front (Cloudflare proxied DNS or a reverse proxy) —
 # the LINE webhook requires HTTPS.
 services:

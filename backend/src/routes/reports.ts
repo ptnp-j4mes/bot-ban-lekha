@@ -2,7 +2,7 @@ import { Elysia } from "elysia";
 import { prisma } from "../lib/prisma";
 import { ok } from "../lib/response";
 import { authorize } from "../lib/auth";
-import { bangkokToday, toISODate } from "../lib/date";
+import { bangkokDayEndExclusive, bangkokDayStart, bangkokToday, toISODate } from "../lib/date";
 
 // Org-scoped reporting. Any member can view/export.
 export const reportRoutes = new Elysia({ prefix: "/api/reports" })
@@ -10,8 +10,8 @@ export const reportRoutes = new Elysia({ prefix: "/api/reports" })
 
   .get("/summary", async ({ query, ctx }: any) => {
     const range: any = {};
-    if (query.from) range.gte = new Date(query.from);
-    if (query.to) range.lte = new Date(`${query.to}T23:59:59`);
+    if (query.from) range.gte = bangkokDayStart(query.from);
+    if (query.to) range.lt = bangkokDayEndExclusive(query.to);
     const paymentWhere: any = { orgId: ctx.orgId, status: "approved" };
     if (query.from || query.to) paymentWhere.createdAt = range;
     const today = bangkokToday();
@@ -40,8 +40,8 @@ export const reportRoutes = new Elysia({ prefix: "/api/reports" })
   // Daily bot report: slips per LINE group on a date + a combined total.
   .get("/daily", async ({ query, ctx }: any) => {
     const date = query.date || toISODate(bangkokToday());
-    const start = new Date(`${date}T00:00:00+07:00`);
-    const end = new Date(start.getTime() + 86400000);
+    const start = bangkokDayStart(date);
+    const end = bangkokDayEndExclusive(date);
     const subs = await prisma.paymentSubmission.findMany({
       where: { orgId: ctx.orgId, lineGroupId: { not: null }, createdAt: { gte: start, lt: end } },
       include: { payment: true },
@@ -72,8 +72,8 @@ export const reportRoutes = new Elysia({ prefix: "/api/reports" })
     const where: any = { orgId: ctx.orgId, status: "approved" };
     if (query.from || query.to) {
       where.createdAt = {};
-      if (query.from) where.createdAt.gte = new Date(query.from);
-      if (query.to) where.createdAt.lte = new Date(`${query.to}T23:59:59`);
+      if (query.from) where.createdAt.gte = bangkokDayStart(query.from);
+      if (query.to) where.createdAt.lt = bangkokDayEndExclusive(query.to);
     }
     const rows = await prisma.payment.findMany({ where, include: { customer: true, billInstallment: true }, orderBy: { createdAt: "desc" } });
     const esc = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;

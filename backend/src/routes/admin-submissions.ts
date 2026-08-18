@@ -4,7 +4,7 @@ import { ok, ApiError } from "../lib/response";
 import { authorize } from "../lib/auth";
 import { matchInstallment, approveSubmission, rejectSubmission } from "../services/payment";
 import { scoreInstallment, describeCandidate } from "../services/matching";
-import { bangkokToday } from "../lib/date";
+import { bangkokDayEndExclusive, bangkokDayStart, bangkokToday } from "../lib/date";
 import { readS3Object } from "../services/storage";
 
 export const adminSubmissionRoutes = new Elysia({ prefix: "/api/admin/payment-submissions" })
@@ -21,8 +21,8 @@ export const adminSubmissionRoutes = new Elysia({ prefix: "/api/admin/payment-su
     if (query.customer_id) where.customerId = query.customer_id;
     if (query.date_from || query.date_to) {
       where.createdAt = {};
-      if (query.date_from) where.createdAt.gte = new Date(query.date_from);
-      if (query.date_to) where.createdAt.lte = new Date(query.date_to);
+      if (query.date_from) where.createdAt.gte = bangkokDayStart(query.date_from);
+      if (query.date_to) where.createdAt.lt = bangkokDayEndExclusive(query.date_to);
     }
     const [items, total] = await Promise.all([
       prisma.paymentSubmission.findMany({

@@ -256,7 +256,7 @@ async function handleImage(ev: any, oa: Oa, context: InboundContext) {
       paymentSubmissionId,
     });
 
-  if (lineUserId && (await overRateLimit(oa.id, lineUserId))) {
+  if (env.ocrGuardsEnabled && lineUserId && (await overRateLimit(oa.id, lineUserId))) {
     await reply(renderRateLimited(templates), "payment_rate_limited");
     return;
   }

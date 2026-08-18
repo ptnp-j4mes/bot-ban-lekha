@@ -30,9 +30,10 @@ export const env = {
   s3Prefix: process.env.S3_PREFIX ?? "",
   // Slip image retention (days) before the local file is purged; 0 = purge right after OCR/process.
   slipRetentionDays: Number(process.env.SLIP_RETENTION_DAYS ?? 30),
-  ocrProvider: process.env.OCR_PROVIDER ?? "mock",
+  ocrProvider: process.env.OCR_PROVIDER ?? "gemini",
   ocrApiKey: process.env.OCR_API_KEY ?? "",
-  ocrModel: process.env.OCR_MODEL ?? "gemini-2.5-flash",
+  ocrModel: process.env.OCR_MODEL ?? "gemini-3.1-flash-lite",
+  ocrGuardsEnabled: process.env.OCR_GUARDS_ENABLED !== "false",
   maxSlipMb: Number(process.env.MAX_SLIP_FILE_SIZE_MB ?? 10),
   ocrRateMax: Number(process.env.OCR_RATE_MAX ?? 10),
   ocrRateWindowSec: Number(process.env.OCR_RATE_WINDOW_SEC ?? 3600),

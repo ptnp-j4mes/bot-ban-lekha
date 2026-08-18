@@ -12,6 +12,16 @@ export const fmtAmount = (n: number) =>
 
 type InstallmentView = { dueDate: Date; amountDue: number; status: string; penaltyAmount?: number };
 type BankView = { accountNo: string; bankName: string; accountName: string } | null;
+export type BillRenderArgs = {
+  principal: number;
+  installmentAmount: number;
+  cycleDays: number | null;
+  totalInstallments: number;
+  installments: InstallmentView[];
+  bank: BankView;
+  billPenaltyAmount?: number | null;
+  note?: string | null;
+};
 
 export const MESSAGE_TEMPLATE_KEYS = [
   "text_help",
@@ -104,36 +114,48 @@ export function renderDailyReminder(dueDate: Date): string {
   );
 }
 
-export function renderBillText(args: {
-  billNo: number;
-  principal: number;
-  installmentAmount: number;
-  cycleDays: number | null;
-  totalInstallments: number;
-  installments: InstallmentView[];
-  bank: BankView;
-  billPenaltyAmount?: number | null;
-  note?: string | null;
-  footer?: string | null; // per-org override; falls back to env default
-}): string {
+function renderBillSection(args: BillRenderArgs): string {
   // Prefer the admin's own bill note (verbatim, as typed in the group); fall back to generated text.
   const head =
     args.note?.trim() ||
     (args.cycleDays != null
       ? `ต้น ${fmtAmount(args.principal)} ส่ง ${fmtAmount(args.installmentAmount)} ทุก ${args.cycleDays} วัน ${args.totalInstallments} งวดจบ`
       : `ต้น ${fmtAmount(args.principal)} ${args.totalInstallments} งวดจบ`);
-  const bank = args.bank
-    ? `\n\n💸 ช่องทางการโอนเงิน 💸\n\nเลขที่บัญชี ${args.bank.accountNo}\n${args.bank.bankName}\nชื่อบัญชี ${args.bank.accountName}`
-    : "";
   const billPenalty = Number(args.billPenaltyAmount ?? 0);
   const billPenaltyText = billPenalty > 0 ? `\n\n🔴ค่าปรับหัวบิล ${fmtAmount(billPenalty)}` : "";
+  return `${head}\n\n${renderBillStatusLines(args.installments)}\n\nจบ🙏${billPenaltyText}`;
+}
+
+function renderBankSection(bank: BankView): string {
+  if (!bank) return "";
+  return `💸 ช่องทางการโอนเงิน 💸\n\nเลขที่บัญชี ${bank.accountNo}\n${bank.bankName}\nชื่อบัญชี ${bank.accountName}`;
+}
+
+export function renderBillText(args: BillRenderArgs & { billNo: number; footer?: string | null }): string {
+  const bank = renderBankSection(args.bank);
   return (
     `บิล ${toEmojiNumber(args.billNo)}\n\n` +
-    `${head}\n\n` +
-    `${renderBillStatusLines(args.installments)}\n\n` +
-    `จบ🙏` +
-    billPenaltyText +
-    bank +
+    `${renderBillSection(args)}` +
+    `${bank ? `\n\n${bank}` : ""}` +
+    `\n\n${args.footer?.trim() || env.billFooter}`
+  );
+}
+
+// Open bills for one customer are sent as one LINE message. Each plan keeps its
+// own note and installment rows, while the bill header, bank details, and footer
+// are rendered once for the group when possible.
+export function renderGroupedBillText(args: { billNo: number; plans: BillRenderArgs[]; footer?: string | null }): string {
+  const firstBank = args.plans[0]?.bank ?? null;
+  const sameBank = args.plans.every((plan) => JSON.stringify(plan.bank) === JSON.stringify(firstBank));
+  const sections = args.plans.map((plan) => {
+    const section = renderBillSection(plan);
+    return sameBank ? section : `${section}${plan.bank ? `\n\n${renderBankSection(plan.bank)}` : ""}`;
+  }).join("\n\n");
+  const bank = sameBank ? renderBankSection(firstBank) : "";
+  return (
+    `บิล ${toEmojiNumber(args.billNo)}\n\n` +
+    sections +
+    `${bank ? `\n\n${bank}` : ""}` +
     `\n\n${args.footer?.trim() || env.billFooter}`
   );
 }

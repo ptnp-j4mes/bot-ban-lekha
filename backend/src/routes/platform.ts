@@ -194,6 +194,7 @@ export const platformRoutes = new Elysia({ prefix: "/api/platform" })
         provider: env.ocrProvider,
         model: env.ocrModel,
         configured: !!env.ocrApiKey,         // never expose the key itself
+        guards_enabled: env.ocrGuardsEnabled,
         rate_max: env.ocrRateMax,
         rate_window_sec: env.ocrRateWindowSec,
       },

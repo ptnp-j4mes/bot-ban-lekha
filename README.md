@@ -46,6 +46,7 @@ See [`backend/README.md`](backend/README.md) for the full setup guide including 
 ## Production deployment
 
 - VPS/Docker Compose: use `docker-compose.prod.yml` behind an HTTPS reverse proxy.
+- สำหรับ deploy บน VPS ให้ใช้ `./scripts/deploy-prod.sh` เพื่อหยุด `backend` และ `admin` ก่อน build แล้วค่อยเริ่ม service ใหม่ โดยไม่ลบ PostgreSQL volume
 - Railway: create separate backend, admin, and PostgreSQL services following [`docs/railway-deploy.md`](docs/railway-deploy.md).
 
 ## Secrets

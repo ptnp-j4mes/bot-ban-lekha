@@ -225,6 +225,7 @@ export function PlatformSettings() {
                 <Row k="Provider" v={<Badge variant={i.ocr.provider === "mock" ? "warning" : "success"}>{i.ocr.provider}</Badge>} />
                 <Row k="Model" v={i.ocr.model} />
                 <Row k="API key" v={<Badge variant={i.ocr.configured ? "success" : "secondary"}>{i.ocr.configured ? "ตั้งค่าแล้ว" : "ยังไม่ตั้ง"}</Badge>} />
+                <Row k="OCR guards" v={<Badge variant={i.ocr.guards_enabled ? "success" : "warning"}>{i.ocr.guards_enabled ? "เปิด" : "ปิด"}</Badge>} />
                 <Row k="Rate limit" v={`${i.ocr.rate_max} / ${Math.round(i.ocr.rate_window_sec / 60)} นาที`} />
                 <Row k="อนุมัติอัตโนมัติ" v={<Badge variant={i.auto_approve ? "success" : "secondary"}>{i.auto_approve ? "เปิด" : "ปิด"}</Badge>} />
                 <Row k="Storage" v={i.storage_driver} />

@@ -1,11 +1,11 @@
 import { test, expect } from "bun:test";
 import { generateInstallments } from "../src/services/bill";
 import { toEmojiNumber } from "../src/lib/emoji-number";
-import { renderBillStatusLines, renderDailyReminder, renderBillText } from "../src/services/messages";
+import { renderBillStatusLines, renderDailyReminder, renderBillText, renderGroupedBillText } from "../src/services/messages";
 import { scoreInstallment, decideMatch } from "../src/services/matching";
 import { mapGeminiResult, detectImageMime } from "../src/services/ocr";
 import { deleteSlipFile } from "../src/services/storage";
-import { dateOnly, toISODate } from "../src/lib/date";
+import { bangkokDayEndExclusive, bangkokDayStart, dateOnly, toISODate } from "../src/lib/date";
 import { verifySignature } from "../src/lib/line";
 import { signJwt, verifyJwt } from "../src/lib/jwt";
 import { createHmac } from "node:crypto";
@@ -34,6 +34,11 @@ test("generateInstallments: rejects bad input", () => {
   expect(() => generateInstallments(dateOnly("2026-06-16"), 0, 3, 490)).toThrow();
   expect(() => generateInstallments(dateOnly("2026-06-16"), 7, 0, 490)).toThrow();
   expect(() => generateInstallments(dateOnly("2026-06-16"), 7, 3, 0)).toThrow();
+});
+
+test("Bangkok date filters use the correct UTC boundaries", () => {
+  expect(bangkokDayStart("2026-08-14").toISOString()).toBe("2026-08-13T17:00:00.000Z");
+  expect(bangkokDayEndExclusive("2026-08-14").toISOString()).toBe("2026-08-14T17:00:00.000Z");
 });
 
 test("toEmojiNumber", () => {
@@ -94,6 +99,42 @@ test("renderBillText: preview follows the sample bill layout", () => {
     "💸 ช่องทางการโอนเงิน 💸\n\nเลขที่บัญชี 2509480357\nธนาคารกรุงศรีอยุธยา\nชื่อบัญชี ชลดา พรมเมศ" +
     "\n\n‼️ชำระห้ามเกินเวลา 17.00น  เกินเวลา ปรับ ชม ละ500บาท และแบล็คลิสถาวร 📌"
   );
+});
+
+test("renderGroupedBillText: open plans share one bill header, bank, and footer", () => {
+  const bank = { accountNo: "2509480357", bankName: "ธนาคารกรุงศรีอยุธยา", accountName: "ชลดา พรมเมศ" };
+  const text = renderGroupedBillText({
+    billNo: 8,
+    plans: [
+      {
+        principal: 8000,
+        installmentAmount: 2334,
+        cycleDays: 15,
+        totalInstallments: 6,
+        note: "ต้น8000ส่ง2334ราย15 วัน 6งวดจบ",
+        installments: [
+          { dueDate: dateOnly("2026-05-23"), amountDue: 2334, status: "paid" },
+          { dueDate: dateOnly("2026-06-07"), amountDue: 2334, status: "pending", penaltyAmount: 1500 },
+        ],
+        bank,
+      },
+      {
+        principal: 1000,
+        installmentAmount: 300,
+        cycleDays: 7,
+        totalInstallments: 11,
+        note: "ต้น 1000 คืน 1300 ระยะเวลา7วัน",
+        installments: [{ dueDate: dateOnly("2026-06-06"), amountDue: 300, status: "paid" }],
+        bank,
+      },
+    ],
+    footer: "footer",
+  });
+
+  expect(text).toContain("บิล 8️⃣\n\nต้น8000ส่ง2334ราย15 วัน 6งวดจบ");
+  expect(text).toContain("จบ🙏\n\nต้น 1000 คืน 1300 ระยะเวลา7วัน");
+  expect(text.match(/💸 ช่องทางการโอนเงิน 💸/g)).toHaveLength(1);
+  expect(text.endsWith("\n\nfooter")).toBe(true);
 });
 
 test("renderBillText: renders per-installment and bill-header penalties separately", () => {

@@ -75,7 +75,7 @@ export const customerRoutes = new Elysia({ prefix: "/api" })
     const customer = await prisma.customer.findFirst({ where: { orgId: ctx.orgId, customerCode: customer_code } });
     if (!customer) throw new ApiError("NOT_FOUND", "Customer not found");
     const clash = await prisma.customer.findFirst({
-      where: { lineOaId: customer.lineOaId, lineUserId: line_user_id, id: { not: customer.id } },
+      where: { orgId: ctx.orgId, lineOaId: customer.lineOaId, lineUserId: line_user_id, id: { not: customer.id } },
     });
     if (clash)
       throw new ApiError("VALIDATION_ERROR", "line_user_id already linked to another customer in this OA");

@@ -5,10 +5,41 @@ import { env } from "../env";
 import { ok, ApiError } from "../lib/response";
 import { signJwt } from "../lib/jwt";
 import { authContext } from "../lib/auth";
+import { verifyLineIdToken } from "../lib/line";
 
 const AUTHORIZE = "https://access.line.me/oauth2/v2.1/authorize";
 const TOKEN = "https://api.line.me/oauth2/v2.1/token";
 const PROFILE = "https://api.line.me/v2/profile";
+
+type LineAdminProfile = { sub: string; name?: string; pictureUrl?: string };
+
+// Keep the native LINE Login path aligned with the existing web callback. The
+// mobile app only sends an ID token; channel secrets remain server-side.
+async function upsertLineAdmin(profile: LineAdminProfile) {
+  const total = await prisma.adminUser.count();
+  const existing = await prisma.adminUser.findUnique({ where: { lineUserId: profile.sub } });
+  if (existing && !existing.isActive) throw new ApiError("FORBIDDEN", "บัญชีถูกปิดใช้งาน");
+
+  return existing
+    ? prisma.adminUser.update({
+        where: { id: existing.id },
+        data: {
+          ...(profile.name ? { displayName: profile.name } : {}),
+          ...(profile.pictureUrl ? { pictureUrl: profile.pictureUrl } : {}),
+          lastLoginAt: new Date(),
+        },
+      })
+    : prisma.adminUser.create({
+        data: {
+          lineUserId: profile.sub,
+          displayName: profile.name,
+          pictureUrl: profile.pictureUrl,
+          isPlatformAdmin: total === 0,
+          isActive: true,
+          lastLoginAt: new Date(),
+        },
+      });
+}
 
 export const authRoutes = new Elysia({ prefix: "/api/auth" })
   // Username + password login (for super admin / non-LINE accounts). Argon2 via Bun.password.
@@ -68,30 +99,29 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
     const prof: any = await profRes.json();
 
     // First-ever admin to log in becomes the platform admin (you). Others just get an account;
-    // org access is granted by being added to an org (membership) by an owner/platform admin.
-    const total = await prisma.adminUser.count();
-    const existing = await prisma.adminUser.findUnique({ where: { lineUserId: prof.userId } });
-    const user = existing
-      ? await prisma.adminUser.update({
-          where: { id: existing.id },
-          data: { displayName: prof.displayName, pictureUrl: prof.pictureUrl, lastLoginAt: new Date() },
-        })
-      : await prisma.adminUser.create({
-          data: {
-            lineUserId: prof.userId,
-            displayName: prof.displayName,
-            pictureUrl: prof.pictureUrl,
-            isPlatformAdmin: total === 0,
-            isActive: true,
-            lastLoginAt: new Date(),
-          },
-        });
+    // org access is granted by being added to an org (member/platform admin).
+    const user = await upsertLineAdmin({ sub: prof.userId, name: prof.displayName, pictureUrl: prof.pictureUrl });
 
     const jwt = signJwt({ sub: user.id, name: user.displayName }, env.jwtSecret);
     set.status = 302;
     set.headers["location"] = `${env.frontendUrl}/#token=${jwt}`;
     return "";
   })
+
+  // Native LINE Login: the iOS SDK returns an ID token directly, so no browser
+  // hash redirect or cookie is needed. The token is verified by LINE before the
+  // same account/JWT flow used by the web callback is applied.
+  .post(
+    "/mobile/line",
+    async ({ body }: any) => {
+      if (!env.lineLoginChannelId) throw new ApiError("INTERNAL_ERROR", "LINE Login not configured");
+      const profile = await verifyLineIdToken(body.id_token, env.lineLoginChannelId);
+      if (!profile) throw new ApiError("UNAUTHORIZED", "Invalid LINE ID token");
+      const user = await upsertLineAdmin(profile);
+      return ok({ token: signJwt({ sub: user.id, name: user.displayName }, env.jwtSecret) });
+    },
+    { body: t.Object({ id_token: t.String({ minLength: 1 }) }) }
+  )
 
   // Change own password (logged-in user). LINE-only accounts can set one (no current required).
   .post(

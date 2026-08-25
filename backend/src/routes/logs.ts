@@ -2,8 +2,9 @@ import { Elysia } from "elysia";
 import { prisma } from "../lib/prisma";
 import { ok, ApiError } from "../lib/response";
 import { authorize } from "../lib/auth";
-import { pushMessage } from "../lib/line";
+import { getMessageContent, pushMessage } from "../lib/line";
 import { oaForSubmission } from "../services/oa";
+import { detectImageMime } from "../services/ocr";
 
 // Org-scoped audit log + resend of a failed LINE message.
 export const logRoutes = new Elysia()
@@ -127,6 +128,27 @@ export const logRoutes = new Elysia()
         messageCount: messages.length,
       },
       messages,
+    });
+  })
+
+  // Fetch inbound LINE images only after the admin explicitly asks to view them.
+  // The access token stays on the backend and the response remains org-scoped.
+  .get("/api/conversation-messages/:id/image", async ({ params, ctx }: any) => {
+    const log = await prisma.messageLog.findFirst({
+      where: { id: params.id, orgId: ctx.orgId, direction: "inbound", messageType: "inbound_image" },
+      select: { lineMessageId: true, lineOaId: true },
+    });
+    if (!log?.lineMessageId) throw new ApiError("NOT_FOUND", "Image message not found");
+
+    const oa = await oaForSubmission(prisma, log.lineOaId);
+    const image = await getMessageContent(log.lineMessageId, oa.accessToken);
+    const mime = detectImageMime(image);
+    if (!mime) throw new ApiError("NOT_FOUND", "Image content is unavailable");
+    return new Response(image, {
+      headers: {
+        "content-type": mime,
+        "cache-control": "private, max-age=300",
+      },
     });
   })
 

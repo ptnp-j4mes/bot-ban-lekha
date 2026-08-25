@@ -14,6 +14,7 @@ const FIELDS = [
   { key: "text_help", label: "ข้อความทั่วไป / วิธีใช้งาน", hint: "ตอบเมื่อผู้ใช้ส่งข้อความทั่วไป" },
   { key: "customer_balance_empty", label: "ตอบยอด: ไม่มียอดค้าง", hint: "ตอบเมื่อไม่พบยอดค้างชำระ" },
   { key: "customer_balance_due", label: "ตอบยอด: มียอดค้าง", hint: "ตัวแปร: {outstanding}, {count}, {next_due}" },
+  { key: "customer_bills", label: "ตอบเมนูบิล", hint: "ตัวแปร: {bill_text} คือรายละเอียดบิล Active ที่ยังค้างจ่าย" },
   { key: "payment_received", label: "ได้รับสลิปแล้ว", hint: "สลิปจับคู่ได้และรอผลตรวจสอบ/อนุมัติ" },
   { key: "cash_bill_received", label: "ได้รับบิลเงินสด", hint: "บิลเงินสดจะรอแอดมินตรวจสอบเสมอ" },
   { key: "needs_admin_match", label: "จับคู่สลิปไม่ได้", hint: "ตัวอย่างเช่น ยอดหรือวันที่ไม่ตรงกับงวด" },
@@ -160,7 +161,7 @@ export function MessageResponseSettings() {
               <li><code className="text-foreground">&#123;outstanding&#125;</code> ยอดค้างชำระรวม</li>
               <li><code className="text-foreground">&#123;count&#125;</code> จำนวนงวดที่ค้าง</li>
               <li><code className="text-foreground">&#123;next_due&#125;</code> วันครบกำหนดงวดถัดไป</li>
-              <li><code className="text-foreground">&#123;bill_text&#125;</code> ข้อความบิลล่าสุดหลังอนุมัติ</li>
+              <li><code className="text-foreground">&#123;bill_text&#125;</code> ข้อความบิลที่ระบบสร้าง (ใช้กับเมนูบิล/อนุมัติสลิป)</li>
               <li><code className="text-foreground">&#123;reason&#125;</code> เหตุผลที่ปฏิเสธสลิป</li>
               <li><code className="text-foreground">&#123;customer_name&#125;</code> ชื่อลูกค้าในข้อความกำหนดเอง</li>
             </ul>

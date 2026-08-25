@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Clock3, Inbox, MessageCircle, Search, UserRound } from "lucide-react";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiRaw } from "@/lib/api";
 import { thDateTimeBangkok } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,10 +40,42 @@ const shortPreview = (text: string | null) => {
   return text.replace(/\s+/g, " ").trim().slice(0, 72);
 };
 
+function ImageMessageLink({ id }: { id: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+
+  useEffect(() => () => {
+    if (src) URL.revokeObjectURL(src);
+  }, [src]);
+
+  const showImage = async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      const response = await apiRaw(`/api/conversation-messages/${encodeURIComponent(id)}/image`);
+      if (!response.ok) throw new Error("image unavailable");
+      setSrc(URL.createObjectURL(await response.blob()));
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (src) return <img src={src} alt="รูปภาพจาก LINE" className="max-h-80 max-w-full rounded-xl border border-border object-contain" />;
+  return (
+    <button type="button" onClick={() => void showImage()} disabled={loading} className="text-sm font-semibold underline underline-offset-4 disabled:cursor-wait disabled:opacity-60">
+      {loading ? "กำลังโหลดรูปภาพ…" : error ? "ลองเปิดรูปภาพอีกครั้ง" : "เปิดดูรูปภาพ"}
+    </button>
+  );
+}
+
 export function ChatClone() {
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const hasInitializedSelection = useRef(false);
 
   const conversations = useQuery({
     queryKey: ["conversations", q],
@@ -57,7 +89,17 @@ export function ChatClone() {
       setSelectedKey(null);
       return;
     }
-    if (!selectedKey || !items.some((item) => item.key === selectedKey)) setSelectedKey(items[0].key);
+
+    if (!hasInitializedSelection.current) {
+      hasInitializedSelection.current = true;
+      setSelectedKey(items[0].key);
+      return;
+    }
+
+    // Keep the detail view closed after the mobile back button is pressed.
+    // If a refreshed/search-filtered list removes the current conversation,
+    // return to the list so the user can choose another one.
+    if (selectedKey && !items.some((item) => item.key === selectedKey)) setSelectedKey(null);
   }, [items, selectedKey]);
 
   const detail = useQuery({
@@ -69,20 +111,15 @@ export function ChatClone() {
   const active = detail.data?.conversation ?? items.find((item) => item.key === selectedKey);
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">LINE inbox</div>
-          <h2 className="font-head text-xl font-bold tracking-tight">Chatclone</h2>
-          <p className="mt-1 text-sm text-muted-foreground">ดูประวัติการสนทนาเข้า–ออกจาก LINE ในมุมเดียว</p>
-        </div>
+    <div className="space-y-2 md:space-y-4">
+      <div className="flex justify-end">
         <Badge variant="secondary"><MessageCircle className="mr-1.5 h-3.5 w-3.5" /> {conversations.data?.total ?? 0} สนทนา</Badge>
       </div>
 
       <Card className="overflow-hidden rounded-2xl">
-        <div className="grid min-h-[650px] grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)]">
-          <aside className={cn("border-b border-border bg-secondary/30 md:flex md:flex-col md:border-b-0 md:border-r", selectedKey ? "hidden" : "flex")}>
-            <div className="border-b border-border p-3">
+        <div className="grid h-[clamp(480px,calc(100dvh-180px),640px)] min-h-0 grid-cols-1 md:h-[500px] md:grid-cols-[280px_minmax(0,1fr)]">
+          <aside className={cn("min-h-0 flex flex-col border-b border-border bg-secondary/30 md:flex md:border-b-0 md:border-r", selectedKey ? "hidden" : "flex")}>
+            <div className="shrink-0 border-b border-border p-3">
               <form className="relative" onSubmit={(event) => { event.preventDefault(); setQ(search.trim()); }}>
                 <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ค้นหาชื่อ / LINE ID / ข้อความ" className="h-10 bg-card pl-9 pr-3" />
@@ -125,10 +162,10 @@ export function ChatClone() {
             </div>
           </aside>
 
-          <section className={cn("min-w-0 flex-col bg-card", selectedKey ? "flex" : "hidden md:flex")}>
+          <section className={cn("min-h-0 min-w-0 flex-col bg-card", selectedKey ? "flex" : "hidden md:flex")}>
             {active ? (
               <>
-                <header className="flex min-h-[72px] items-center gap-3 border-b border-border px-4 py-3 md:px-6">
+                <header className="sticky top-0 z-10 flex min-h-[72px] shrink-0 items-center gap-3 border-b border-border bg-card/95 px-4 py-3 backdrop-blur md:px-6">
                   <Button size="icon" variant="ghost" className="md:hidden" onClick={() => setSelectedKey(null)} aria-label="กลับไปยังรายการสนทนา"><ArrowLeft className="h-4 w-4" /></Button>
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-secondary text-primary"><UserRound className="h-5 w-5" /></span>
                   <div className="min-w-0 flex-1">
@@ -141,7 +178,7 @@ export function ChatClone() {
                   <Badge variant="outline"><Clock3 className="mr-1.5 h-3 w-3" /> {active.message_count} ข้อความ</Badge>
                 </header>
 
-                <div className="min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(135deg,hsl(var(--background))_0%,hsl(var(--card))_100%)] px-3 py-5 md:px-8">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[linear-gradient(135deg,hsl(var(--background))_0%,hsl(var(--card))_100%)] px-3 py-5 md:px-8">
                   {detail.isLoading && <div className="py-12 text-center text-sm text-muted-foreground">กำลังโหลดข้อความ…</div>}
                   <div className="mx-auto flex max-w-3xl flex-col gap-3">
                     {(detail.data?.messages ?? []).map((message) => {
@@ -150,7 +187,11 @@ export function ChatClone() {
                         <div key={message.id} className={cn("flex", outbound ? "justify-end" : "justify-start")}>
                           <div className={cn("max-w-[88%] md:max-w-[72%]", outbound ? "items-end" : "items-start")}>
                             <div className={cn("rounded-2xl px-4 py-3 text-sm shadow-sm", outbound ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md border border-border bg-card text-foreground")}>
-                              <div className="whitespace-pre-wrap break-words">{message.message_text || `[${message.message_type}]`}</div>
+                              {message.message_type === "inbound_image" ? (
+                                <ImageMessageLink id={message.id} />
+                              ) : (
+                                <div className="whitespace-pre-wrap break-words">{message.message_text || `[${message.message_type}]`}</div>
+                              )}
                               {message.status === "failed" && <div className="mt-2 text-xs text-red-200">ส่งไม่สำเร็จ: {message.error_message || "ไม่ทราบสาเหตุ"}</div>}
                             </div>
                             <div className={cn("mt-1 flex items-center gap-1.5 px-1 text-[10px] text-muted-foreground", outbound ? "justify-end" : "justify-start")}>

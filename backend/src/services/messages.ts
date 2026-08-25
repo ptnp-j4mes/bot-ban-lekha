@@ -27,6 +27,7 @@ export const MESSAGE_TEMPLATE_KEYS = [
   "text_help",
   "customer_balance_empty",
   "customer_balance_due",
+  "customer_bills",
   "payment_received",
   "cash_bill_received",
   "needs_admin_match",
@@ -44,6 +45,7 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplates = {
   text_help: `สวัสดีค่ะ 🙏\nหากต้องการแจ้งชำระเงิน กรุณาส่ง "รูปสลิป" โอนเงินเข้ามาในแชทนี้ได้เลยค่ะ\nหรือพิมพ์ "ยอด" เพื่อเช็คยอดค้างชำระค่ะ`,
   customer_balance_empty: `คุณไม่มียอดค้างชำระค่ะ ✅ ขอบคุณค่ะ 🙏`,
   customer_balance_due: `ยอดค้างชำระของคุณ 💰\n\nคงเหลือ {outstanding} บาท ({count} งวด)\nงวดถัดไปครบกำหนด {next_due}\n\nหากต้องการแจ้งชำระ ส่งรูปสลิปเข้ามาได้เลยค่ะ 🙏`,
+  customer_bills: `{bill_text}`,
   payment_received: `📌 ได้รับสลิปแล้วค่ะ\n\nระบบกำลังตรวจสอบยอดชำระ\nหากตรวจสอบเรียบร้อยแล้ว จะแจ้งสถานะกลับทางแชทนี้ค่ะ 🙏`,
   cash_bill_received: `รับบิลเงินสดแล้วค่ะ 🧾\nเจ้าหน้าที่จะตรวจสอบและยืนยันยอดให้นะคะ 🙏`,
   needs_admin_match: `📌 ได้รับสลิปแล้วค่ะ\n\nระบบยังไม่สามารถจับคู่ยอดกับงวดในบิลได้อัตโนมัติ\nแอดมินจะตรวจสอบและอัปเดตสถานะให้ค่ะ 🙏`,
@@ -179,6 +181,9 @@ export const renderCustomerBalance = (outstanding: number, count: number, nextDu
       count,
       next_due: nextDue ? `${dayOfMonth(nextDue)} ${thaiMonth(nextDue)} ${beYear2(nextDue)}` : "—",
     });
+
+export const renderCustomerBills = (billText: string, templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) =>
+  fill(templates.customer_bills, { bill_text: billText });
 
 export const renderDuplicateSlip = (templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) => templates.duplicate_slip;
 

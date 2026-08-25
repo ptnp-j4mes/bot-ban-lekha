@@ -24,7 +24,7 @@ import { Senders } from "@/pages/Senders";
 import { Groups } from "@/pages/Groups";
 import { Users } from "@/pages/Users";
 import { PlatformSettings } from "@/pages/PlatformSettings";
-import { GoogleDriveSettings } from "@/pages/GoogleDriveSettings";
+import { StorageSettings } from "@/pages/StorageSettings";
 import { Login } from "@/pages/Login";
 import { NotificationBell, type Notif } from "@/components/NotificationBell";
 import { ConfirmProvider } from "@/components/ui/confirm";
@@ -106,7 +106,7 @@ function SidebarBrand() {
   );
 }
 
-function Frame({ title, brand, right, children, nav }: any) {
+function Frame({ title, brand, topRight, right, children, nav }: any) {
   const [open, setOpen] = useState(false);
   return (
     <div className="min-h-screen lg:flex">
@@ -123,7 +123,7 @@ function Frame({ title, brand, right, children, nav }: any) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex min-h-[62px] shrink-0 flex-col items-stretch gap-2 border-b border-foreground/15 bg-background/95 px-3 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:flex-row sm:items-center sm:gap-3 sm:px-4">
+        <header className="sticky top-0 z-20 grid min-h-[62px] shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 border-b border-foreground/15 bg-background/95 px-3 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:flex sm:gap-3 sm:px-4">
           <div className="flex min-h-10 min-w-0 items-center gap-3">
             <Button size="icon" variant="ghost" className="lg:hidden" onClick={() => setOpen(true)}>
               <Menu className="h-5 w-5" />
@@ -133,7 +133,8 @@ function Frame({ title, brand, right, children, nav }: any) {
               <h1 className="text-[17px] font-bold tracking-tight">{title}</h1>
             </div>
           </div>
-          <div className="flex min-w-0 w-full flex-wrap items-center justify-start gap-1.5 border-t border-border/60 pt-2 sm:ml-auto sm:w-auto sm:justify-end sm:border-t-0 sm:pt-0 lg:flex-nowrap lg:gap-2.5"><ThemeToggle />{right}</div>
+          <div className="flex shrink-0 items-center gap-1 sm:order-3"><ThemeToggle />{topRight}</div>
+          <div className="col-span-2 flex min-w-0 w-full flex-wrap items-center justify-end gap-1.5 border-t border-border/60 pt-2 sm:order-2 sm:ml-auto sm:w-auto sm:border-t-0 sm:pt-0 lg:flex-nowrap lg:gap-2.5">{right}</div>
         </header>
         <main className="min-w-0 space-y-5 overflow-x-hidden p-4 md:p-6 lg:p-7">{children}</main>
       </div>
@@ -234,7 +235,7 @@ function Shell() {
     const PLATFORM = [
       { id: "users", label: "ผู้ใช้ & องค์กร", icon: UsersIcon, el: <Users /> },
       { id: "system", label: "ตั้งค่าระบบ", icon: SettingsIcon, el: <PlatformSettings /> },
-      { id: "gdrive", label: "Google Drive", icon: HardDrive, el: <GoogleDriveSettings /> },
+      { id: "storage", label: "File Storage", icon: HardDrive, el: <StorageSettings /> },
     ];
     const pActive = PLATFORM.find((p) => p.id === ptab) ?? PLATFORM[0];
     const platformGroups = [
@@ -358,9 +359,9 @@ function Shell() {
       title={active.label}
       nav={navFn}
       brand={profile}
+      topRight={<NotificationBell items={notifs} />}
       right={
         <>
-          <NotificationBell items={notifs} />
           {impersonating && (
             <Button size="sm" variant="outline" onClick={exitOrg}>
               <ArrowLeft className="h-3 w-3 mr-1" /> ออกจาก org

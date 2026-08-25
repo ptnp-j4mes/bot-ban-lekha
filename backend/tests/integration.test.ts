@@ -3,6 +3,7 @@ import { prisma } from "../src/lib/prisma";
 import { bangkokToday } from "../src/lib/date";
 import { processSubmission, approveSubmission, matchInstallment, rejectSubmission } from "../src/services/payment";
 import { effectiveRetentionDays, purgeSlipImage, purgeExpiredSlips } from "../src/services/retention";
+import { deleteSlipFile } from "../src/services/storage";
 import { app } from "../src/app";
 import { env } from "../src/env";
 import { signJwt } from "../src/lib/jwt";
@@ -302,6 +303,213 @@ test("username/password login: super admin gets a working platform token", async
   expect(plat.status).toBe(200);
 });
 
+test("native LINE login: verifies ID token, upserts admin, and returns JWT", async () => {
+  const previousChannel = env.lineLoginChannelId;
+  const previousFetch = globalThis.fetch;
+  env.lineLoginChannelId = "mobile-line-channel";
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    expect(String(input)).toBe("https://api.line.me/oauth2/v2.1/verify");
+    return new Response(JSON.stringify({ sub: `Umobile${rnd()}`, name: "Native Admin", aud: "mobile-line-channel" }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const res = await app.handle(new Request("http://localhost/api/auth/mobile/line", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id_token: "signed-by-line" }),
+    }));
+    expect(res.status).toBe(200);
+    const token = (await res.json()).data.token;
+    const me = await app.handle(new Request("http://localhost/api/auth/me", { headers: { authorization: `Bearer ${token}` } }));
+    expect((await me.json()).data.name).toBe("Native Admin");
+  } finally {
+    env.lineLoginChannelId = previousChannel;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("native LINE login: rejects an ID token issued for another channel", async () => {
+  const previousChannel = env.lineLoginChannelId;
+  const previousFetch = globalThis.fetch;
+  env.lineLoginChannelId = "mobile-line-channel";
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ sub: `Uwrong${rnd()}`, aud: "different-channel" }), { status: 200 })) as typeof fetch;
+
+  try {
+    const res = await app.handle(new Request("http://localhost/api/auth/mobile/line", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id_token: "issued-for-another-channel" }),
+    }));
+    expect(res.status).toBe(401);
+  } finally {
+    env.lineLoginChannelId = previousChannel;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("native LINE login: inactive account is blocked", async () => {
+  const lineUserId = `Uinactive${rnd()}`;
+  await prisma.adminUser.create({
+    data: { lineUserId, displayName: "Inactive Admin", isPlatformAdmin: false, isActive: false },
+  });
+  const previousChannel = env.lineLoginChannelId;
+  const previousFetch = globalThis.fetch;
+  env.lineLoginChannelId = "mobile-line-channel";
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ sub: lineUserId, aud: "mobile-line-channel" }), { status: 200 })) as typeof fetch;
+
+  try {
+    const res = await app.handle(new Request("http://localhost/api/auth/mobile/line", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id_token: "valid-but-inactive" }),
+    }));
+    expect(res.status).toBe(403);
+  } finally {
+    env.lineLoginChannelId = previousChannel;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("native LINE login: active account without org membership cannot access tenant data", async () => {
+  const lineUserId = `Unoorg${rnd()}`;
+  const user = await prisma.adminUser.create({
+    data: { lineUserId, displayName: "Unassigned Admin", isPlatformAdmin: false, isActive: true },
+  });
+  const org = await mkOrg();
+  const previousChannel = env.lineLoginChannelId;
+  const previousFetch = globalThis.fetch;
+  env.lineLoginChannelId = "mobile-line-channel";
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ sub: lineUserId, aud: "mobile-line-channel" }), { status: 200 })) as typeof fetch;
+
+  try {
+    const res = await app.handle(new Request("http://localhost/api/auth/mobile/line", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id_token: "valid-without-org" }),
+    }));
+    expect(res.status).toBe(200);
+    const token = (await res.json()).data.token;
+    const forbidden = await app.handle(new Request("http://localhost/api/customers", {
+      headers: hdr(token, org.id),
+    }));
+    expect(forbidden.status).toBe(403);
+    expect(user.isActive).toBe(true);
+  } finally {
+    env.lineLoginChannelId = previousChannel;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("customer LIFF session: oa_id selects the correct tenant", async () => {
+  const orgA = await mkOrg("liff-a");
+  const orgB = await mkOrg("liff-b");
+  const oaA = await mkOa(orgA.id);
+  const oaB = await mkOa(orgB.id);
+  const lineUserId = `Uliff${rnd()}`;
+  const customerA = await prisma.customer.create({
+    data: { orgId: orgA.id, lineOaId: oaA.id, lineUserId, customerCode: `A${rnd()}`, displayName: "Customer A", status: "active" },
+  });
+  await prisma.customer.create({
+    data: { orgId: orgB.id, lineOaId: oaB.id, lineUserId, customerCode: `B${rnd()}`, displayName: "Customer B", status: "active" },
+  });
+  const previousChannel = env.lineLiffChannelId;
+  const previousFetch = globalThis.fetch;
+  env.lineLiffChannelId = "liff-line-channel";
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ sub: lineUserId, aud: "liff-line-channel" }), { status: 200 })) as typeof fetch;
+
+  try {
+    const session = await app.handle(new Request("http://localhost/api/liff/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id_token: "customer-id-token", oa_id: oaA.id }),
+    }));
+    expect(session.status).toBe(200);
+    const payload = (await session.json()).data;
+    expect(payload.customer.customer_code).toBe(customerA.customerCode);
+
+    const me = await app.handle(new Request("http://localhost/api/liff/me", {
+      headers: { authorization: `Bearer ${payload.token}` },
+    }));
+    expect((await me.json()).data.display_name).toBe("Customer A");
+  } finally {
+    env.lineLiffChannelId = previousChannel;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("customer LIFF session: rejects an OA that is not active or does not match", async () => {
+  const org = await mkOrg("liff-oa");
+  const oa = await mkOa(org.id);
+  const previousChannel = env.lineLiffChannelId;
+  const previousFetch = globalThis.fetch;
+  env.lineLiffChannelId = "liff-line-channel";
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ sub: `Uliff${rnd()}`, aud: "liff-line-channel" }), { status: 200 })) as typeof fetch;
+
+  try {
+    const missing = await app.handle(new Request("http://localhost/api/liff/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id_token: "customer-id-token", oa_id: `missing-${rnd()}` }),
+    }));
+    expect(missing.status).toBe(404);
+
+    await prisma.lineOaAccount.update({ where: { id: oa.id }, data: { isActive: false } });
+    const inactive = await app.handle(new Request("http://localhost/api/liff/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id_token: "customer-id-token", oa_id: oa.id }),
+    }));
+    expect(inactive.status).toBe(404);
+  } finally {
+    env.lineLiffChannelId = previousChannel;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("customer LIFF session: unlinked and inactive customers are rejected", async () => {
+  const org = await mkOrg("liff-customer");
+  const oa = await mkOa(org.id);
+  const lineUserId = `Unotlinked${rnd()}`;
+  await prisma.customer.create({
+    data: { orgId: org.id, lineOaId: oa.id, lineUserId: `Uother${rnd()}`, customerCode: `N${rnd()}`, status: "active" },
+  });
+  const inactive = await prisma.customer.create({
+    data: { orgId: org.id, lineOaId: oa.id, lineUserId, customerCode: `I${rnd()}`, status: "inactive" },
+  });
+  const previousChannel = env.lineLiffChannelId;
+  const previousFetch = globalThis.fetch;
+  env.lineLiffChannelId = "liff-line-channel";
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ sub: lineUserId, aud: "liff-line-channel" }), { status: 200 })) as typeof fetch;
+
+  try {
+    const inactiveResponse = await app.handle(new Request("http://localhost/api/liff/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id_token: "customer-id-token", oa_id: oa.id }),
+    }));
+    expect(inactiveResponse.status).toBe(404);
+    expect(inactive.status).toBe("inactive");
+
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ sub: `Uunlinked${rnd()}`, aud: "liff-line-channel" }), { status: 200 })) as typeof fetch;
+    const unlinked = await app.handle(new Request("http://localhost/api/liff/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id_token: "customer-id-token", oa_id: oa.id }),
+    }));
+    expect(unlinked.status).toBe(404);
+  } finally {
+    env.lineLiffChannelId = previousChannel;
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test("settings: member reads/updates org footer + timezone", async () => {
   const org = await mkOrg();
   const m = await mkMember(org.id, "user");
@@ -347,7 +555,20 @@ test("P2/P3: bulk import, customer detail, reports, csv, audit, reminders", asyn
   expect((await det.json()).data).toHaveProperty("message_logs");
 
   const sum = await app.handle(new Request("http://localhost/api/reports/summary", { headers: hdr(m.token, org.id) }));
-  expect((await sum.json()).data.customers).toBeGreaterThanOrEqual(2);
+  const sumData = (await sum.json()).data;
+  expect(sumData.customers).toBeGreaterThanOrEqual(2);
+  expect(sumData.total_bill_amount).toBe(0);
+
+  const plan = await makePlan(org.id, 490);
+  const withOutstanding = await app.handle(new Request("http://localhost/api/reports/summary", { headers: hdr(m.token, org.id) }));
+  expect((await withOutstanding.json()).data.total_bill_amount).toBe(490);
+  const charts = await app.handle(new Request(`http://localhost/api/reports/dashboard-charts?period=month&year=${today.getUTCFullYear()}&month=${today.getUTCMonth() + 1}`, { headers: hdr(m.token, org.id) }));
+  const chartData = (await charts.json()).data;
+  expect(chartData.pie.uncollected).toBe(490);
+  expect(chartData.monthly[today.getUTCMonth()].total).toBe(490);
+  await prisma.billPlan.update({ where: { id: plan.plan.id }, data: { status: "cancelled" } });
+  const withoutCancelled = await app.handle(new Request("http://localhost/api/reports/summary", { headers: hdr(m.token, org.id) }));
+  expect((await withoutCancelled.json()).data.total_bill_amount).toBe(0);
 
   const csv = await app.handle(new Request("http://localhost/api/reports/payments.csv", { headers: hdr(m.token, org.id) }));
   expect(csv.headers.get("content-type")).toContain("text/csv");
@@ -359,10 +580,67 @@ test("P2/P3: bulk import, customer detail, reports, csv, audit, reminders", asyn
   expect(rem.status).toBe(200);
 });
 
+test("customer profile and private document upload are org-scoped", async () => {
+  const org = await mkOrg("customer-files");
+  const member = await mkMember(org.id, "user");
+  const customer = await prisma.customer.create({ data: { orgId: org.id, customerCode: `DOC${rnd()}` } });
+  const H = hdr(member.token, org.id);
+
+  const patch = await app.handle(new Request(`http://localhost/api/customers/${customer.id}`, {
+    method: "PATCH",
+    headers: { ...H, "content-type": "application/json" },
+    body: JSON.stringify({ facebook_url: "https://facebook.com/example", email: "customer@example.com", address: "Bangkok", contact_note: "โทรช่วงเย็น" }),
+  }));
+  expect(patch.status).toBe(200);
+  expect((await patch.json()).data.facebook_url).toBe("https://facebook.com/example");
+
+  const form = new FormData();
+  form.append("document_type", "identity");
+  form.append("title", "หลักฐานทดสอบ");
+  form.append("file", new File(["test-document"], "proof.pdf", { type: "application/pdf" }));
+  const upload = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/documents`, { method: "POST", headers: H, body: form }));
+  expect(upload.status).toBe(200);
+  const uploaded = (await upload.json()).data;
+  expect(uploaded.document_type).toBe("identity");
+  expect(uploaded.original_file_name).toBe("proof.pdf");
+
+  const detail = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/detail`, { headers: H }));
+  const detailData = (await detail.json()).data;
+  expect(detailData.customer.email).toBe("customer@example.com");
+  expect(detailData.documents).toHaveLength(1);
+
+  const file = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/documents/${uploaded.id}/file`, { headers: H }));
+  expect(file.status).toBe(200);
+  expect(await file.text()).toBe("test-document");
+
+  const otherOrg = await mkOrg("other-customer-files");
+  const otherMember = await mkMember(otherOrg.id, "user");
+  const cross = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/documents/${uploaded.id}/file`, { headers: hdr(otherMember.token, otherOrg.id) }));
+  expect(cross.status).toBe(404);
+
+  await deleteSlipFile(uploaded.file_url);
+});
+
 test("health open; bare /api/customers needs auth", async () => {
   expect((await app.handle(new Request("http://localhost/health"))).status).toBe(200);
   expect((await app.handle(new Request("http://localhost/ready"))).status).toBe(200);
   expect((await app.handle(new Request("http://localhost/api/customers"))).status).toBe(401);
+});
+
+test("bill plans list returns all org bills with active plans first", async () => {
+  const org = await mkOrg();
+  const member = await mkMember(org.id, "user");
+  const active = await makePlan(org.id, 490);
+  const completed = await makePlan(org.id, 750);
+  await prisma.billPlan.update({ where: { id: completed.plan.id }, data: { status: "completed" } });
+
+  const res = await app.handle(new Request("http://localhost/api/bill-plans", { headers: hdr(member.token, org.id) }));
+  expect(res.status).toBe(200);
+  const plans = (await res.json()).data;
+  expect(plans).toHaveLength(2);
+  expect(plans[0].id).toBe(active.plan.id);
+  expect(plans[0].status).toBe("active");
+  expect(plans[0].customer).toHaveProperty("id", active.customer.id);
 });
 
 // ---------- platform settings + new features ----------
@@ -427,6 +705,36 @@ test("customerBalance sums unpaid installments", async () => {
   expect(b.count).toBe(1);
   expect(b.outstanding).toBe(490);
   expect(b.nextDue).not.toBeNull();
+});
+
+test("LINE bill menu replies with active unpaid bill details", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const { customer } = await makePlan(org.id, 490, oa.id);
+  const member = await mkMember(org.id, "user");
+  const setting = await app.handle(new Request("http://localhost/api/settings", {
+    method: "PATCH",
+    headers: { ...hdr(member.token, org.id), "content-type": "application/json" },
+    body: JSON.stringify({ message_templates: { customer_bills: "📋 รายการบิลค้างจ่าย\n\n{bill_text}" } }),
+  }));
+  expect(setting.status).toBe(200);
+  const res = await webhook(oa.id, {
+    events: [{
+      type: "message",
+      source: { type: "user", userId: customer.lineUserId },
+      message: { type: "text", id: `bill-${rnd()}`, text: "บิล" },
+    }],
+  });
+
+  expect(res.status).toBe(200);
+  const reply = await prisma.messageLog.findFirst({
+    where: { direction: "outbound", messageType: "bill_inquiry", customerId: customer.id },
+    orderBy: { sentAt: "desc" },
+  });
+  expect(reply?.messageText).toContain("บิล 1️⃣");
+  expect(reply?.messageText).toContain("📋 รายการบิลค้างจ่าย");
+  expect(reply?.messageText).toContain("💸 490");
+  expect(reply?.messageText).toContain("จบ🙏");
 });
 
 // ---------- slip retention / purge ----------

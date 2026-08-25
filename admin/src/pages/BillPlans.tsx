@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp, Trash2, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, Plus, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut, statusBadge, statusTh } from "@/lib/ui";
 import { baht, thDate } from "@/lib/format";
@@ -18,6 +18,7 @@ export function BillPlans() {
   const [viewCust, setViewCust] = useState("");
   const [billFilter, setBillFilter] = useState("");
   const [billStatus, setBillStatus] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [mode, setMode] = useState<"interval" | "custom">("interval");
   const [rows, setRows] = useState([{ due_date: "", amount_due: "", penalty_amount: "" }]);
@@ -28,8 +29,9 @@ export function BillPlans() {
   const [previewBill, setPreviewBill] = useState<{ id: string; billNo: number; title?: string } | null>(null);
   const [penaltyPlan, setPenaltyPlan] = useState<any>(null);
 
-  const plans = useQuery({ queryKey: ["bill-plans", viewCust], queryFn: () => apiGet(`/api/customers/${viewCust}/bill-plans`), enabled: !!viewCust });
-  const filteredPlans = (plans.data ?? []).filter((p: any) => {
+  const plans = useQuery({ queryKey: ["bill-plans", viewCust], queryFn: () => viewCust ? apiGet(`/api/customers/${viewCust}/bill-plans`) : apiGet("/api/bill-plans") });
+  const allPlans: any[] = plans.data ?? [];
+  const filteredPlans = allPlans.filter((p: any) => {
     const matchesNumber = !billFilter.trim() || String(p.bill_no).includes(billFilter.trim());
     const matchesStatus = !billStatus || p.status === billStatus;
     return matchesNumber && matchesStatus;
@@ -40,6 +42,12 @@ export function BillPlans() {
     { status: "cancelled", label: "Cancelled" },
   ].map((group) => ({ ...group, plans: filteredPlans.filter((p: any) => p.status === group.status) }))
     .filter((group) => group.plans.length > 0);
+  const planTabs = [
+    { id: "", label: "บิลทั้งหมด", count: allPlans.length },
+    { id: "active", label: "Active", count: allPlans.filter((p) => p.status === "active").length },
+    { id: "completed", label: "Completed", count: allPlans.filter((p) => p.status === "completed").length },
+    { id: "cancelled", label: "Cancelled", count: allPlans.filter((p) => p.status === "cancelled").length },
+  ];
   const preview = useQuery({
     queryKey: ["bill-preview", previewBill?.id],
     queryFn: () => apiGet(`/api/bill-plans/${previewBill!.id}/preview`),
@@ -56,6 +64,18 @@ export function BillPlans() {
   const inv = ["bill-plans", "due-today", "overdue"];
   const pay = useMut((b: { id: string; amount: number }) => apiSend(`/api/installments/${b.id}/pay`, "POST", { amount: b.amount }), { success: "บันทึกรับชำระแล้ว", invalidate: inv });
   const editI = useMut((b: { id: string; data: any }) => apiSend(`/api/installments/${b.id}`, "PATCH", b.data), { success: "แก้งวดแล้ว", invalidate: inv });
+
+  const exportCsv = () => {
+    const header = ["Bill No.", "สถานะ", "เงินต้น", "จำนวนงวด", "ลูกค้า"];
+    const body = filteredPlans.map((p: any) => [p.bill_no, statusTh(p.status), p.principal_amount, p.total_installments, p.customer?.display_name || p.customer?.customer_code || ""]);
+    const csv = [header, ...body].map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "bill-plans.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   const remaining = (i: any) => Number(i?.amount_due ?? 0) - Number(i?.amount_paid ?? 0);
 
@@ -86,25 +106,23 @@ export function BillPlans() {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const num = (k: string) => Number(fd.get(k));
-    const customerId = String(fd.get("customer_id") ?? "");
     create.mutate({
       customer_id: fd.get("customer_id"), bill_no: num("bill_no"), principal_amount: num("principal_amount"),
       installment_amount: num("installment_amount"), cycle_type: "interval_days", cycle_days: num("cycle_days"),
       total_installments: num("total_installments"), start_date: fd.get("start_date"),
       bill_penalty_amount: num("bill_penalty_amount"), installment_penalty_amount: num("installment_penalty_amount"),
       bank_account_id: fd.get("bank_account_id") || undefined, note: fd.get("note") || undefined,
-    }, { onSuccess: () => { setViewCust(customerId); setCreateOpen(false); } });
+    }, { onSuccess: () => { setViewCust(""); setCreateOpen(false); } });
   };
   const submitCustom = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const installments = rows.filter((r) => r.due_date && r.amount_due).map((r, i) => ({ installment_no: i + 1, due_date: r.due_date, amount_due: Number(r.amount_due), penalty_amount: Number(r.penalty_amount || 0) }));
     if (!installments.length) return;
-    const customerId = String(fd.get("customer_id") ?? "");
     createCustom.mutate({
       customer_id: fd.get("customer_id"), bill_no: Number(fd.get("bill_no")), principal_amount: Number(fd.get("principal_amount")),
       cycle_type: "custom_dates", bank_account_id: fd.get("bank_account_id") || undefined, bill_penalty_amount: Number(fd.get("bill_penalty_amount") || 0), note: fd.get("note") || undefined, installments,
-    }, { onSuccess: () => { setRows([{ due_date: "", amount_due: "", penalty_amount: "" }]); setViewCust(customerId); setCreateOpen(false); } });
+    }, { onSuccess: () => { setRows([{ due_date: "", amount_due: "", penalty_amount: "" }]); setViewCust(""); setCreateOpen(false); } });
   };
 
   return (
@@ -162,27 +180,32 @@ export function BillPlans() {
         </div>
       </Dialog>
 
-      <Card>
-        <CardHeader className="items-start sm:items-center">
-          <div className="min-w-0">
-            <CardTitle>ดูบิลของลูกค้า</CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">เลือกผู้ใช้เพื่อดูและกรองบิลของรายนั้น</p>
+      <Card className="overflow-hidden">
+        <CardContent className="space-y-4 p-4 md:p-5">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input value={billFilter} onChange={(e) => setBillFilter(e.target.value)} placeholder="ค้นหาเลขที่บิล" className="h-11 pl-10 pr-10" aria-label="ค้นหาเลขที่บิล" />
+              {billFilter && <button type="button" onClick={() => setBillFilter("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="ล้างคำค้น"><X className="h-4 w-4" /></button>}
+            </div>
+            <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" className="h-11" onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal className="h-4 w-4" /> ตัวกรอง{(viewCust || billFilter || billStatus) && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] text-primary-foreground">{Number(!!viewCust) + Number(!!billFilter) + Number(!!billStatus)}</span>}</Button>
+              <Button type="button" variant="outline" className="h-11" onClick={exportCsv} disabled={!filteredPlans.length}><Download className="h-4 w-4" /> Export</Button>
+              <Button type="button" className="h-11" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> สร้างบิล</Button>
+            </div>
           </div>
-          <Button size="sm" className="ml-0 w-full sm:ml-auto sm:w-auto" onClick={() => setCreateOpen(true)}><Plus className="h-3.5 w-3.5" /> สร้างบิล</Button>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_12rem_12rem]">
-            <Select value={viewCust} onChange={(e) => { setViewCust(e.target.value); setBillFilter(""); setBillStatus(""); }}><option value="">— เลือกลูกค้า —</option>{custOptions}</Select>
-            <Input value={billFilter} onChange={(e) => setBillFilter(e.target.value)} placeholder="กรองเลขที่บิล" disabled={!viewCust} />
-            <Select value={billStatus} onChange={(e) => setBillStatus(e.target.value)} disabled={!viewCust}>
-              <option value="">ทุกสถานะ</option>
-              <option value="active">ใช้งาน</option>
-              <option value="cancelled">ยกเลิก</option>
-            </Select>
+
+          <div className="flex overflow-x-auto rounded-xl border border-border p-1">
+            {planTabs.map((item) => <button key={item.id || "all"} type="button" onClick={() => setBillStatus(item.id)} className={`min-w-[135px] flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${billStatus === item.id ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>{item.label} <span className="ml-1 text-xs opacity-70">({item.count})</span></button>)}
           </div>
-          {viewCust && <div className="flex items-center justify-between text-xs text-muted-foreground"><span>แสดง {filteredPlans.length} จาก {(plans.data ?? []).length} บิล</span>{(billFilter || billStatus) && <button type="button" className="text-primary hover:underline" onClick={() => { setBillFilter(""); setBillStatus(""); }}>ล้างตัวกรอง</button>}</div>}
+
+          {filtersOpen && <div className="grid grid-cols-1 gap-3 rounded-xl bg-secondary/60 p-3 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-end"><Field label="ลูกค้า"><Select value={viewCust} onChange={(e) => { setViewCust(e.target.value); setBillFilter(""); setBillStatus(""); }}><option value="">ทั้งหมด</option>{custOptions}</Select></Field><Field label="สถานะบิล"><Select value={billStatus} onChange={(e) => setBillStatus(e.target.value)}><option value="">ทุกสถานะ</option><option value="active">ใช้งาน</option><option value="completed">เสร็จสิ้น</option><option value="cancelled">ยกเลิก</option></Select></Field><Button type="button" variant="ghost" className="h-[42px]" onClick={() => { setViewCust(""); setBillFilter(""); setBillStatus(""); }}>ล้างตัวกรอง</Button></div>}
+
+          <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span>{`แสดง ${filteredPlans.length} จาก ${allPlans.length} บิล`}</span>{(viewCust || billFilter || billStatus) && <button type="button" className="font-semibold text-primary hover:underline" onClick={() => { setViewCust(""); setBillFilter(""); setBillStatus(""); }}>ล้างตัวกรอง</button>}</div>
+        </CardContent>
+        <div className="border-t border-border p-4 md:p-5">
           {groupedPlans.map((group) => (
-            <Card key={group.status} className="overflow-hidden">
+            <Card key={group.status} className="mb-4 overflow-hidden last:mb-0">
               <CardHeader className="border-b border-border bg-muted/30 py-3">
                 <div className="min-w-0">
                   <CardTitle>บิล {group.label}</CardTitle>
@@ -197,9 +220,10 @@ export function BillPlans() {
               </CardHeader>
               <CardContent className="space-y-3 p-3">
                 {group.plans.map((p: any) => (
-                  <Card key={p.id}>
+                    <Card key={p.id}>
                     <CardHeader className="py-2 flex-row items-center gap-2">
                       <CardTitle className="text-base">บิล {p.bill_no}</CardTitle>
+                      {p.customer && <span className="text-xs text-muted-foreground">{p.customer.display_name || p.customer.customer_code}</span>}
                       {statusBadge(p.status)}
                       {Number(p.penalty_amount ?? 0) > 0 && <span className="text-xs text-danger-text">ค่าปรับหัวบิล {baht(p.penalty_amount)}</span>}
                       <div className="ml-0 flex w-full flex-wrap gap-1 sm:ml-auto sm:w-auto">
@@ -223,9 +247,8 @@ export function BillPlans() {
               </CardContent>
             </Card>
           ))}
-          {viewCust && !plans.isLoading && filteredPlans.length === 0 && <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">ไม่พบบิลตามตัวกรอง</p>}
-          {!viewCust && <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">เลือกลูกค้าเพื่อแสดงรายการบิล</p>}
-        </CardContent>
+          {!plans.isLoading && filteredPlans.length === 0 && <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">ไม่พบบิลตามตัวกรอง</p>}
+        </div>
       </Card>
 
       {/* รับชำระเงิน (เงินสด/นอกสลิป) */}

@@ -47,6 +47,7 @@ model Organization {
   submissions    PaymentSubmission[]
   payments       Payment[]
   messageLogs    MessageLog[]
+  customerDocuments CustomerDocument[]
   auditLogs      AuditLog[]
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -129,6 +130,10 @@ model Customer {
   lineUserId   String?   @map("line_user_id")
   displayName  String?   @map("display_name")
   phone        String?
+  facebookUrl  String?   @map("facebook_url")
+  email        String?
+  address      String?
+  contactNote  String?   @map("contact_note")
   status       String    @default("active")
   consentAt    DateTime? @map("consent_at")
 
@@ -138,6 +143,7 @@ model Customer {
   payments     Payment[]
   submissions  PaymentSubmission[]
   messageLogs  MessageLog[]
+  documents    CustomerDocument[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -147,6 +153,30 @@ model Customer {
   @@unique([lineOaId, lineUserId])
   @@index([orgId])
   @@map("customers")
+}
+
+// Customer-owned identity/contact/evidence files. The file itself lives in the
+// configured storage driver; only its private reference and metadata live here.
+model CustomerDocument {
+  id               String   @id @default(uuid())
+  orgId            String   @map("org_id")
+  customerId       String   @map("customer_id")
+  documentType     String   @map("document_type") // profile_photo | identity | address | contract | payment_evidence | other
+  title            String
+  originalFileName String   @map("original_file_name")
+  fileUrl          String   @map("file_url")
+  mimeType         String   @map("mime_type")
+  fileSize         Int      @map("file_size")
+  uploadedBy       String?  @map("uploaded_by")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([orgId, customerId])
+  @@map("customer_documents")
 }
 
 // Platform-wide bank master used by organization bank accounts.

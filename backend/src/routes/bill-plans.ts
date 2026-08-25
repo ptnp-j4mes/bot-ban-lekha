@@ -8,6 +8,7 @@ import { sendAndLog } from "../services/messages";
 import { dateOnly } from "../lib/date";
 
 const include = { installments: { orderBy: { installmentNo: "asc" as const } }, bankAccount: true };
+const listInclude = { ...include, customer: true };
 
 const intervalBody = t.Object({
   customer_id: t.String({ minLength: 1 }),
@@ -39,6 +40,13 @@ const customDatesBody = t.Object({
 
 export const billPlanRoutes = new Elysia({ prefix: "/api/bill-plans" })
   .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
+
+  .get("/", async ({ ctx }: any) => {
+    const plans = await prisma.billPlan.findMany({ where: { orgId: ctx.orgId }, include: listInclude, orderBy: { billNo: "asc" } });
+    const rank: Record<string, number> = { active: 0, completed: 1, cancelled: 2 };
+    plans.sort((a, b) => (rank[a.status] ?? 99) - (rank[b.status] ?? 99) || a.billNo - b.billNo);
+    return ok(plans);
+  })
 
   .post("/", async ({ body, ctx }: any) => {
     const b = body ?? {};

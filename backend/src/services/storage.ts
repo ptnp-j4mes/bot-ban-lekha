@@ -13,7 +13,7 @@ import { prisma } from "../lib/prisma";
 export type StorageDriverName = "local" | "gdrive" | "s3";
 
 export interface StorageDriver {
-  put(key: string, data: Buffer, contentType: string, context?: { orgId?: string; orgName?: string; orgFolderId?: string; userId?: string; userName?: string }): Promise<string>;
+  put(key: string, data: Buffer, contentType: string, context?: { orgId?: string; orgName?: string; orgFolderId?: string; userId?: string; userName?: string; private?: boolean }): Promise<string>;
 }
 
 const safeFolderName = (name: string, fallback: string) => (name.replace(/[\\/]/g, "-").trim().slice(0, 120) || fallback);
@@ -37,6 +37,14 @@ type S3Config = {
   endpoint: string;
   publicBaseUrl: string;
   prefix: string;
+};
+
+export type R2UsagePoint = {
+  date: string;
+  used_bytes: number;
+  payload_bytes: number;
+  metadata_bytes: number;
+  object_count: number;
 };
 
 function s3Config(): S3Config | null {
@@ -102,10 +110,17 @@ function awsUriEncode(value: string) {
   return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
-function s3Address(config: S3Config, key: string) {
+function canonicalQuery(query: URLSearchParams) {
+  return [...query.entries()]
+    .sort(([ak, av], [bk, bv]) => ak.localeCompare(bk) || av.localeCompare(bv))
+    .map(([key, value]) => `${awsUriEncode(key)}=${awsUriEncode(value)}`)
+    .join("&");
+}
+
+function s3Address(config: S3Config, key: string, query = "") {
   const base = new URL(config.endpoint);
   const objectPath = `${base.pathname.replace(/\/$/, "")}/${awsUriEncode(config.bucket)}/${key.split("/").map(awsUriEncode).join("/")}`;
-  return { url: `${base.origin}${objectPath}`, canonicalUri: objectPath || "/", host: base.host };
+  return { url: `${base.origin}${objectPath}${query ? `?${query}` : ""}`, canonicalUri: objectPath || "/", canonicalQuery: query, host: base.host };
 }
 
 function bytes(input: string | Uint8Array) {
@@ -117,21 +132,29 @@ function hex(input: Uint8Array) {
 }
 
 async function sha256Hex(input: string | Uint8Array) {
-  return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes(input))));
+  return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", Buffer.from(bytes(input)))));
 }
 
 async function hmacSha256(key: string | Uint8Array, input: string) {
-  const cryptoKey = await crypto.subtle.importKey("raw", bytes(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return new Uint8Array(await crypto.subtle.sign("HMAC", cryptoKey, bytes(input)));
+  const cryptoKey = await crypto.subtle.importKey("raw", Buffer.from(bytes(key)), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", cryptoKey, Buffer.from(bytes(input))));
 }
 
-async function s3Request(config: S3Config, method: "GET" | "PUT", key: string, body?: Uint8Array, contentType?: string, fullObjectKey = false) {
+async function s3Request(
+  config: S3Config,
+  method: "GET" | "PUT",
+  key: string,
+  body?: Uint8Array,
+  contentType?: string,
+  fullObjectKey = false,
+  query = new URLSearchParams(),
+) {
   const objectKey = fullObjectKey ? key : storageObjectKey(config, key);
   const payloadHash = await sha256Hex(body ?? new Uint8Array());
   const now = new Date();
   const amzDate = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
   const dateStamp = amzDate.slice(0, 8);
-  const address = s3Address(config, objectKey);
+  const address = s3Address(config, objectKey, canonicalQuery(query));
   const headerValues: Record<string, string> = {
     host: address.host,
     "x-amz-content-sha256": payloadHash,
@@ -140,7 +163,7 @@ async function s3Request(config: S3Config, method: "GET" | "PUT", key: string, b
   if (contentType) headerValues["content-type"] = contentType;
   const canonicalHeaders = Object.keys(headerValues).sort().map((name) => `${name}:${headerValues[name].trim()}`).join("\n");
   const signedHeaders = Object.keys(headerValues).sort().join(";");
-  const canonicalRequest = `${method}\n${address.canonicalUri}\n\n${canonicalHeaders}\n\n${signedHeaders}\n${payloadHash}`;
+  const canonicalRequest = `${method}\n${address.canonicalUri}\n${address.canonicalQuery}\n${canonicalHeaders}\n\n${signedHeaders}\n${payloadHash}`;
   const scope = `${dateStamp}/${config.region}/s3/aws4_request`;
   const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${scope}\n${await sha256Hex(canonicalRequest)}`;
   const dateKey = await hmacSha256(`AWS4${config.secretAccessKey}`, dateStamp);
@@ -150,17 +173,17 @@ async function s3Request(config: S3Config, method: "GET" | "PUT", key: string, b
   const signature = hex(await hmacSha256(signingKey, stringToSign));
   const authorization = `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
   const headers = new Headers({ ...headerValues, Authorization: authorization });
-  const response = await fetch(address.url, { method, headers, body: method === "PUT" ? body : undefined });
+  const response = await fetch(address.url, { method, headers, body: method === "PUT" && body ? Buffer.from(body) : undefined });
   if (!response.ok) throw new Error(`S3 ${method} failed: ${response.status}`);
   return response;
 }
 
 function s3Driver(config: S3Config): StorageDriver {
   return {
-    async put(key, data, contentType) {
+    async put(key, data, contentType, context) {
       const objectKey = storageObjectKey(config, key);
       await s3Request(config, "PUT", key, data, contentType);
-      if (config.publicBaseUrl) return `${config.publicBaseUrl}/${objectKey.split("/").map(awsUriEncode).join("/")}`;
+      if (config.publicBaseUrl && !context?.private) return `${config.publicBaseUrl}/${objectKey.split("/").map(awsUriEncode).join("/")}`;
       return `s3://${config.bucket}/${objectKey}`;
     },
   };
@@ -173,6 +196,160 @@ export async function readS3Object(reference: string): Promise<Response> {
   const objectKey = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
   const response = await s3Request(config, "GET", objectKey, undefined, undefined, true);
   return new Response(response.body, { headers: { "content-type": response.headers.get("content-type") ?? "application/octet-stream" } });
+}
+
+export async function getS3StorageStatus() {
+  const settings = await getSystemSettings();
+  const missing = s3MissingConfig();
+  const configured = missing.length === 0;
+  const base = {
+    configured,
+    connected: false,
+    storage_driver: settings.storageDriver,
+    bucket: env.s3Bucket.trim() || null,
+    region: env.s3Region.trim() || null,
+    endpoint: env.s3Endpoint.trim() || null,
+    prefix: env.s3Prefix.trim() || null,
+    public_base_url: env.s3PublicBaseUrl.trim() || null,
+    missing,
+  };
+  if (!configured) return base;
+
+  try {
+    const response = await s3Request(s3Config()!, "GET", "", undefined, undefined, true, new URLSearchParams({ "list-type": "2", "max-keys": "1" }));
+    if (!response.ok) throw new Error(`S3 list failed: ${response.status}`);
+    return { ...base, connected: true };
+  } catch (error) {
+    logger.error({ err: error, bucket: base.bucket, endpoint: base.endpoint }, "s3 storage connection test failed");
+    return { ...base, error: "เชื่อมต่อ Object Storage ไม่สำเร็จ ตรวจสอบ endpoint, bucket และสิทธิ์ access key" };
+  }
+}
+
+function r2AccountId(config: S3Config | null) {
+  if (env.cloudflareAccountId.trim()) return env.cloudflareAccountId.trim();
+  const endpoint = config?.endpoint ?? "";
+  return endpoint.match(/^https?:\/\/([^.]+)\.r2\.cloudflarestorage\.com(?:\/|$)/i)?.[1] ?? "";
+}
+
+function r2MetricNumber(value: unknown) {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) && number >= 0 ? number : 0;
+}
+
+export async function getR2StorageUsage() {
+  const config = s3Config();
+  const storageMissing = s3MissingConfig();
+  const accountId = r2AccountId(config);
+  const missing = [...storageMissing];
+  if (!accountId) missing.push("CLOUDFLARE_ACCOUNT_ID");
+  if (!env.cloudflareApiToken.trim()) missing.push("CLOUDFLARE_API_TOKEN");
+
+  const quotaGb = Number.isFinite(env.r2QuotaGb) && env.r2QuotaGb > 0 ? env.r2QuotaGb : 10;
+  const thresholdPercent = Number.isFinite(env.r2AlertThresholdPercent) && env.r2AlertThresholdPercent > 0
+    ? Math.min(env.r2AlertThresholdPercent, 100)
+    : 80;
+  const days = Number.isFinite(env.r2MetricsDays) && env.r2MetricsDays > 0 ? Math.min(Math.round(env.r2MetricsDays), 31) : 30;
+  const base = {
+    configured: missing.length === 0,
+    connected: false,
+    bucket: config?.bucket ?? (env.s3Bucket.trim() || null),
+    quota_gb: quotaGb,
+    quota_bytes: quotaGb * 1_000_000_000,
+    threshold_percent: thresholdPercent,
+    metrics_days: days,
+    used_bytes: 0,
+    used_gb: 0,
+    usage_percent: 0,
+    remaining_bytes: quotaGb * 1_000_000_000,
+    object_count: 0,
+    alert_level: "ok" as "ok" | "warning" | "critical",
+    backup_recommended: false,
+    history: [] as R2UsagePoint[],
+    missing,
+    fetched_at: null as string | null,
+  };
+  if (missing.length || !config) return base;
+
+  const endDate = new Date();
+  const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
+  const query = `
+    query R2StorageUsage($accountTag: string!, $startDate: Time, $endDate: Time, $bucketName: string) {
+      viewer {
+        accounts(filter: { accountTag: $accountTag }) {
+          r2StorageAdaptiveGroups(
+            limit: 10000
+            filter: {
+              datetime_geq: $startDate
+              datetime_leq: $endDate
+              bucketName: $bucketName
+            }
+            orderBy: [datetime_DESC]
+          ) {
+            max { objectCount uploadCount payloadSize metadataSize }
+            dimensions { datetime }
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/graphql`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${env.cloudflareApiToken.trim()}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        query,
+        variables: {
+          accountTag: accountId,
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          bucketName: config.bucket,
+        },
+      }),
+    });
+    const payload: any = await response.json().catch(() => ({}));
+    if (!response.ok || payload.errors?.length) throw new Error(`R2 metrics failed: ${response.status}`);
+
+    const groups = payload?.data?.viewer?.accounts?.[0]?.r2StorageAdaptiveGroups ?? [];
+    const history = groups
+      .map((group: any): R2UsagePoint => {
+        const payloadBytes = r2MetricNumber(group.max?.payloadSize);
+        const metadataBytes = r2MetricNumber(group.max?.metadataSize);
+        return {
+          date: String(group.dimensions?.datetime ?? ""),
+          used_bytes: payloadBytes + metadataBytes,
+          payload_bytes: payloadBytes,
+          metadata_bytes: metadataBytes,
+          object_count: r2MetricNumber(group.max?.objectCount),
+        };
+      })
+      .filter((point: R2UsagePoint) => point.date)
+      .sort((a: R2UsagePoint, b: R2UsagePoint) => a.date.localeCompare(b.date));
+    const latest = history.at(-1) ?? base.history[0];
+    const usedBytes = latest?.used_bytes ?? 0;
+    const quotaBytes = base.quota_bytes;
+    const usagePercent = quotaBytes > 0 ? (usedBytes / quotaBytes) * 100 : 0;
+    const alertLevel = usagePercent >= 100 ? "critical" : usagePercent >= thresholdPercent ? "warning" : "ok";
+    return {
+      ...base,
+      connected: true,
+      used_bytes: usedBytes,
+      used_gb: usedBytes / 1_000_000_000,
+      usage_percent: usagePercent,
+      remaining_bytes: Math.max(quotaBytes - usedBytes, 0),
+      object_count: latest?.object_count ?? 0,
+      alert_level: alertLevel,
+      backup_recommended: alertLevel !== "ok",
+      history,
+      fetched_at: new Date().toISOString(),
+    };
+  } catch (error) {
+    logger.error({ err: error, accountId, bucket: config.bucket }, "r2 usage metrics request failed");
+    return { ...base, error: "อ่านข้อมูลการใช้พื้นที่ R2 ไม่สำเร็จ ตรวจสอบ Cloudflare API token และสิทธิ์ R2 Storage Read" };
+  }
 }
 
 // ---------- google drive (REST, no SDK) ----------
@@ -383,9 +560,34 @@ function gdriveDriver(sa: any, rootFolderId: string): StorageDriver {
       });
       if (!res.ok) throw new Error(`gdrive upload failed: ${res.status} ${await res.text()}`);
       const json: any = await res.json();
-      return json.webViewLink ?? `gdrive:${json.id}`;
+      return context?.private ? `gdrive:${json.id}` : (json.webViewLink ?? `gdrive:${json.id}`);
     },
   };
+}
+
+// Customer files use private references so the admin API can enforce tenant
+// access before returning the bytes. Existing public slip references remain
+// supported for backwards compatibility.
+export async function readStoredFile(reference: string): Promise<Response> {
+  if (reference.startsWith("s3://")) return readS3Object(reference);
+  if (reference.startsWith("gdrive:")) {
+    const settings = await getSystemSettings();
+    const config = driveConfig(settings);
+    if (!config) throw new Error("Google Drive is not configured");
+    const token = await driveToken(config.serviceAccount, DRIVE_READ_SCOPE);
+    const id = reference.slice("gdrive:".length);
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(`Google Drive download failed: ${response.status}`);
+    return new Response(response.body, { headers: { "content-type": response.headers.get("content-type") ?? "application/octet-stream" } });
+  }
+  if (reference.startsWith("http://") || reference.startsWith("https://")) {
+    return Response.redirect(reference, 302);
+  }
+  const file = Bun.file(reference);
+  if (!(await file.exists())) throw new Error("Stored file is missing");
+  return new Response(file);
 }
 
 async function resolveDriver(): Promise<StorageDriver> {
@@ -421,6 +623,30 @@ export async function storeSlip(
     orgFolderId: org?.gdriveFolderId ?? undefined,
     userId: sender?.userId ?? undefined,
     userName: sender?.userName ?? undefined,
+  });
+}
+
+const customerDocumentKey = (orgId: string, customerId: string, documentId: string, ext: string) =>
+  `${orgId}/customer-documents/${customerId}/${documentId}.${ext}`;
+
+export async function storeCustomerDocument(
+  orgId: string,
+  customerId: string,
+  documentId: string,
+  data: Buffer,
+  ext: string,
+  contentType: string,
+  sender?: { userId?: string | null; userName?: string | null },
+): Promise<string> {
+  const driver = await resolveDriver();
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true, gdriveFolderId: true } });
+  return driver.put(customerDocumentKey(orgId, customerId, documentId, ext), data, contentType, {
+    orgId,
+    orgName: org?.name ?? orgId,
+    orgFolderId: org?.gdriveFolderId ?? undefined,
+    userId: sender?.userId ?? undefined,
+    userName: sender?.userName ?? undefined,
+    private: true,
   });
 }
 

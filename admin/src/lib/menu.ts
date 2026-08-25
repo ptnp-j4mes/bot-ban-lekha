@@ -33,7 +33,7 @@ export const MENU_PATHS = {
 export const PLATFORM_MENU_PATHS = {
   users: "/platform/users",
   system: "/platform/settings",
-  gdrive: "/platform/google-drive",
+  storage: "/platform/storage",
 } as const;
 
 export type MenuId = keyof typeof MENU_PATHS;

@@ -28,6 +28,12 @@ export const env = {
   s3Endpoint: process.env.S3_ENDPOINT ?? "",
   s3PublicBaseUrl: process.env.S3_PUBLIC_BASE_URL ?? "",
   s3Prefix: process.env.S3_PREFIX ?? "",
+  // Cloudflare R2 usage metrics. The API token is server-only and never returned.
+  cloudflareAccountId: process.env.CLOUDFLARE_ACCOUNT_ID ?? "",
+  cloudflareApiToken: process.env.CLOUDFLARE_API_TOKEN ?? "",
+  r2QuotaGb: Number(process.env.R2_QUOTA_GB ?? 10),
+  r2AlertThresholdPercent: Number(process.env.R2_ALERT_THRESHOLD_PERCENT ?? 80),
+  r2MetricsDays: Number(process.env.R2_METRICS_DAYS ?? 30),
   // Slip image retention (days) before the local file is purged; 0 = purge right after OCR/process.
   slipRetentionDays: Number(process.env.SLIP_RETENTION_DAYS ?? 30),
   ocrProvider: process.env.OCR_PROVIDER ?? "gemini",

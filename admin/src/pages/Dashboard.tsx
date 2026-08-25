@@ -1,16 +1,17 @@
 import { useContext, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Send, CheckCircle2, Circle, CalendarDays, AlertTriangle, Receipt, Clock } from "lucide-react";
+import { Send, CheckCircle2, Circle, CalendarDays, Receipt, Banknote, Files } from "lucide-react";
 import { NavCtx } from "@/App";
 import { toast } from "react-toastify";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut, statusBadge } from "@/lib/ui";
 import { baht, thDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Dialog, KV } from "@/components/ui/dialog";
+import { DashboardMonthlyComparisonChart, DashboardMonthlyTotalChart, DashboardPieChart } from "@/components/DashboardCharts";
 
 const custName = (i: any) =>
   i.bill_plan?.customer?.display_name || i.bill_plan?.customer?.customer_code || "—";
@@ -18,6 +19,19 @@ const custName = (i: any) =>
 // Left status tick: green = settled, oxblood = overdue, amber = waiting.
 const tick = (s: string) =>
   s === "completed" || s === "paid" ? "bg-primary" : s === "cancelled" ? "bg-muted-foreground/40" : "bg-[#EF4444]";
+
+const bangkokTodayIso = () => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+};
+
+const CHART_MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
 
 function InstTable({ rows, empty, loading }: { rows: any[]; empty: string; loading?: boolean }) {
   const [payInst, setPayInst] = useState<any>(null);
@@ -71,7 +85,7 @@ function InstTable({ rows, empty, loading }: { rows: any[]; empty: string; loadi
   );
 }
 
-function StatCard({ icon: Icon, label, n, tint, onClick }: { icon: any; label: string; n: number; tint: string; onClick?: () => void }) {
+function StatCard({ icon: Icon, label, value, tint, onClick }: { icon: any; label: string; value: number | string; tint: string; onClick?: () => void }) {
   return (
     <Card
       className={`p-5 ${onClick ? "cursor-pointer transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring" : ""}`}
@@ -83,7 +97,7 @@ function StatCard({ icon: Icon, label, n, tint, onClick }: { icon: any; label: s
       <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${tint}`}>
         <Icon className="h-5 w-5" />
       </div>
-      <div className="mt-3 font-head text-[2rem] font-bold leading-none">{n.toLocaleString("th-TH")}</div>
+      <div className="mt-3 font-head text-[2rem] font-bold leading-none">{typeof value === "number" ? value.toLocaleString("th-TH") : value}</div>
       <div className="mt-1.5 text-sm text-muted-foreground">{label}{onClick ? " →" : ""}</div>
     </Card>
   );
@@ -92,9 +106,18 @@ function StatCard({ icon: Icon, label, n, tint, onClick }: { icon: any; label: s
 export function Dashboard() {
   const due = useQuery({ queryKey: ["due-today"], queryFn: () => apiGet("/api/installments/due-today") });
   const over = useQuery({ queryKey: ["overdue"], queryFn: () => apiGet("/api/installments/overdue") });
-  const pend = useQuery({
-    queryKey: ["subs-pending"],
-    queryFn: () => apiGet("/api/admin/payment-submissions?review_status=pending_review&limit=1"),
+  const todayIso = bangkokTodayIso();
+  const [todayYear, todayMonth] = todayIso.split("-").map(Number);
+  const summary = useQuery({
+    queryKey: ["dashboard-summary", todayIso],
+    queryFn: () => apiGet(`/api/reports/summary?from=${todayIso}&to=${todayIso}`),
+  });
+  const [chartPeriod, setChartPeriod] = useState<"month" | "year">("month");
+  const [chartYear, setChartYear] = useState(todayYear);
+  const [chartMonth, setChartMonth] = useState(todayMonth);
+  const charts = useQuery({
+    queryKey: ["dashboard-charts", chartPeriod, chartYear, chartMonth],
+    queryFn: () => apiGet(`/api/reports/dashboard-charts?period=${chartPeriod}&year=${chartYear}&month=${chartMonth}`),
   });
 
   const remind = useMut(() => apiSend("/api/installments/send-reminders", "POST"), { success: "ส่งเตือนแล้ว", invalidate: ["due-today"] });
@@ -112,16 +135,6 @@ export function Dashboard() {
   ];
   const loaded = oas.isSuccess && banks.isSuccess && custCount.isSuccess;
   const showSetup = loaded && setup.some((s) => !s.done);
-
-  // Overdue aging buckets, computed from due_date (no backend).
-  const aging = { d7: 0, d30: 0, d30p: 0 };
-  const now = Date.now();
-  for (const i of over.data ?? []) {
-    const days = Math.floor((now - new Date(i.due_date).getTime()) / 86400000);
-    if (days <= 7) aging.d7++;
-    else if (days <= 30) aging.d30++;
-    else aging.d30p++;
-  }
 
   return (
     <>
@@ -150,20 +163,48 @@ export function Dashboard() {
       </div>
 
       {/* summary stat cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard icon={CalendarDays} label="ครบกำหนดวันนี้" n={due.data?.length ?? 0} tint="bg-sky-50 text-sky-600" />
-        <StatCard icon={AlertTriangle} label="ค้างชำระ" n={over.data?.length ?? 0} tint="bg-red-50 text-red-500" />
-        <StatCard icon={Receipt} label="สลิปรอตรวจ" n={pend.data?.total ?? 0} tint="bg-amber-50 text-amber-600" onClick={() => go("subs")} />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard icon={CalendarDays} label="ครบกำหนดวันนี้" value={due.data?.length ?? 0} tint="bg-sky-50 text-sky-600" />
+        <StatCard icon={Receipt} label="สลิปรอตรวจ" value={summary.data?.pending_count ?? 0} tint="bg-amber-50 text-amber-600" onClick={() => go("subs")} />
+        <StatCard icon={Banknote} label="ยอดเก็บวันนี้" value={baht(summary.data?.collected ?? 0)} tint="bg-emerald-50 text-emerald-600" />
+        <StatCard icon={Files} label="ยอดรวมบิลทั้งหมด" value={baht(summary.data?.total_bill_amount ?? 0)} tint="bg-violet-50 text-violet-600" />
       </div>
 
-      {/* overdue aging */}
-      {(over.data?.length ?? 0) > 0 && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <StatCard icon={Clock} label="ค้าง 1–7 วัน" n={aging.d7} tint="bg-amber-50 text-amber-600" />
-          <StatCard icon={Clock} label="ค้าง 8–30 วัน" n={aging.d30} tint="bg-orange-50 text-orange-600" />
-          <StatCard icon={AlertTriangle} label="ค้างเกิน 30 วัน" n={aging.d30p} tint="bg-red-50 text-red-500" />
-        </div>
-      )}
+      <Card>
+        <CardHeader className="items-start justify-between">
+          <div>
+            <CardTitle>วิเคราะห์ยอดบิล</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">ข้อมูลจากงวดที่ไม่ถูกยกเลิก แยกตามเดือนครบกำหนด</p>
+          </div>
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+            <Select aria-label="ช่วงเวลาสรุป" value={chartPeriod} onChange={(e) => setChartPeriod(e.target.value as "month" | "year")} className="min-w-32">
+              <option value="month">รายเดือน</option>
+              <option value="year">รายปี</option>
+            </Select>
+            <Select aria-label="เลือกปี" value={chartYear} onChange={(e) => setChartYear(Number(e.target.value))} className="min-w-24">
+              {Array.from({ length: 5 }, (_, index) => todayYear - index).map((year) => <option key={year} value={year}>{year + 543}</option>)}
+            </Select>
+            {chartPeriod === "month" && (
+              <Select aria-label="เลือกเดือน" value={chartMonth} onChange={(e) => setChartMonth(Number(e.target.value))} className="col-span-2 sm:col-span-1 sm:min-w-36">
+                {CHART_MONTHS.map((month, index) => <option key={month} value={index + 1}>{month}</option>)}
+              </Select>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {charts.isLoading ? <div className="py-16 text-center text-sm text-muted-foreground">กำลังโหลดข้อมูลกราฟ...</div> : charts.isError ? <div className="py-16 text-center text-sm text-danger-text">โหลดข้อมูลกราฟไม่สำเร็จ</div> : (
+            <>
+              <div className="grid gap-4 xl:grid-cols-[minmax(18rem,0.8fr)_minmax(0,1.2fr)]">
+                <DashboardPieChart data={charts.data.pie} />
+                <DashboardMonthlyTotalChart points={charts.data.monthly} />
+              </div>
+              <div className="mt-4">
+                <DashboardMonthlyComparisonChart points={charts.data.monthly} />
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader><CardTitle>ครบกำหนดวันนี้</CardTitle></CardHeader>

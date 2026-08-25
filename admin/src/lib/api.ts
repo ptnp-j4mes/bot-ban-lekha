@@ -30,9 +30,12 @@ function authHeaders(): Record<string, string> {
 }
 
 async function req<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
+  const isFormData = typeof FormData !== "undefined" && opts.body instanceof FormData;
   const res = await fetch(BASE + path, {
     ...opts,
-    headers: { "content-type": "application/json", ...authHeaders(), ...(opts.headers || {}) },
+    headers: { ...(isFormData ? {} : { "content-type": "application/json" }), ...authHeaders(), ...(opts.headers || {}) },
+    // Let fetch add the multipart boundary for FormData. JSON requests keep
+    // the existing API contract.
   });
   const json = await res.json().catch(() => ({}));
   if (!json.success) {
@@ -50,3 +53,5 @@ export const apiRaw = (path: string) => fetch(BASE + path, { headers: authHeader
 export const apiGet = <T = any>(path: string) => req<T>(path);
 export const apiSend = <T = any>(path: string, method: string, body?: unknown) =>
   req<T>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
+export const apiSendForm = <T = any>(path: string, method: string, body: FormData) =>
+  req<T>(path, { method, body });

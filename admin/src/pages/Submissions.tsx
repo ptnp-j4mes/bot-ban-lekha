@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { Check, Download, Eye, Search, SlidersHorizontal, X } from "lucide-react";
 import { apiGet, apiSend, apiRaw } from "@/lib/api";
 import { useMut, matchBadge, reviewBadge, statusTh } from "@/lib/ui";
 import { baht, thDate } from "@/lib/format";
@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Field } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Dialog } from "@/components/ui/dialog";
 import { useConfirm, usePrompt } from "@/components/ui/confirm";
@@ -54,6 +54,8 @@ export function Submissions() {
   const [instId, setInstId] = useState("");
   const [page, setPage] = useState(1);
   const [sel, setSel] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const LIMIT = 20;
 
   const qs = new URLSearchParams({ limit: String(LIMIT), page: String(page) });
@@ -80,6 +82,29 @@ export function Submissions() {
     queryFn: () => apiGet(`/api/admin/payment-submissions?${qs}`),
   });
   const items: any[] = list.data?.items ?? [];
+  const custLabel = (it: any) => it.customer?.display_name || it.customer?.customer_code || (it.line_group_id ? "" : it.line_user_id) || "—";
+  const submissionCounts = useQuery({
+    queryKey: ["subs-counts", match, docType, ocr, from, to],
+    queryFn: async () => {
+      const statuses = ["", "pending_review", "approved", "rejected"];
+      const result = await Promise.all(statuses.map((status) => {
+        const countQs = new URLSearchParams({ limit: "1", page: "1" });
+        if (match) countQs.set("match_status", match);
+        if (docType) countQs.set("doc_type", docType);
+        if (ocr) countQs.set("ocr_status", ocr);
+        if (from) countQs.set("date_from", from);
+        if (to) countQs.set("date_to", to);
+        if (status) countQs.set("review_status", status);
+        return apiGet(`/api/admin/payment-submissions?${countQs}`);
+      }));
+      return { all: result[0].total ?? 0, pending_review: result[1].total ?? 0, approved: result[2].total ?? 0, rejected: result[3].total ?? 0 };
+    },
+  });
+  const displayItems = items.filter((it) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return [custLabel(it), it.sender_name, it.line_user_id, it.parsed_reference_no, it.parsed_bank_name].filter(Boolean).join(" ").toLowerCase().includes(q);
+  });
 
   const toggleSel = (id: string) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const bulkApprove = useMut(
@@ -122,11 +147,27 @@ export function Submissions() {
   const s = detail.data?.submission;
   const cands: any[] = detail.data?.candidate_installments ?? [];
 
-  const custLabel = (it: any) => it.customer?.display_name || it.customer?.customer_code || (it.line_group_id ? "" : it.line_user_id) || "—";
-  const allSel = items.length > 0 && items.every((it) => sel.has(it.id));
+  const allSel = displayItems.length > 0 && displayItems.every((it) => sel.has(it.id));
+  const exportCsv = () => {
+    const header = ["ลูกค้า", "ประเภท", "ยอด", "วันโอน", "จับคู่", "ตรวจสอบ"];
+    const body = displayItems.map((it) => [custLabel(it), it.doc_type === "cash" ? "บิลเงินสด" : "สลิป", it.parsed_amount, it.parsed_transfer_date, statusTh(it.match_status), statusTh(it.review_status)]);
+    const csv = [header, ...body].map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "payment-submissions.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  const reviewTabs = [
+    { id: "", label: "ทั้งหมด", count: submissionCounts.data?.all ?? list.data?.total ?? 0 },
+    { id: "pending_review", label: "รอตรวจสอบ", count: submissionCounts.data?.pending_review ?? 0 },
+    { id: "approved", label: "อนุมัติแล้ว", count: submissionCounts.data?.approved ?? 0 },
+    { id: "rejected", label: "ปฏิเสธ", count: submissionCounts.data?.rejected ?? 0 },
+  ];
   const columns: Column<any>[] = [
-    { key: "sel", header: <input type="checkbox" checked={allSel} onChange={() => setSel(allSel ? new Set() : new Set(items.map((it) => it.id)))} aria-label="เลือกทั้งหมด" />, stop: true,
-      cell: (it) => <input type="checkbox" checked={sel.has(it.id)} onChange={() => toggleSel(it.id)} aria-label="เลือก" /> },
+    { key: "sel", header: <input type="checkbox" checked={allSel} onChange={() => setSel(allSel ? new Set() : new Set(displayItems.map((it) => it.id)))} aria-label="เลือกทั้งหมด" />, stop: true, className: "w-10",
+      cell: (it) => <input type="checkbox" checked={sel.has(it.id)} onChange={() => toggleSel(it.id)} aria-label={`เลือก ${custLabel(it)}`} /> },
     { key: "cust", header: "ลูกค้า", sortValue: custLabel, cell: (it) => (
       <span>
         {custLabel(it)}
@@ -144,8 +185,8 @@ export function Submissions() {
       const canApprove = canWrite && it.review_status === "pending_review" && (it.match_status === "auto_matched" || it.match_status === "admin_matched");
       return (
         <div className="flex justify-end gap-1">
-          {canApprove && <Button size="sm" variant="success" disabled={approve.isPending} onClick={() => void approveOne(it.id, "อนุมัติสลิปนี้? จะสร้าง payment + ส่ง LINE")}>อนุมัติ</Button>}
-          <Button size="sm" variant="outline" onClick={() => { setSelId(it.id); setInstId(""); }}>ตรวจ</Button>
+          {canApprove && <Button size="icon" variant="success" className="h-8 w-8" disabled={approve.isPending} onClick={() => void approveOne(it.id, "อนุมัติสลิปนี้? จะสร้าง payment + ส่ง LINE")} aria-label="อนุมัติ" title="อนุมัติ"><Check className="h-4 w-4" /></Button>}
+          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => { setSelId(it.id); setInstId(""); }} aria-label="ตรวจรายละเอียด" title="ตรวจรายละเอียด"><Eye className="h-4 w-4" /></Button>
         </div>
       );
     } },
@@ -153,64 +194,42 @@ export function Submissions() {
 
   return (
     <>
-      <Card>
-        <CardHeader><CardTitle>ตัวกรอง</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label="สถานะจับคู่">
-            <Select value={matchDraft} onChange={(e) => setMatchDraft(e.target.value)}>
-              <option value="">ทั้งหมด</option>
-              {MATCH.map((m) => <option key={m} value={m}>{statusTh(m)}</option>)}
-            </Select>
-          </Field>
-          <Field label="สถานะตรวจสอบ">
-            <Select value={reviewDraft} onChange={(e) => setReviewDraft(e.target.value)}>
-              <option value="">ทั้งหมด</option>
-              {REVIEW.map((m) => <option key={m} value={m}>{statusTh(m)}</option>)}
-            </Select>
-          </Field>
-          <Field label="ประเภท">
-            <Select value={docTypeDraft} onChange={(e) => setDocTypeDraft(e.target.value)}>
-              <option value="">ทั้งหมด</option>
-              <option value="slip">สลิป</option>
-              <option value="cash">บิลเงินสด</option>
-            </Select>
-          </Field>
-          <Field label="สถานะ OCR">
-            <Select value={ocrDraft} onChange={(e) => setOcrDraft(e.target.value)}>
-              <option value="">ทั้งหมด</option>
-              {OCR.map((m) => <option key={m} value={m}>{statusTh(m)}</option>)}
-            </Select>
-          </Field>
-          <Field label="ตั้งแต่วันที่"><Input type="date" value={fromDraft} onChange={(e) => setFromDraft(e.target.value)} /></Field>
-          <Field label="ถึงวันที่"><Input type="date" value={toDraft} onChange={(e) => setToDraft(e.target.value)} /></Field>
-          <div className="flex items-end sm:col-span-2 lg:col-span-4">
-            <Button type="button" className="w-full sm:w-auto" onClick={applyFilters} disabled={list.isFetching}>
-              <Search className="h-3.5 w-3.5" /> ค้นหา
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex-row items-center gap-2">
-          <CardTitle>สลิป ({list.data?.total ?? 0})</CardTitle>
-          {canWrite && sel.size > 0 && (
-            <Button size="sm" variant="success" className="ml-auto" disabled={bulkApprove.isPending}
-              onClick={() => void approveBulk()}>
-              อนุมัติที่เลือก ({sel.size})
-            </Button>
-          )}
-        </CardHeader>
-        <CardContent className="p-0">
-          <DataTable data={items} columns={columns} rowKey={(it) => it.id} initialSort={{ key: "date", dir: "desc" }} empty="ไม่มีสลิปตามตัวกรองนี้" loading={list.isLoading} />
-          {pages > 1 && (
-            <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-3 text-sm">
-              <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</Button>
-              <span>{page} / {pages}</span>
-              <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage(page + 1)}>ถัดไป</Button>
+      <Card className="overflow-hidden">
+        <CardContent className="space-y-4 p-4 md:p-5">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่อลูกค้า ผู้ส่ง หรือเลขอ้างอิง" className="h-11 pl-10 pr-10" aria-label="ค้นหารายการสลิป" />
+              {search && <button type="button" onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="ล้างคำค้น"><X className="h-4 w-4" /></button>}
             </div>
-          )}
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" className="h-11" onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal className="h-4 w-4" /> ตัวกรอง{(match || docType || ocr || from || to) && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] text-primary-foreground">{[match, docType, ocr, from, to].filter(Boolean).length}</span>}</Button>
+              <Button type="button" variant="outline" className="h-11" onClick={exportCsv} disabled={!displayItems.length}><Download className="h-4 w-4" /> Export</Button>
+              {canWrite && sel.size > 0 && <Button type="button" variant="success" className="h-11" disabled={bulkApprove.isPending} onClick={() => void approveBulk()}><Check className="h-4 w-4" /> อนุมัติที่เลือก ({sel.size})</Button>}
+            </div>
+          </div>
+
+          <div className="flex overflow-x-auto rounded-xl border border-border p-1">
+            {reviewTabs.map((item) => <button key={item.id || "all"} type="button" onClick={() => { setReviewDraft(item.id); setReview(item.id); setPage(1); setSel(new Set()); }} className={`min-w-[135px] flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${review === item.id ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>{item.label} <span className="ml-1 text-xs opacity-70">({item.count})</span></button>)}
+          </div>
+
+          {filtersOpen && <div className="grid grid-cols-1 gap-3 rounded-xl bg-secondary/60 p-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
+            <Field label="สถานะจับคู่"><Select value={matchDraft} onChange={(e) => setMatchDraft(e.target.value)}><option value="">ทั้งหมด</option>{MATCH.map((m) => <option key={m} value={m}>{statusTh(m)}</option>)}</Select></Field>
+            <Field label="สถานะตรวจสอบ"><Select value={reviewDraft} onChange={(e) => setReviewDraft(e.target.value)}><option value="">ทั้งหมด</option>{REVIEW.map((m) => <option key={m} value={m}>{statusTh(m)}</option>)}</Select></Field>
+            <Field label="ประเภท"><Select value={docTypeDraft} onChange={(e) => setDocTypeDraft(e.target.value)}><option value="">ทั้งหมด</option><option value="slip">สลิป</option><option value="cash">บิลเงินสด</option></Select></Field>
+            <Field label="สถานะ OCR"><Select value={ocrDraft} onChange={(e) => setOcrDraft(e.target.value)}><option value="">ทั้งหมด</option>{OCR.map((m) => <option key={m} value={m}>{statusTh(m)}</option>)}</Select></Field>
+            <Field label="ตั้งแต่วันที่"><Input type="date" value={fromDraft} onChange={(e) => setFromDraft(e.target.value)} /></Field>
+            <Field label="ถึงวันที่"><Input type="date" value={toDraft} onChange={(e) => setToDraft(e.target.value)} /></Field>
+            <Button type="button" className="h-[42px]" onClick={applyFilters} disabled={list.isFetching}><Search className="h-4 w-4" /> ค้นหา</Button>
+            <Button type="button" variant="ghost" className="h-[42px]" onClick={() => { setMatchDraft(""); setDocTypeDraft(""); setOcrDraft(""); setFromDraft(""); setToDraft(""); setMatch(""); setDocType(""); setOcr(""); setFrom(""); setTo(""); setPage(1); }}>ล้างตัวกรอง</Button>
+          </div>}
+
+          <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span>แสดง {displayItems.length} จาก {list.data?.total ?? 0} รายการ</span>{search && <span>ค้นหาเฉพาะรายการหน้านี้</span>}</div>
         </CardContent>
+        <div className="border-t border-border">
+          <DataTable data={displayItems} columns={columns} rowKey={(it) => it.id} initialSort={{ key: "date", dir: "desc" }} empty="ไม่มีสลิปตามตัวกรองนี้" loading={list.isLoading} maxHeight="60vh" />
+          {pages > 1 && <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3 text-sm"><Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</Button><span>{page} / {pages}</span><Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage(page + 1)}>ถัดไป</Button></div>}
+        </div>
       </Card>
 
       <Dialog open={!!selId} onClose={() => setSelId(null)} title="รายละเอียดสลิป" className="max-w-2xl">

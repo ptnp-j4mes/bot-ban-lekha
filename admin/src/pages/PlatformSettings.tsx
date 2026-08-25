@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
-import { Input, Select, Field } from "@/components/ui/input";
+import { Input, Field } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -39,16 +39,6 @@ export function PlatformSettings() {
     if (await confirm({ title: "ยืนยันลบองค์กร", message: `ต้องการลบองค์กร “${org.name}” ใช่หรือไม่? ลบได้เฉพาะองค์กรที่ยังไม่มีข้อมูล`, confirmLabel: "ลบองค์กร", destructive: true })) {
       removeOrg.mutate(org.id);
     }
-  };
-
-  const saveStorage = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const body: any = { storage_driver: fd.get("driver"), gdrive_root_folder_id: fd.get("root") };
-    const sa = (fd.get("sa") as string)?.trim();
-    if (sa) body.gdrive_service_account = sa; // empty = keep existing
-    save.mutate(body, { onError: (err: any) => {} });
-    (e.currentTarget.elements.namedItem("sa") as HTMLTextAreaElement).value = "";
   };
 
   const saveDefaults = (e: React.FormEvent<HTMLFormElement>) => {
@@ -111,43 +101,6 @@ export function PlatformSettings() {
                 <Input name="slip_retention_days" type="number" min={0} defaultValue={d.default_slip_retention_days ?? ""} placeholder="ปล่อยว่าง = ใช้ค่าจาก .env (SLIP_RETENTION_DAYS)" className="mt-1" />
               </div>
               <Button size="sm" type="submit" disabled={save.isPending}>บันทึกค่าเริ่มต้น</Button>
-            </form>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Slip storage gateway */}
-      <Card>
-        <CardHeader><CardTitle>ที่เก็บไฟล์สลิป (Storage)</CardTitle></CardHeader>
-        <CardContent>
-          {d && (
-            <form className="max-w-xl space-y-3" onSubmit={saveStorage}>
-              <Field label="ที่เก็บไฟล์ (Driver)">
-                <Select name="driver" defaultValue={d.storage_driver}>
-                  <option value="local">Local disk (เซิร์ฟเวอร์)</option>
-                  <option value="gdrive">Google Drive</option>
-                  <option value="s3">Amazon S3 / S3-compatible</option>
-                </Select>
-              </Field>
-              <Field label="Google Drive — Root Folder ID">
-                <Input name="root" defaultValue={d.gdrive_root_folder_id ?? ""} placeholder="ID โฟลเดอร์ปลายทางใน Drive" />
-              </Field>
-              <div>
-                <div className="mb-1 flex items-center gap-2 text-sm font-medium text-foreground">
-                  Service Account JSON
-                  {d.gdrive_configured ? <Badge variant="success">ตั้งค่าแล้ว</Badge> : <Badge variant="secondary">ยังไม่ตั้ง</Badge>}
-                </div>
-                <textarea name="sa" rows={4}
-                  className="flex w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/10"
-                  placeholder='วาง service account JSON (เว้นว่าง = คงค่าเดิม) — เก็บฝั่ง server ไม่ถูกส่งกลับ' />
-              </div>
-              <Button type="submit" disabled={save.isPending}>บันทึก Storage</Button>
-              <p className="text-xs text-muted-foreground">
-                สถานะ config: <Badge variant={d.storage_configured ? "success" : "warning"}>{d.storage_configured ? "ครบ" : "ยังไม่ครบ"}</Badge>
-                {!d.storage_configured && d.storage_missing?.length ? ` · ขาด: ${d.storage_missing.join(", ")}` : ""}
-                <br />
-                Google Drive ใช้โฟลเดอร์องค์กร / slip / lineUserId-ชื่อ · S3 ใช้ค่า env: S3_BUCKET, S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY
-              </p>
             </form>
           )}
         </CardContent>

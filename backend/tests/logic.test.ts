@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { generateInstallments } from "../src/services/bill";
 import { toEmojiNumber } from "../src/lib/emoji-number";
-import { renderBillStatusLines, renderDailyReminder, renderBillText, renderGroupedBillText } from "../src/services/messages";
+import { renderBillStatusLines, renderDailyReminder, renderBillText, renderGroupedBillText, renderCustomerBills } from "../src/services/messages";
 import { scoreInstallment, decideMatch } from "../src/services/matching";
 import { mapGeminiResult, detectImageMime } from "../src/services/ocr";
 import { deleteSlipFile } from "../src/services/storage";
@@ -26,8 +26,13 @@ test("jwt: roundtrip, tamper, wrong-secret, expiry", () => {
 
 test("generateInstallments: 7-day cycle, 3 installments", () => {
   const rows = generateInstallments(dateOnly("2026-06-16"), 7, 3, 490);
-  expect(rows.map((r) => toISODate(r.dueDate))).toEqual(["2026-06-16", "2026-06-23", "2026-06-30"]);
+  expect(rows.map((r) => toISODate(r.dueDate))).toEqual(["2026-06-23", "2026-06-30", "2026-07-07"]);
   expect(rows.every((r) => r.amountDue === 490)).toBe(true);
+});
+
+test("generateInstallments: first due date is one cycle after the start date", () => {
+  const rows = generateInstallments(dateOnly("2026-06-10"), 3, 3, 490);
+  expect(rows.map((r) => toISODate(r.dueDate))).toEqual(["2026-06-13", "2026-06-16", "2026-06-19"]);
 });
 
 test("generateInstallments: rejects bad input", () => {
@@ -135,6 +140,10 @@ test("renderGroupedBillText: open plans share one bill header, bank, and footer"
   expect(text).toContain("จบ🙏\n\nต้น 1000 คืน 1300 ระยะเวลา7วัน");
   expect(text.match(/💸 ช่องทางการโอนเงิน 💸/g)).toHaveLength(1);
   expect(text.endsWith("\n\nfooter")).toBe(true);
+});
+
+test("renderCustomerBills: uses the organization template around generated bill text", () => {
+  expect(renderCustomerBills("บิล 1️⃣", { customer_bills: "📋 รายการค้างจ่าย\n\n{bill_text}" } as any)).toBe("📋 รายการค้างจ่าย\n\nบิล 1️⃣");
 });
 
 test("renderBillText: renders per-installment and bill-header penalties separately", () => {

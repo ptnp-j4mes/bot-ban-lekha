@@ -5,7 +5,7 @@ import { ok, ApiError } from "../lib/response";
 import { authorizePlatform } from "../lib/auth";
 import { audit } from "../services/audit";
 import { getSystemSettings, updateSystemSettings } from "../services/systemSettings";
-import { getGoogleDriveStatus, getStorageConfigStatus, listGoogleDriveFolder } from "../services/storage";
+import { getGoogleDriveStatus, getR2StorageUsage, getS3StorageStatus, getStorageConfigStatus, listGoogleDriveFolder } from "../services/storage";
 
 // Super-admin only: manage users (username/password) and the org each user operates in.
 // A user belongs to exactly one org (membership). Roles are collapsed — a member = full access.
@@ -174,6 +174,10 @@ export const platformRoutes = new Elysia({ prefix: "/api/platform" })
       throw new ApiError("VALIDATION_ERROR", "ยังไม่สามารถอ่านไฟล์จาก Google Drive ได้ ตรวจสอบการตั้งค่าและสิทธิ์โฟลเดอร์");
     }
   }, { query: t.Object({ folder_id: t.Optional(t.String()) }) })
+
+  .get("/storage/status", async () => ok(await getS3StorageStatus()))
+  .post("/storage/test", async () => ok(await getS3StorageStatus()))
+  .get("/storage/usage", async () => ok(await getR2StorageUsage()))
 
   // Read-only system status / health (no secrets — only whether things are configured).
   .get("/system-info", async () => {

@@ -8,6 +8,7 @@ import { dateOnly } from "../lib/date";
 import { storeSlip } from "../services/storage";
 import { getOcrService, detectImageMime, mimeExt } from "../services/ocr";
 import { processSubmission } from "../services/payment";
+import { renderCustomerOpenBills } from "../services/bill";
 import { effectiveRetentionDaysForOrg, purgeSlipImage } from "../services/retention";
 import { audit } from "../services/audit";
 import { captureError } from "../lib/logger";
@@ -16,6 +17,7 @@ import {
   sendAndLog,
   renderTextHelp,
   renderCustomerBalance,
+  renderCustomerBills,
   renderDuplicateSlip,
   renderUnsupportedSlip,
   renderRateLimited,
@@ -204,11 +206,15 @@ async function handleNonImage(ev: any, oa: Oa, context: InboundContext) {
   const config = await getOrgMessageConfig(oa.orgId);
   const templates = config.templates;
 
-  // Self-service balance check: linked customer types "ยอด / คงเหลือ / เช็ค / ค้าง / balance".
+  const isBillMenu = text.trim() === "บิล";
   const custom = config.customMessages.find((m) => m.enabled && text.toLocaleLowerCase().includes(m.trigger.toLocaleLowerCase()));
   let reply = custom ? renderCustomMessage(custom.text, customer?.displayName || context.userName) : renderTextHelp(templates);
   let messageType = "text_help";
-  if (custom) {
+  if (customer && isBillMenu) {
+    const bill = await renderCustomerOpenBills(prisma, customer.id, oa.orgId);
+    reply = bill.text ? renderCustomerBills(bill.text, templates) : renderCustomerBalance(0, 0, null, templates);
+    messageType = "bill_inquiry";
+  } else if (custom) {
     messageType = `custom_${custom.id}`;
   } else if (customer && /ยอด|คงเหลือ|เช็ค|ค้าง|balance/i.test(text)) {
     const b = await customerBalance(customer.id);

@@ -8,7 +8,8 @@ type Tx = PrismaClient | Prisma.TransactionClient;
 
 export type GeneratedInstallment = { installmentNo: number; dueDate: Date; amountDue: number };
 
-// due_date(n) = start_date + cycle_days * (n - 1)
+// The start date is the day the repayment period begins; the first payment is
+// due after one full cycle: due_date(n) = start_date + cycle_days * n.
 export function generateInstallments(
   startDate: Date,
   cycleDays: number,
@@ -20,7 +21,7 @@ export function generateInstallments(
   if (amount <= 0) throw new ApiError("VALIDATION_ERROR", "installment_amount must be > 0");
   return Array.from({ length: total }, (_, i) => ({
     installmentNo: i + 1,
-    dueDate: addDays(startDate, cycleDays * i),
+    dueDate: addDays(startDate, cycleDays * (i + 1)),
     amountDue: amount,
   }));
 }
@@ -80,4 +81,56 @@ export async function renderPlanBill(db: Tx, billPlanId: string) {
   });
   const completed = plans.every((current) => current.installments.every((i) => i.status === "paid"));
   return { plan, plans, completed, text };
+}
+
+// Render only active bill plans that still have unpaid installments for a customer.
+export async function renderCustomerOpenBills(db: Tx, customerId: string, orgId: string) {
+  const plans = await db.billPlan.findMany({
+    where: {
+      customerId,
+      orgId,
+      status: "active",
+      installments: { some: { status: { notIn: ["paid", "cancelled"] } } },
+    },
+    include: {
+      installments: {
+        where: { status: { notIn: ["paid", "cancelled"] } },
+        orderBy: { installmentNo: "asc" },
+      },
+      bankAccount: true,
+      organization: true,
+    },
+    orderBy: { billNo: "asc" },
+  });
+
+  if (!plans.length) return { plans, text: null };
+
+  const footer = plans[0].organization?.billFooter || (await getSystemSettings()).defaultBillFooter;
+  const text = renderGroupedBillText({
+    billNo: plans[0].billNo,
+    plans: plans.map((current) => ({
+      principal: Number(current.principalAmount),
+      installmentAmount: Number(current.installmentAmount),
+      cycleDays: current.cycleDays,
+      totalInstallments: current.totalInstallments,
+      billPenaltyAmount: Number(current.penaltyAmount),
+      installments: current.installments.map((i) => ({
+        dueDate: i.dueDate,
+        amountDue: Number(i.amountDue),
+        status: i.status,
+        penaltyAmount: Number(i.penaltyAmount),
+      })),
+      bank: current.bankAccount
+        ? {
+            accountNo: current.bankAccount.accountNo,
+            bankName: current.bankAccount.bankName,
+            accountName: current.bankAccount.accountName,
+          }
+        : null,
+      note: current.note,
+    })),
+    footer,
+  });
+
+  return { plans, text };
 }

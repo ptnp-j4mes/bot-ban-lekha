@@ -1,0 +1,22 @@
+{
+  "name": "bot-ban-lekha-mobile",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "admin:start": "bun --cwd apps/admin start",
+    "customer:start": "bun --cwd apps/customer start",
+    "admin:test": "bun --cwd apps/admin test",
+    "customer:test": "bun --cwd apps/customer test",
+    "admin:ios": "bun --cwd apps/admin ios",
+    "customer:ios": "bun --cwd apps/customer ios",
+    "admin:debug:sim": "bun --cwd apps/admin ios:debug:sim",
+    "customer:debug:sim": "bun --cwd apps/customer ios:debug:sim",
+    "admin:debug:device": "bun --cwd apps/admin ios:debug:device",
+    "customer:debug:device": "bun --cwd apps/customer ios:debug:device",
+    "admin:archive": "bun --cwd apps/admin ios:archive",
+    "customer:archive": "bun --cwd apps/customer ios:archive",
+    "admin:export:adhoc": "bun --cwd apps/admin ios:export:adhoc",
+    "customer:export:adhoc": "bun --cwd apps/customer ios:export:adhoc"
+  },
+  "workspaces": ["apps/admin", "apps/customer"]
+}

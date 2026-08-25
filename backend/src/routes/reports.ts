@@ -1,8 +1,8 @@
 import { Elysia } from "elysia";
 import { prisma } from "../lib/prisma";
-import { ok } from "../lib/response";
+import { ok, ApiError } from "../lib/response";
 import { authorize } from "../lib/auth";
-import { bangkokDayEndExclusive, bangkokDayStart, bangkokToday, toISODate } from "../lib/date";
+import { bangkokDayEndExclusive, bangkokDayStart, bangkokToday, dateOnly, toISODate } from "../lib/date";
 
 // Org-scoped reporting. Any member can view/export.
 export const reportRoutes = new Elysia({ prefix: "/api/reports" })
@@ -16,7 +16,7 @@ export const reportRoutes = new Elysia({ prefix: "/api/reports" })
     if (query.from || query.to) paymentWhere.createdAt = range;
     const today = bangkokToday();
 
-    const [collected, paymentCount, pendingCount, overdue, customers] = await Promise.all([
+    const [collected, paymentCount, pendingCount, overdue, customers, uncollected] = await Promise.all([
       prisma.payment.aggregate({ where: paymentWhere, _sum: { amount: true } }),
       prisma.payment.count({ where: paymentWhere }),
       prisma.paymentSubmission.count({ where: { orgId: ctx.orgId, reviewStatus: "pending_review" } }),
@@ -25,8 +25,16 @@ export const reportRoutes = new Elysia({ prefix: "/api/reports" })
         select: { amountDue: true, amountPaid: true },
       }),
       prisma.customer.count({ where: { orgId: ctx.orgId } }),
+      prisma.billInstallment.findMany({
+        where: {
+          status: { in: ["pending", "partial_paid", "overdue"] },
+          billPlan: { orgId: ctx.orgId, status: { not: "cancelled" } },
+        },
+        select: { amountDue: true, amountPaid: true },
+      }),
     ]);
     const overdueAmount = overdue.reduce((s, i) => s + (Number(i.amountDue) - Number(i.amountPaid)), 0);
+    const uncollectedAmount = uncollected.reduce((s, i) => s + Math.max(0, Number(i.amountDue) - Number(i.amountPaid)), 0);
     return ok({
       collected: Number(collected._sum.amount ?? 0),
       payment_count: paymentCount,
@@ -34,7 +42,48 @@ export const reportRoutes = new Elysia({ prefix: "/api/reports" })
       overdue_count: overdue.length,
       overdue_amount: overdueAmount,
       customers,
+      total_bill_amount: uncollectedAmount,
     });
+  })
+
+  .get("/dashboard-charts", async ({ query, ctx }: any) => {
+    const todayIso = toISODate(bangkokToday());
+    const [todayYear, todayMonth] = todayIso.split("-").map(Number);
+    const period = query.period === "month" ? "month" : "year";
+    const year = Number(query.year ?? todayYear);
+    const month = Number(query.month ?? todayMonth);
+    if (!Number.isInteger(year) || year < 2000 || year > 2100)
+      throw new ApiError("VALIDATION_ERROR", "year must be between 2000 and 2100");
+    if (period === "month" && (!Number.isInteger(month) || month < 1 || month > 12))
+      throw new ApiError("VALIDATION_ERROR", "month must be between 1 and 12");
+
+    const rows = await prisma.billInstallment.findMany({
+      where: {
+        dueDate: { gte: dateOnly(`${year}-01-01`), lt: dateOnly(`${year + 1}-01-01`) },
+        status: { not: "cancelled" },
+        billPlan: { orgId: ctx.orgId, status: { not: "cancelled" } },
+      },
+      select: { dueDate: true, amountDue: true, amountPaid: true },
+    });
+    const monthly = Array.from({ length: 12 }, (_, index) => ({ month: index + 1, total: 0, collected: 0, uncollected: 0 }));
+    for (const row of rows) {
+      const point = monthly[row.dueDate.getUTCMonth()];
+      const total = Number(row.amountDue);
+      const collected = Math.min(total, Math.max(0, Number(row.amountPaid)));
+      point.total += total;
+      point.collected += collected;
+      point.uncollected += Math.max(0, total - collected);
+    }
+    const selected = period === "month"
+      ? monthly[month - 1]
+      : monthly.reduce((sum, point) => ({
+        month: 0,
+        total: sum.total + point.total,
+        collected: sum.collected + point.collected,
+        uncollected: sum.uncollected + point.uncollected,
+      }), { month: 0, total: 0, collected: 0, uncollected: 0 });
+
+    return ok({ period, year, month: period === "month" ? month : null, pie: selected, monthly });
   })
 
   // Daily bot report: slips per LINE group on a date + a combined total.

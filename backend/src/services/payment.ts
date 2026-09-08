@@ -13,7 +13,7 @@ import {
   renderNeedsAdminMatch,
   renderPaymentApproved,
   renderPaymentRejected,
-  getOrgMessageTemplates,
+  getOrgMessageConfig,
 } from "./messages";
 
 type Tx = PrismaClient | Prisma.TransactionClient;
@@ -105,7 +105,9 @@ export async function processSubmission(submissionId: string) {
     }
   }
 
-  const templates = await getOrgMessageTemplates(sub.orgId);
+  const config = await getOrgMessageConfig(sub.orgId);
+  const templates = config.templates;
+  const templateKey = isCash ? "cash_bill_received" : effective.status === "auto_matched" ? "payment_received" : "needs_admin_match";
   const text = isCash ? renderCashBillReceived(templates) : effective.status === "auto_matched" ? renderPaymentReceived(templates) : renderNeedsAdminMatch(templates);
   const messageType = isCash ? "cash_bill_received" : effective.status === "auto_matched" ? "payment_received" : "payment_need_admin";
   const oa = await oaForSubmission(prisma, sub.lineOaId);
@@ -118,6 +120,7 @@ export async function processSubmission(submissionId: string) {
     lineOaId: sub.lineOaId,
     customerId: sub.customerId,
     paymentSubmissionId: sub.id,
+    enabled: config.enabled[templateKey],
   });
   return updated;
 }
@@ -150,7 +153,8 @@ export async function matchInstallment(submissionId: string, installmentId: stri
 
 // Approve: create the real payment, update installment + plan, notify customer. All in one transaction.
 export async function approveSubmission(submissionId: string, actorId: string, orgId: string) {
-  const templates = await getOrgMessageTemplates(orgId);
+  const config = await getOrgMessageConfig(orgId);
+  const templates = config.templates;
   return prisma.$transaction(async (tx) => {
     const sub = await tx.paymentSubmission.findFirst({ where: { id: submissionId, orgId } });
     if (!sub) throw new ApiError("NOT_FOUND", "Submission not found");
@@ -216,6 +220,7 @@ export async function approveSubmission(submissionId: string, actorId: string, o
       billPlanId: inst.billPlanId,
       billInstallmentId: inst.id,
       paymentSubmissionId: sub.id,
+      enabled: config.enabled.payment_approved,
     });
     await audit(tx, {
       action: "approve_payment",
@@ -233,7 +238,8 @@ export async function approveSubmission(submissionId: string, actorId: string, o
 // installment paid/partial, completes the plan, and notifies the customer if LINE-linked.
 export async function recordManualPayment(installmentId: string, amount: number, actorId: string, orgId: string, method = "cash") {
   if (!(amount > 0)) throw new ApiError("VALIDATION_ERROR", "amount must be > 0");
-  const templates = await getOrgMessageTemplates(orgId);
+  const config = await getOrgMessageConfig(orgId);
+  const templates = config.templates;
   return prisma.$transaction(async (tx) => {
     const inst = await tx.billInstallment.findFirst({
       where: { id: installmentId, billPlan: { orgId } },
@@ -262,6 +268,7 @@ export async function recordManualPayment(installmentId: string, amount: number,
         lineUserId: cust.lineUserId, text: renderPaymentApproved(bill.text, templates), messageType: "payment_approved",
         accessToken: cust.lineOa?.channelAccessToken, orgId, lineOaId: cust.lineOaId, customerId: cust.id,
         billPlanId: inst.billPlanId, billInstallmentId: inst.id,
+        enabled: config.enabled.payment_approved,
       });
     }
     await audit(tx, { action: "record_manual_payment", entityType: "payment", entityId: payment.id, orgId, actorId, newValue: { amount, method, installmentId: inst.id } });
@@ -272,7 +279,8 @@ export async function recordManualPayment(installmentId: string, amount: number,
 export async function rejectSubmission(submissionId: string, reason: string, actorId: string, orgId: string) {
   const sub = await prisma.paymentSubmission.findFirst({ where: { id: submissionId, orgId } });
   if (!sub) throw new ApiError("NOT_FOUND", "Submission not found");
-  const templates = await getOrgMessageTemplates(orgId);
+  const config = await getOrgMessageConfig(orgId);
+  const templates = config.templates;
   return prisma.$transaction(async (tx) => {
     const u = await tx.paymentSubmission.update({
       where: { id: submissionId },
@@ -288,6 +296,7 @@ export async function rejectSubmission(submissionId: string, reason: string, act
       lineOaId: sub.lineOaId,
       customerId: sub.customerId,
       paymentSubmissionId: sub.id,
+      enabled: config.enabled.payment_rejected,
     });
     await audit(tx, {
       action: "reject_payment",

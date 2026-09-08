@@ -737,6 +737,31 @@ test("LINE bill menu replies with active unpaid bill details", async () => {
   expect(reply?.messageText).toContain("จบ🙏");
 });
 
+test("disabled LINE response is not sent", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const { customer } = await makePlan(org.id, 490, oa.id);
+  const member = await mkMember(org.id, "user");
+  const setting = await app.handle(new Request("http://localhost/api/settings", {
+    method: "PATCH",
+    headers: { ...hdr(member.token, org.id), "content-type": "application/json" },
+    body: JSON.stringify({ message_templates: { enabled: { customer_bills: false } } }),
+  }));
+  expect(setting.status).toBe(200);
+  expect((await setting.json()).data.message_templates.enabled.customer_bills).toBe(false);
+
+  const res = await webhook(oa.id, {
+    events: [{
+      type: "message",
+      source: { type: "user", userId: customer.lineUserId },
+      message: { type: "text", id: `disabled-${rnd()}`, text: "บิล" },
+    }],
+  });
+
+  expect(res.status).toBe(200);
+  expect(await prisma.messageLog.count({ where: { orgId: org.id, direction: "outbound", messageType: "bill_inquiry" } })).toBe(0);
+});
+
 // ---------- slip retention / purge ----------
 
 test("effectiveRetentionDays: org override > system default > env default; 0 is a real value", async () => {

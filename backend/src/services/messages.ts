@@ -39,6 +39,7 @@ export const MESSAGE_TEMPLATE_KEYS = [
 ] as const;
 export type MessageTemplateKey = (typeof MESSAGE_TEMPLATE_KEYS)[number];
 export type MessageTemplates = Record<MessageTemplateKey, string>;
+export type MessageTemplateEnabled = Record<MessageTemplateKey, boolean>;
 export type CustomMessageTemplate = { id: string; name: string; trigger: string; text: string; enabled: boolean };
 
 export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplates = {
@@ -77,17 +78,22 @@ export function mergeMessageTemplates(raw: unknown): MessageTemplates {
   ])) as MessageTemplates;
 }
 
+export function mergeMessageTemplateEnabled(raw: unknown): MessageTemplateEnabled {
+  const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  return Object.fromEntries(MESSAGE_TEMPLATE_KEYS.map((key) => [key, source[key] !== false])) as MessageTemplateEnabled;
+}
+
 export async function getOrgMessageTemplates(orgId: string | null | undefined): Promise<MessageTemplates> {
   if (!orgId) return DEFAULT_MESSAGE_TEMPLATES;
   const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { messageTemplates: true } });
   return mergeMessageTemplates(org?.messageTemplates);
 }
 
-export async function getOrgMessageConfig(orgId: string | null | undefined): Promise<{ templates: MessageTemplates; customMessages: CustomMessageTemplate[] }> {
-  if (!orgId) return { templates: DEFAULT_MESSAGE_TEMPLATES, customMessages: [] };
+export async function getOrgMessageConfig(orgId: string | null | undefined): Promise<{ templates: MessageTemplates; enabled: MessageTemplateEnabled; customMessages: CustomMessageTemplate[] }> {
+  if (!orgId) return { templates: DEFAULT_MESSAGE_TEMPLATES, enabled: mergeMessageTemplateEnabled(undefined), customMessages: [] };
   const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { messageTemplates: true } });
   const raw = org?.messageTemplates as any;
-  return { templates: mergeMessageTemplates(raw), customMessages: normalizeCustomMessageTemplates(raw?.custom_messages) };
+  return { templates: mergeMessageTemplates(raw), enabled: mergeMessageTemplateEnabled(raw?.enabled), customMessages: normalizeCustomMessageTemplates(raw?.custom_messages) };
 }
 
 const fill = (template: string, values: Record<string, string | number>) =>
@@ -208,8 +214,12 @@ export async function sendAndLog(
     billPlanId?: string | null;
     billInstallmentId?: string | null;
     paymentSubmissionId?: string | null;
+    enabled?: boolean;
   }
 ) {
+  // Disabled replies must not call LINE or create an outbound log row.
+  if (args.enabled === false) return "disabled";
+
   let status: "sent" | "failed" = "failed";
   let response: unknown = null;
   let error: string | undefined = "no line_user_id";

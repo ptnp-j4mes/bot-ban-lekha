@@ -3,7 +3,7 @@ import { prisma } from "../lib/prisma";
 import { ok, ApiError } from "../lib/response";
 import { authorize } from "../lib/auth";
 import { audit } from "../services/audit";
-import { MESSAGE_TEMPLATE_KEYS, mergeMessageTemplates, normalizeCustomMessageTemplates } from "../services/messages";
+import { MESSAGE_TEMPLATE_KEYS, mergeMessageTemplateEnabled, mergeMessageTemplates, normalizeCustomMessageTemplates } from "../services/messages";
 
 const view = (org: any) => ({
   id: org.id,
@@ -15,7 +15,11 @@ const view = (org: any) => ({
   reminder_text: org.reminderText,
   slip_retention_days: org.slipRetentionDays,
   auto_approve_enabled: org.autoApproveEnabled,
-  message_templates: { ...mergeMessageTemplates(org.messageTemplates), custom_messages: normalizeCustomMessageTemplates((org.messageTemplates as any)?.custom_messages) },
+  message_templates: {
+    ...mergeMessageTemplates(org.messageTemplates),
+    enabled: mergeMessageTemplateEnabled((org.messageTemplates as any)?.enabled),
+    custom_messages: normalizeCustomMessageTemplates((org.messageTemplates as any)?.custom_messages),
+  },
 });
 
 // Per-org settings (name, timezone, bill footer, reminder schedule/message). Any member can view/edit.
@@ -52,6 +56,15 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
             if (value.trim()) templates[key] = value;
           }
         }
+        const rawEnabled = body.message_templates.enabled;
+        if (rawEnabled !== undefined && (!rawEnabled || typeof rawEnabled !== "object" || Array.isArray(rawEnabled)))
+          throw new ApiError("VALIDATION_ERROR", "enabled ต้องเป็น object");
+        if (rawEnabled !== undefined) {
+          for (const key of MESSAGE_TEMPLATE_KEYS) {
+            if (rawEnabled[key] !== undefined && typeof rawEnabled[key] !== "boolean")
+              throw new ApiError("VALIDATION_ERROR", `สถานะ ${key} ต้องเป็น boolean`);
+          }
+        }
         const rawCustom = body.message_templates.custom_messages;
         if (rawCustom !== undefined) {
           if (!Array.isArray(rawCustom) || rawCustom.length > 100)
@@ -64,9 +77,23 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
           }
         }
         const currentOrg = await prisma.organization.findUnique({ where: { id: ctx.orgId }, select: { messageTemplates: true } });
-        const currentCustom = normalizeCustomMessageTemplates((currentOrg?.messageTemplates as any)?.custom_messages);
+        const currentRaw = currentOrg?.messageTemplates as any;
+        const currentCustom = normalizeCustomMessageTemplates(currentRaw?.custom_messages);
+        const currentEnabled = mergeMessageTemplateEnabled(currentRaw?.enabled);
+        const storedTemplates: Record<string, string> = {};
+        for (const key of MESSAGE_TEMPLATE_KEYS) {
+          if (Object.prototype.hasOwnProperty.call(body.message_templates, key)) {
+            if (templates[key] !== undefined) storedTemplates[key] = templates[key];
+          } else if (typeof currentRaw?.[key] === "string" && currentRaw[key].trim()) {
+            storedTemplates[key] = currentRaw[key];
+          }
+        }
         data.messageTemplates = {
-          ...templates,
+          ...storedTemplates,
+          enabled: Object.fromEntries(MESSAGE_TEMPLATE_KEYS.map((key) => [
+            key,
+            rawEnabled?.[key] === undefined ? currentEnabled[key] : rawEnabled[key],
+          ])),
           custom_messages: normalizeCustomMessageTemplates(rawCustom === undefined ? currentCustom : rawCustom),
         };
       }

@@ -22,9 +22,9 @@ import {
   renderUnsupportedSlip,
   renderRateLimited,
   renderNeedsAdminMatch,
-  getOrgMessageTemplates,
   getOrgMessageConfig,
   renderCustomMessage,
+  type MessageTemplateKey,
 } from "../services/messages";
 
 type Oa = { id: string; orgId: string; channelSecret: string; channelAccessToken: string };
@@ -209,16 +209,20 @@ async function handleNonImage(ev: any, oa: Oa, context: InboundContext) {
   const isBillMenu = text.trim() === "บิล";
   const custom = config.customMessages.find((m) => m.enabled && text.toLocaleLowerCase().includes(m.trigger.toLocaleLowerCase()));
   let reply = custom ? renderCustomMessage(custom.text, customer?.displayName || context.userName) : renderTextHelp(templates);
+  let templateKey: MessageTemplateKey | undefined = "text_help";
   let messageType = "text_help";
   if (customer && isBillMenu) {
     const bill = await renderCustomerOpenBills(prisma, customer.id, oa.orgId);
     reply = bill.text ? renderCustomerBills(bill.text, templates) : renderCustomerBalance(0, 0, null, templates);
+    templateKey = bill.text ? "customer_bills" : "customer_balance_empty";
     messageType = "bill_inquiry";
   } else if (custom) {
+    templateKey = undefined;
     messageType = `custom_${custom.id}`;
   } else if (customer && /ยอด|คงเหลือ|เช็ค|ค้าง|balance/i.test(text)) {
     const b = await customerBalance(customer.id);
     reply = renderCustomerBalance(b.outstanding, b.count, b.nextDue, templates);
+    templateKey = b.count === 0 ? "customer_balance_empty" : "customer_balance_due";
     messageType = "balance_inquiry";
   }
 
@@ -230,6 +234,7 @@ async function handleNonImage(ev: any, oa: Oa, context: InboundContext) {
     orgId: oa.orgId,
     lineOaId: oa.id,
     customerId: customer?.id,
+    enabled: templateKey ? config.enabled[templateKey] : undefined,
   });
 }
 
@@ -247,10 +252,11 @@ async function handleImage(ev: any, oa: Oa, context: InboundContext) {
   // Group slips come from staff/collectors — not tied to a specific customer (matched org-wide).
   const customer = groupId ? null : context.customer;
   const senderName = groupId ? context.senderName : context.userName;
-  const templates = await getOrgMessageTemplates(oa.orgId);
+  const config = await getOrgMessageConfig(oa.orgId);
+  const templates = config.templates;
   if (groupId) await ensureGroup(oa, groupId);
   const replyTo = groupId ?? lineUserId; // push back to the group, or the 1:1 chat
-  const reply = (text: string, messageType: string, paymentSubmissionId?: string) =>
+  const reply = (text: string, messageType: string, templateKey: MessageTemplateKey, paymentSubmissionId?: string) =>
     sendAndLog(prisma, {
       lineUserId: replyTo,
       text,
@@ -260,10 +266,11 @@ async function handleImage(ev: any, oa: Oa, context: InboundContext) {
       lineOaId: oa.id,
       customerId: customer?.id,
       paymentSubmissionId,
+      enabled: config.enabled[templateKey],
     });
 
   if (env.ocrGuardsEnabled && lineUserId && (await overRateLimit(oa.id, lineUserId))) {
-    await reply(renderRateLimited(templates), "payment_rate_limited");
+    await reply(renderRateLimited(templates), "payment_rate_limited", "rate_limited");
     return;
   }
 
@@ -272,7 +279,7 @@ async function handleImage(ev: any, oa: Oa, context: InboundContext) {
 
   const dup = await prisma.paymentSubmission.findFirst({ where: { lineOaId: oa.id, imageHash } });
   if (dup) {
-    await reply(renderDuplicateSlip(templates), "payment_received", dup.id);
+    await reply(renderDuplicateSlip(templates), "payment_received", "duplicate_slip", dup.id);
     return;
   }
 
@@ -310,7 +317,12 @@ async function handleImage(ev: any, oa: Oa, context: InboundContext) {
         matchReason: badType ? "ชนิดไฟล์ไม่รองรับ" : `ไฟล์ใหญ่เกิน ${env.maxSlipMb}MB`,
       },
     });
-    await reply(badType ? renderUnsupportedSlip(templates) : renderNeedsAdminMatch(templates), "payment_need_admin", sub.id);
+    await reply(
+      badType ? renderUnsupportedSlip(templates) : renderNeedsAdminMatch(templates),
+      "payment_need_admin",
+      badType ? "unsupported_slip" : "needs_admin_match",
+      sub.id,
+    );
     return;
   }
 

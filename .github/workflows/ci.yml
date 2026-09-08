@@ -60,10 +60,16 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
+      - run: bun run test:liff
       - run: bun run build
         env:
           VITE_API_BASE: ""
           VITE_LIFF_ID: ci-test-liff-id
+      - uses: actions/upload-artifact@v4
+        with:
+          name: admin-preview
+          path: admin/dist
+          retention-days: 7
 
   containers:
     runs-on: ubuntu-latest

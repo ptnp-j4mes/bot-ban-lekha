@@ -9,7 +9,23 @@ Deploy the repository as three services in one Railway project. Only the admin s
 3. Add another service named `admin` with root directory `/admin`. It uses `admin/Dockerfile` and `admin/railway.json`.
 4. Generate a public domain for `admin`. Keep PostgreSQL private. The backend may stay private because nginx exposes its `/api` routes through the admin domain.
 
-Keep the backend at one replica while the reminder scheduler is in-process. Multiple replicas would run the same scheduler tick unless a leader lock is added.
+The backend does not run an in-process reminder scheduler. Configure the daily reminder job in the host/platform cron runner instead.
+
+For a server cron, create `/etc/bot-ban-lekha/cron.env` with mode `600`:
+
+```env
+BILL_API_URL=https://<admin-domain>
+INTERNAL_JOB_API_KEY=<the backend job key>
+```
+
+Then install this crontab entry in `Asia/Bangkok`:
+
+```cron
+CRON_TZ=Asia/Bangkok
+0 7 * * * /opt/bot-ban-lekha/scripts/send-daily-bill-reminders.sh >> /var/log/bot-ban-lekha-daily-reminders.log 2>&1
+```
+
+The script calls `POST /api/jobs/send-daily-bill-reminders` with `x-job-key`. It is safe to retry: sent installments are guarded by `morning_sent_at`.
 
 ## 2. Backend variables
 

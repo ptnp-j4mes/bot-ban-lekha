@@ -10,7 +10,8 @@ import { purgeExpiredSlips } from "../services/retention";
 
 // Send a reminder for each due installment, guarded by a "sent_at" column for idempotency.
 // When `hourField` is given, only orgs whose configured hour matches the current Bangkok hour fire
-// (used by the scheduler); without it, all due reminders are sent (used by the manual job endpoint).
+// With an hour match it targets the scheduler's current hour; without it, all due reminders are
+// sent (used by the external cron/manual job endpoint).
 export async function runReminder(
   field: "morningSentAt" | "beforeDeadlineSentAt",
   messageType: string,

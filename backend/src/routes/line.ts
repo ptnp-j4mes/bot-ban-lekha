@@ -24,6 +24,7 @@ import {
   renderNeedsAdminMatch,
   getOrgMessageConfig,
   renderCustomMessage,
+  matchesMessageTrigger,
   type MessageTemplateKey,
 } from "../services/messages";
 
@@ -206,8 +207,8 @@ async function handleNonImage(ev: any, oa: Oa, context: InboundContext) {
   const config = await getOrgMessageConfig(oa.orgId);
   const templates = config.templates;
 
-  const isBillMenu = text.trim() === "บิล";
-  const custom = config.customMessages.find((m) => m.enabled && text.toLocaleLowerCase().includes(m.trigger.toLocaleLowerCase()));
+  const isBillMenu = matchesMessageTrigger(text, "บิล");
+  const custom = config.customMessages.find((m) => m.enabled && matchesMessageTrigger(text, m.trigger));
   let reply = custom ? renderCustomMessage(custom.text, customer?.displayName || context.userName) : renderTextHelp(templates);
   let templateKey: MessageTemplateKey | undefined = "text_help";
   let messageType = "text_help";
@@ -219,7 +220,7 @@ async function handleNonImage(ev: any, oa: Oa, context: InboundContext) {
   } else if (custom) {
     templateKey = undefined;
     messageType = `custom_${custom.id}`;
-  } else if (customer && /ยอด|คงเหลือ|เช็ค|ค้าง|balance/i.test(text)) {
+  } else if (customer && matchesMessageTrigger(text, "ยอด")) {
     const b = await customerBalance(customer.id);
     reply = renderCustomerBalance(b.outstanding, b.count, b.nextDue, templates);
     templateKey = b.count === 0 ? "customer_balance_empty" : "customer_balance_due";

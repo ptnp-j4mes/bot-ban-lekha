@@ -73,6 +73,73 @@ test("auto-match + approve: paid + plan completed, scoped to org", async () => {
   expect((await prisma.payment.findFirst({ where: { paymentSubmissionId: sub.id } }))!.orgId).toBe(org.id);
 });
 
+test("exact amount, date, and destination account auto-approve with one payment_approved reply", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const { plan, inst, customer } = await makePlan(org.id, 490, oa.id);
+  await prisma.bankAccount.update({ where: { id: plan.bankAccountId }, data: { accountNo: "1234567890" } });
+  const sub = await prisma.paymentSubmission.create({
+    data: {
+      orgId: org.id,
+      lineOaId: oa.id,
+      lineUserId: customer.lineUserId,
+      customerId: customer.id,
+      parsedAmount: 490,
+      parsedTransferDate: today,
+      parsedAccountNo: "123-456-7890",
+      parsedReferenceNo: `EXACT${rnd()}`,
+      imageHash: `EXACT${rnd()}`,
+      docType: "slip",
+      ocrStatus: "success",
+    },
+  });
+
+  await processSubmission(sub.id);
+
+  const updated = await prisma.paymentSubmission.findUnique({ where: { id: sub.id } });
+  expect(updated?.matchStatus).toBe("auto_matched");
+  expect(updated?.reviewStatus).toBe("approved");
+  expect((await prisma.billInstallment.findUnique({ where: { id: inst.id } }))?.status).toBe("paid");
+  expect((await prisma.payment.findFirst({ where: { paymentSubmissionId: sub.id } }))?.amount.toString()).toBe("490");
+
+  const replies = await prisma.messageLog.findMany({
+    where: { paymentSubmissionId: sub.id, direction: "outbound" },
+    orderBy: { sentAt: "asc" },
+  });
+  expect(replies.map((reply) => reply.messageType)).toEqual(["payment_approved"]);
+  expect(replies[0]?.messageText).toContain(`${today.getUTCDate()}💸 490✅`);
+});
+
+test("exact facts from an unknown document do not auto-approve", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const { plan, inst, customer } = await makePlan(org.id, 490, oa.id);
+  await prisma.bankAccount.update({ where: { id: plan.bankAccountId }, data: { accountNo: "1234567890" } });
+  const sub = await prisma.paymentSubmission.create({
+    data: {
+      orgId: org.id,
+      lineOaId: oa.id,
+      lineUserId: customer.lineUserId,
+      customerId: customer.id,
+      parsedAmount: 490,
+      parsedTransferDate: today,
+      parsedAccountNo: "123-456-7890",
+      parsedReferenceNo: `UNKNOWN${rnd()}`,
+      imageHash: `UNKNOWN${rnd()}`,
+      docType: "unknown",
+      ocrStatus: "success",
+    },
+  });
+
+  await processSubmission(sub.id);
+
+  const updated = await prisma.paymentSubmission.findUnique({ where: { id: sub.id } });
+  expect(updated?.matchStatus).toBe("auto_matched");
+  expect(updated?.reviewStatus).toBe("pending_review");
+  expect((await prisma.billInstallment.findUnique({ where: { id: inst.id } }))?.status).toBe("pending");
+  expect(await prisma.payment.count({ where: { paymentSubmissionId: sub.id } })).toBe(0);
+});
+
 test("duplicate slip rejected on approve", async () => {
   const org = await mkOrg();
   const a = await makePlan(org.id);
@@ -522,6 +589,63 @@ test("settings: member reads/updates org footer + timezone", async () => {
   expect((await get.json()).data.bill_footer).toBe("เกิน 17.00 ปรับ 50");
 });
 
+test("settings: auto match mode defaults on and can be toggled", async () => {
+  const org = await mkOrg();
+  const m = await mkMember(org.id, "user");
+  const get = await app.handle(new Request("http://localhost/api/settings", { headers: hdr(m.token, org.id) }));
+  expect((await get.json()).data.auto_match_enabled).toBe(true);
+
+  for (const enabled of [false, true]) {
+    const patch = await app.handle(new Request("http://localhost/api/settings", {
+      method: "PATCH",
+      headers: { ...hdr(m.token, org.id), "content-type": "application/json" },
+      body: JSON.stringify({ auto_match_enabled: enabled }),
+    }));
+    expect(patch.status).toBe(200);
+    expect((await patch.json()).data.auto_match_enabled).toBe(enabled);
+  }
+});
+
+test("disabled auto match keeps an exact slip pending for admin matching", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const m = await mkMember(org.id, "user");
+  const setting = await app.handle(new Request("http://localhost/api/settings", {
+    method: "PATCH",
+    headers: { ...hdr(m.token, org.id), "content-type": "application/json" },
+    body: JSON.stringify({ auto_match_enabled: false }),
+  }));
+  expect(setting.status).toBe(200);
+
+  const { plan, inst, customer } = await makePlan(org.id, 490, oa.id);
+  await prisma.bankAccount.update({ where: { id: plan.bankAccountId }, data: { accountNo: "1234567890" } });
+  const sub = await prisma.paymentSubmission.create({
+    data: {
+      orgId: org.id,
+      lineOaId: oa.id,
+      lineUserId: customer.lineUserId,
+      customerId: customer.id,
+      parsedAmount: 490,
+      parsedTransferDate: today,
+      parsedAccountNo: "1234567890",
+      parsedReferenceNo: `MANUAL${rnd()}`,
+      imageHash: `MANUAL${rnd()}`,
+      docType: "slip",
+      ocrStatus: "success",
+    },
+  });
+
+  await processSubmission(sub.id);
+
+  const updated = await prisma.paymentSubmission.findUnique({ where: { id: sub.id } });
+  expect(updated?.matchStatus).toBe("needs_admin_match");
+  expect(updated?.matchedInstallmentId).toBeNull();
+  expect(updated?.reviewStatus).toBe("pending_review");
+  expect((await prisma.billInstallment.findUnique({ where: { id: inst.id } }))?.status).toBe("pending");
+  expect(await prisma.payment.count({ where: { paymentSubmissionId: sub.id } })).toBe(0);
+  expect((await prisma.messageLog.findFirst({ where: { paymentSubmissionId: sub.id, direction: "outbound" } }))?.messageType).toBe("payment_need_admin");
+});
+
 test("change-password: user can change own password and log in with it", async () => {
   const username = `cp${rnd()}`;
   await app.handle(new Request("http://localhost/api/platform/admin-users", {
@@ -705,6 +829,68 @@ test("customerBalance sums unpaid installments", async () => {
   expect(b.count).toBe(1);
   expect(b.outstanding).toBe(490);
   expect(b.nextDue).not.toBeNull();
+});
+
+test("LINE balance reply requires the exact ยอด command", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const { customer } = await makePlan(org.id, 490, oa.id);
+  const res = await webhook(oa.id, {
+    events: [{
+      type: "message",
+      source: { type: "user", userId: customer.lineUserId },
+      message: { type: "text", id: `balance-text-${rnd()}`, text: "มียอดไหมค่ะวันนี้" },
+    }],
+  });
+
+  expect(res.status).toBe(200);
+  const reply = await prisma.messageLog.findFirst({
+    where: { orgId: org.id, customerId: customer.id, direction: "outbound" },
+    orderBy: { sentAt: "desc" },
+  });
+  expect(reply?.messageType).toBe("text_help");
+
+  await webhook(oa.id, {
+    events: [{
+      type: "message",
+      source: { type: "user", userId: customer.lineUserId },
+      message: { type: "text", id: `balance-exact-${rnd()}`, text: "ยอด" },
+    }],
+  });
+  expect(await prisma.messageLog.count({ where: { orgId: org.id, customerId: customer.id, direction: "outbound", messageType: "balance_inquiry" } })).toBe(1);
+});
+
+test("custom message reply requires the exact trigger text", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const { customer } = await makePlan(org.id, 490, oa.id);
+  const member = await mkMember(org.id, "user");
+  const setting = await app.handle(new Request("http://localhost/api/settings", {
+    method: "PATCH",
+    headers: { ...hdr(member.token, org.id), "content-type": "application/json" },
+    body: JSON.stringify({ message_templates: {
+      custom_messages: [{ id: "hours", name: "เวลาทำการ", trigger: "เวลาทำการ", text: "เปิด 08:00-17:00" }],
+    } }),
+  }));
+  expect(setting.status).toBe(200);
+
+  for (const [id, text] of [["custom-contains", "ขอทราบเวลาทำการวันนี้"], ["custom-exact", "เวลาทำการ"]]) {
+    const res = await webhook(oa.id, {
+      events: [{
+        type: "message",
+        source: { type: "user", userId: customer.lineUserId },
+        message: { type: "text", id, text },
+      }],
+    });
+    expect(res.status).toBe(200);
+  }
+
+  const replies = await prisma.messageLog.findMany({
+    where: { orgId: org.id, customerId: customer.id, direction: "outbound" },
+    orderBy: { sentAt: "asc" },
+  });
+  expect(replies.filter((reply) => reply.messageType === "text_help")).toHaveLength(1);
+  expect(replies.filter((reply) => reply.messageType === "custom_hours")).toHaveLength(1);
 });
 
 test("LINE bill menu replies with active unpaid bill details", async () => {

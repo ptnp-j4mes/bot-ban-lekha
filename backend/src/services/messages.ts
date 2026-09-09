@@ -70,6 +70,11 @@ export function normalizeCustomMessageTemplates(raw: unknown): CustomMessageTemp
   });
 }
 
+export function matchesMessageTrigger(text: unknown, trigger: unknown): boolean {
+  return typeof text === "string" && typeof trigger === "string"
+    && text.trim().toLocaleLowerCase() === trigger.trim().toLocaleLowerCase();
+}
+
 export function mergeMessageTemplates(raw: unknown): MessageTemplates {
   const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
   return Object.fromEntries(MESSAGE_TEMPLATE_KEYS.map((key) => [

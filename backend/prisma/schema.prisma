@@ -35,6 +35,7 @@ model Organization {
   deadlineHour Int    @default(15) @map("deadline_hour")  // Bangkok hour for the before-deadline reminder
   reminderText String? @map("reminder_text")              // overrides the default daily reminder body
   slipRetentionDays Int? @map("slip_retention_days")      // days to keep slip images; 0 = purge right after OCR; null = use system/env default
+  autoMatchEnabled Boolean @default(true) @map("auto_match_enabled") // automatically match OCR slips to installments (opt-out)
   autoApproveEnabled Boolean @default(false) @map("auto_approve_enabled") // auto-approve slips that auto-match (opt-in)
   gdriveFolderId String? @map("gdrive_folder_id") // optional Drive folder selected by the super admin for this org
   messageTemplates Json? @map("message_templates") // LINE response message overrides for this org

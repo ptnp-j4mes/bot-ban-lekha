@@ -12,25 +12,44 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Dialog } from "@/components/ui/dialog";
 import { useConfirm, usePrompt } from "@/components/ui/confirm";
+import { submissionImageSource } from "@/lib/submission-image";
 
 const MATCH = ["unmatched", "auto_matched", "needs_admin_match", "admin_matched", "rejected"];
 const REVIEW = ["pending_review", "approved", "rejected"];
 const OCR = ["processing", "success", "failed"];
 
-// Slip stored on server disk — fetch with auth headers, show as blob (plain <img src> can't send the token).
-function SlipImage({ id }: { id: string }) {
+// Local/S3 references need auth; public storage URLs can render directly.
+function SlipImage({ id, imageUrl }: { id: string; imageUrl: string }) {
+  const source = submissionImageSource(id, imageUrl);
   const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     let url: string | null = null;
-    apiRaw(`/api/admin/payment-submissions/${id}/image`).then(async (r) => {
-      if (!r.ok) return;
+    setSrc(null);
+    setFailed(false);
+    if (!source || source.kind === "remote") return;
+    let cancelled = false;
+    apiRaw(source.src).then(async (r) => {
+      if (!r.ok) throw new Error("slip image unavailable");
       url = URL.createObjectURL(await r.blob());
-      setSrc(url);
-    });
-    return () => { if (url) URL.revokeObjectURL(url); };
-  }, [id]);
-  if (!src) return null;
-  return <img src={src} alt="สลิป" className="max-h-80 rounded-lg border border-border" />;
+      if (cancelled) URL.revokeObjectURL(url);
+      else setSrc(url);
+    }).catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
+  }, [source?.kind, source?.src]);
+  if (!source) return null;
+  if (source.kind === "remote") return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">สลิปต้นฉบับ</p>
+      <a href={source.src} target="_blank" rel="noreferrer">
+        <img src={source.src} alt="สลิปต้นฉบับ" className="max-h-80 max-w-full rounded-lg border border-border object-contain" />
+      </a>
+      <a href={source.src} target="_blank" rel="noreferrer" className="text-[hsl(var(--sage))] underline underline-offset-2">เปิดรูปสลิปเต็ม</a>
+    </div>
+  );
+  if (failed) return <p className="text-xs text-muted-foreground">ไม่สามารถโหลดรูปสลิปต้นฉบับจาก storage ได้</p>;
+  if (!src) return <p className="text-xs text-muted-foreground">กำลังโหลดรูปสลิปต้นฉบับ…</p>;
+  return <div className="space-y-2"><p className="text-xs text-muted-foreground">สลิปต้นฉบับ</p><a href={src} target="_blank" rel="noreferrer"><img src={src} alt="สลิปต้นฉบับ" className="max-h-80 max-w-full rounded-lg border border-border object-contain" /></a></div>;
 }
 
 export function Submissions() {
@@ -249,9 +268,8 @@ export function Submissions() {
               <span className="text-muted-foreground">ธนาคาร</span><span>{s.parsed_bank_name ?? "—"}</span>
               <span className="text-muted-foreground">การจับคู่</span><span>{matchBadge(s.match_status)} {s.match_reason}</span>
               <span className="text-muted-foreground">การตรวจสอบ</span><span>{reviewBadge(s.review_status)}</span>
-              {s.image_url?.startsWith("http") && <><span className="text-muted-foreground">รูปสลิป</span><a href={s.image_url} target="_blank" rel="noreferrer" className="text-[hsl(var(--sage))] underline underline-offset-2">เปิดรูปสลิป</a></>}
             </div>
-            {s.image_url && !s.image_url.startsWith("http") && <SlipImage id={s.id} />}
+            {s.image_url ? <SlipImage id={s.id} imageUrl={s.image_url} /> : <p className="text-xs text-muted-foreground">{s.image_purged_at ? "รูปสลิปถูกลบตามนโยบายการเก็บรักษาไฟล์" : "ไม่มีไฟล์สลิปต้นฉบับ"}</p>}
             {canWrite ? (
               <div className="flex flex-wrap items-center gap-2">
                 <Select value={instId} onChange={(e) => setInstId(e.target.value)} className="w-full sm:w-96" disabled={!cands.length}>

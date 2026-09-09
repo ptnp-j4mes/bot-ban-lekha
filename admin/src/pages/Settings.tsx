@@ -19,6 +19,7 @@ export function Settings() {
       reminder_hour: Number(fd.get("reminder_hour")), deadline_hour: Number(fd.get("deadline_hour")),
       reminder_text: fd.get("reminder_text"),
       slip_retention_days: retention === "" ? null : Number(retention),
+      auto_match_enabled: fd.get("auto_match") === "on",
       auto_approve_enabled: fd.get("auto_approve") === "on",
     });
   };
@@ -76,10 +77,17 @@ export function Settings() {
                 <Input name="slip_retention_days" type="number" min={0} defaultValue={d.slip_retention_days ?? ""} placeholder="ค่าเริ่มต้นของระบบ" />
               </div>
               <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" name="auto_match" defaultChecked={d.auto_match_enabled} className="mt-0.5" />
+                <span>
+                  จับคู่สลิปอัตโนมัติ
+                  <span className="block text-xs text-muted-foreground">OCR จะจับคู่ยอด/วัน/เลขบัญชีกับงวดให้เอง; ปิดโหมดนี้แล้วสลิปจะรอแอดมินเลือกงวด</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
                 <input type="checkbox" name="auto_approve" defaultChecked={d.auto_approve_enabled} className="mt-0.5" />
                 <span>
-                  อนุมัติสลิปอัตโนมัติเมื่อระบบจับคู่ได้แน่นอน
-                  <span className="block text-xs text-muted-foreground">เฉพาะสลิปโอนที่ยอดและวันที่ตรงกับงวด — บิลเงินสดยังรอแอดมินตรวจเสมอ</span>
+                  อนุมัติสลิปอัตโนมัติสำหรับผลจับคู่ทั่วไป
+                  <span className="block text-xs text-muted-foreground">ถ้ายอด วัน และเลขบัญชีปลายทางตรงกัน ระบบจะยืนยันและส่งบิลกลับทันทีอยู่แล้ว; ตัวเลือกนี้ใช้กับผลจับคู่จากเกณฑ์อื่น — บิลเงินสดยังรอแอดมินเสมอ</span>
                 </span>
               </label>
               <Button size="sm" type="submit">บันทึก</Button>

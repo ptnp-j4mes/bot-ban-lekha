@@ -60,6 +60,18 @@ function normalizeAccountNo(no?: string | null): string | null {
   return digits.length >= 4 ? digits : null;
 }
 
+// Only bypass review when the OCR facts are exact and the destination account is known.
+export function isVerifiedExactMatch(slip: ParsedSlip, c: Candidate): boolean {
+  const slipAccount = normalizeAccountNo(slip.accountNo);
+  const candidateAccount = normalizeAccountNo(c.bankAccountNo);
+  return slip.amount != null
+    && slip.amount === c.amountDue
+    && !!slip.transferDate
+    && sameDay(slip.transferDate, c.dueDate)
+    && !!slipAccount
+    && slipAccount === candidateAccount;
+}
+
 // Pure scoring per spec 6.2 (v2): amount ± small tolerance, due date ± up to 3 days, and the
 // destination account no as a bonus/penalty signal. same_customer is enforced by candidate
 // selection upstream; reference/image uniqueness is a hard gate in decideMatch, not scored here.

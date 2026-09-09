@@ -12,8 +12,8 @@ import { useConfirm } from "@/components/ui/confirm";
 
 const FIELDS = [
   { key: "text_help", trigger: "ข้อความทั่วไป", label: "ข้อความทั่วไป / วิธีใช้งาน", receive: "ลูกค้าส่งข้อความทั่วไปที่ไม่ตรงเงื่อนไขอื่น", hint: "ข้อความเริ่มต้นสำหรับการใช้งาน" },
-  { key: "customer_balance_empty", trigger: "ยอด", label: "ตอบยอด: ไม่มียอดค้าง", receive: "ลูกค้าถามยอด และไม่มียอดค้างชำระ", hint: "ระบบไม่พบงวดที่ยังค้าง" },
-  { key: "customer_balance_due", trigger: "ยอด", label: "ตอบยอด: มียอดค้าง", receive: "ลูกค้าถามยอด และมียอดค้างชำระ", hint: "ตัวแปร: {outstanding}, {count}, {next_due}" },
+  { key: "customer_balance_empty", trigger: "ยอด", label: "ตอบยอด: ไม่มียอดค้าง", receive: "ลูกค้าพิมพ์ “ยอด” ตรงตัว และไม่มียอดค้างชำระ", hint: "ระบบไม่พบงวดที่ยังค้าง" },
+  { key: "customer_balance_due", trigger: "ยอด", label: "ตอบยอด: มียอดค้าง", receive: "ลูกค้าพิมพ์ “ยอด” ตรงตัว และมียอดค้างชำระ", hint: "ตัวแปร: {outstanding}, {count}, {next_due}" },
   { key: "customer_bills", trigger: "บิล", label: "ตอบเมนูบิล", receive: "ลูกค้าพิมพ์ “บิล” และมีบิลค้างจ่าย", hint: "ตัวแปร: {bill_text} คือรายละเอียดบิล Active ที่ยังค้างจ่าย" },
   { key: "payment_received", trigger: "รูปสลิป", label: "ได้รับสลิปแล้ว", receive: "ลูกค้าส่งสลิปที่ระบบจับคู่ได้อัตโนมัติ", hint: "ระบบรับสลิปไว้รอตรวจสอบหรืออนุมัติ" },
   { key: "cash_bill_received", trigger: "บิลเงินสด", label: "ได้รับบิลเงินสด", receive: "ลูกค้าส่งบิลเงินสด", hint: "บิลเงินสดจะรอแอดมินตรวจสอบเสมอ" },
@@ -163,7 +163,7 @@ export function MessageResponseSettings() {
         <CardHeader className="items-start sm:items-center">
           <div className="min-w-0">
             <CardTitle>ข้อความกำหนดเอง</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">เพิ่มข้อความตาม keyword ที่ผู้ใช้พิมพ์เข้ามา ระบบจะตรวจตามลำดับรายการ</p>
+            <p className="mt-1 text-sm text-muted-foreground">เพิ่มข้อความตามข้อความเรียกที่ผู้ใช้พิมพ์เข้ามา ต้องตรงทั้งข้อความ ระบบจะตรวจตามลำดับรายการ</p>
           </div>
           <Button type="button" size="sm" className="ml-0 w-full sm:ml-auto sm:w-auto" onClick={() => openCustom()}><Plus className="h-3.5 w-3.5" /> เพิ่มข้อความ</Button>
         </CardHeader>
@@ -211,7 +211,7 @@ export function MessageResponseSettings() {
           </div>
           <div className="rounded-lg border border-border bg-background/30 px-4 py-3 text-xs text-muted-foreground">
             <div className="flex items-center gap-2 font-medium text-foreground"><Search className="h-3.5 w-3.5" />ข้อความกำหนดเองทำงานอย่างไร</div>
-            <p className="mt-1">เมื่อผู้ใช้ส่งข้อความ ระบบจะตรวจว่า text มี keyword ที่ตั้งไว้หรือไม่ แบบไม่แยกตัวพิมพ์เล็ก/ใหญ่ รายการที่อยู่ด้านบนจะถูกเลือกก่อน ถ้าไม่ตรงจึงกลับไปใช้ข้อความมาตรฐาน เช่น “ยอด” จะไปใช้ข้อความเช็คยอดตามระบบเดิม</p>
+            <p className="mt-1">เมื่อผู้ใช้ส่งข้อความ ระบบจะตรวจข้อความให้ตรงกับข้อความเรียกทั้งชุด แบบไม่แยกตัวพิมพ์เล็ก/ใหญ่และไม่นับข้อความที่มีคำแทรก เช่น ต้องพิมพ์ “ยอด” ตรงตัวจึงจะตอบยอด รายการที่อยู่ด้านบนจะถูกเลือกก่อน ถ้าไม่ตรงจึงกลับไปใช้ข้อความมาตรฐาน</p>
             <p className="mt-1">ข้อความกำหนดเองรองรับเฉพาะการตอบกลับข้อความตัวอักษร 1:1 ไม่ทำงานในกลุ่ม LINE และไม่แทนที่ข้อความแจ้งสลิป/อนุมัติ/ปฏิเสธ</p>
           </div>
         </CardContent>
@@ -220,7 +220,7 @@ export function MessageResponseSettings() {
       <Dialog open={customOpen} onClose={() => setCustomOpen(false)} title={editingId ? "แก้ไขข้อความกำหนดเอง" : "เพิ่มข้อความกำหนดเอง"} className="max-w-xl">
         <form className="space-y-4" onSubmit={submitCustom}>
           <Field label="ชื่อข้อความ"><Input value={customDraft.name} onChange={(e) => setCustomDraft((d) => ({ ...d, name: e.target.value }))} placeholder="เช่น แจ้งเวลาทำการ" maxLength={120} required /></Field>
-          <Field label="Keyword ที่ใช้เรียก"><Input value={customDraft.trigger} onChange={(e) => setCustomDraft((d) => ({ ...d, trigger: e.target.value }))} placeholder="เช่น เวลาทำการ" maxLength={120} required /></Field>
+          <Field label="ข้อความเรียก (ต้องพิมพ์ตรงตัว)"><Input value={customDraft.trigger} onChange={(e) => setCustomDraft((d) => ({ ...d, trigger: e.target.value }))} placeholder="เช่น เวลาทำการ" maxLength={120} required /></Field>
           <Field label="ข้อความตอบกลับ"><textarea value={customDraft.text} onChange={(e) => setCustomDraft((d) => ({ ...d, text: e.target.value }))} rows={7} maxLength={4000} className={TEXTAREA_CLASS.replace("mt-2", "mt-1")} placeholder="ข้อความที่จะส่งกลับทาง LINE" required /></Field>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={customDraft.enabled} onChange={(e) => setCustomDraft((d) => ({ ...d, enabled: e.target.checked }))} /> เปิดใช้งานทันที</label>
           <Button type="submit" className="w-full" disabled={save.isPending}>{save.isPending ? "กำลังบันทึก…" : "บันทึกข้อความ"}</Button>

@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { ApiError } from "../lib/response";
 import { bangkokToday } from "../lib/date";
-import { decideMatch, type Candidate } from "./matching";
+import { decideMatch, isVerifiedExactMatch, type Candidate } from "./matching";
 import { audit } from "./audit";
 import { renderPlanBill } from "./bill";
 import { oaForSubmission } from "./oa";
@@ -36,6 +36,10 @@ export async function processSubmission(submissionId: string) {
   if (!sub) throw new ApiError("NOT_FOUND", "Submission not found");
 
   const today = bangkokToday();
+  const org = sub.orgId
+    ? await prisma.organization.findUnique({ where: { id: sub.orgId }, select: { autoMatchEnabled: true, autoApproveEnabled: true } })
+    : null;
+  const autoMatchEnabled = org?.autoMatchEnabled ?? true;
   const refUnique = await referenceUnique(prisma, sub);
   const isGroup = !!sub.lineGroupId;
   // 1:1 → match within the known customer; group → match org-wide (sender is staff, not the customer).
@@ -60,15 +64,20 @@ export async function processSubmission(submissionId: string) {
     }));
   }
 
-  const decision = decideMatch(
-    {
-      amount: sub.parsedAmount ? Number(sub.parsedAmount) : null,
-      transferDate: sub.parsedTransferDate,
-      accountNo: sub.parsedAccountNo,
-    },
-    candidates,
-    { today, referenceUnique: refUnique, customerKnown: matchable }
-  );
+  const parsedSlip = {
+    amount: sub.parsedAmount ? Number(sub.parsedAmount) : null,
+    transferDate: sub.parsedTransferDate,
+    accountNo: sub.parsedAccountNo,
+  };
+  const decision = autoMatchEnabled
+    ? decideMatch(parsedSlip, candidates, { today, referenceUnique: refUnique, customerKnown: matchable })
+    : {
+        status: "needs_admin_match" as const,
+        installmentId: null,
+        score: 0,
+        reason: "ปิดโหมดจับคู่อัตโนมัติ — รอแอดมินเลือกงวด",
+        topCandidates: [],
+      };
 
   // A cash bill/receipt is never an auto-trusted transfer — always route to admin review.
   const isCash = sub.docType === "cash";
@@ -95,11 +104,12 @@ export async function processSubmission(submissionId: string) {
     newValue: { matchStatus: decision.status, score: decision.score },
   });
 
-  // Org opt-in: an auto_matched transfer slip is approved on the spot (creates the payment
-  // and sends the "approved" message itself). Cash bills always wait for an admin.
-  if (!isCash && effective.status === "auto_matched" && sub.orgId) {
-    const org = await prisma.organization.findUnique({ where: { id: sub.orgId }, select: { autoApproveEnabled: true } });
-    if (org?.autoApproveEnabled) {
+  // Exact amount/date/destination-account matches are trusted immediately; other auto-matches
+  // still require the org opt-in. Cash bills always wait for an admin.
+  const matchedCandidate = effective.installmentId ? candidates.find((candidate) => candidate.id === effective.installmentId) : undefined;
+  const verifiedExactMatch = !!matchedCandidate && isVerifiedExactMatch(parsedSlip, matchedCandidate);
+  if (sub.docType === "slip" && effective.status === "auto_matched" && sub.orgId) {
+    if (org?.autoApproveEnabled || verifiedExactMatch) {
       await approveSubmission(sub.id, "system", sub.orgId);
       return prisma.paymentSubmission.findUnique({ where: { id: sub.id } });
     }

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { toast } from "react-toastify";
+import { Eye, EyeOff } from "lucide-react";
 import { loginUrl, setDevKey, setToken, clearAuth } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +11,7 @@ export function Login() {
   const [user, setUser] = useState("");
   const [pass, setPass] = useState("");
   const [dev, setDev] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const login = async (e: React.FormEvent) => {
@@ -69,7 +71,18 @@ export function Login() {
             </div>
             <div>
               <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">Password</label>
-              <Input type="password" value={pass} onChange={(e) => setPass(e.target.value)} required className="mt-1 h-10" />
+              <div className="relative mt-1">
+                <Input type={showPassword ? "text" : "password"} value={pass} onChange={(e) => setPass(e.target.value)} required className="h-10 pr-10" />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+                  aria-pressed={showPassword}
+                  className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             <Button className="w-full h-10" type="submit" disabled={busy}>
               {busy ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}

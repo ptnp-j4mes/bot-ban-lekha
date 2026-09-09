@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "react-toastify";
-import { Copy, Plus } from "lucide-react";
+import { Copy, Pencil, Plus } from "lucide-react";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
@@ -16,8 +16,10 @@ const webhookUrl = (id: string) => `${API_BASE || "<BACKEND_URL>"}/api/line/webh
 
 export function LineOa() {
   const [createOpen, setCreateOpen] = useState(false);
+  const [editing, setEditing] = useState<any | null>(null);
   const list = useQuery({ queryKey: ["line-oa"], queryFn: () => apiGet("/api/line-oa-accounts") });
   const create = useMut((b: any) => apiSend("/api/line-oa-accounts", "POST", b), { success: "เพิ่ม OA แล้ว", invalidate: ["line-oa"] });
+  const update = useMut((b: { id: string; data: any }) => apiSend(`/api/line-oa-accounts/${b.id}`, "PATCH", b.data), { success: "บันทึก OA แล้ว", invalidate: ["line-oa"] });
   const toggle = useMut((b: { id: string; active: boolean }) => apiSend(`/api/line-oa-accounts/${b.id}`, "PATCH", { is_active: b.active }), {
     success: "อัปเดตแล้ว",
     invalidate: ["line-oa"],
@@ -28,6 +30,15 @@ export function LineOa() {
     const form = e.currentTarget;
     const f = Object.fromEntries(new FormData(form).entries());
     create.mutate(f, { onSuccess: () => { form.reset(); setCreateOpen(false); } });
+  };
+  const submitEdit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const f = Object.fromEntries(new FormData(form).entries());
+    const data = { name: f.name, channel_id: f.channel_id } as Record<string, FormDataEntryValue>;
+    if (f.channel_secret) data.channel_secret = f.channel_secret;
+    if (f.channel_access_token) data.channel_access_token = f.channel_access_token;
+    update.mutate({ id: editing.id, data }, { onSuccess: () => { form.reset(); setEditing(null); } });
   };
   const copy = (id: string) => { navigator.clipboard?.writeText(webhookUrl(id)); toast.success("คัดลอก Webhook URL แล้ว"); };
 
@@ -43,7 +54,10 @@ export function LineOa() {
       </span>
     ) },
     { key: "act", header: "", stop: true, cell: (o) => (
-      <Button size="sm" variant={o.is_active ? "destructive" : "success"} onClick={() => toggle.mutate({ id: o.id, active: !o.is_active })}>{o.is_active ? "ปิด" : "เปิด"}</Button>
+      <div className="flex justify-end gap-1">
+        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditing(o)} aria-label={`แก้ไข ${o.name}`} title="แก้ไข"><Pencil className="h-4 w-4" /></Button>
+        <Button size="sm" variant={o.is_active ? "destructive" : "success"} onClick={() => toggle.mutate({ id: o.id, active: !o.is_active })}>{o.is_active ? "ปิด" : "เปิด"}</Button>
+      </div>
     ) },
   ];
 
@@ -59,6 +73,19 @@ export function LineOa() {
           </div>
           <p className="text-xs text-muted-foreground">secret/token เก็บฝั่ง server และไม่ถูกส่งกลับมาแสดงอีก (write-only)</p>
           <Button type="submit" className="w-full" disabled={create.isPending}>เพิ่ม OA</Button>
+        </form>
+      </Dialog>
+
+      <Dialog open={!!editing} onClose={() => setEditing(null)} title={`แก้ไข LINE OA${editing ? ` · ${editing.name}` : ""}`} className="max-w-2xl">
+        <form className="space-y-4" onSubmit={submitEdit}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="ชื่อ OA"><Input name="name" defaultValue={editing?.name ?? ""} autoFocus required /></Field>
+            <Field label="Channel ID"><Input name="channel_id" defaultValue={editing?.channel_id ?? ""} required /></Field>
+            <Field label="Channel Secret ใหม่"><Input name="channel_secret" type="password" placeholder="เว้นว่างเพื่อใช้ค่าเดิม" /></Field>
+            <Field label="Channel Access Token ใหม่"><Input name="channel_access_token" type="password" placeholder="เว้นว่างเพื่อใช้ค่าเดิม" /></Field>
+          </div>
+          <p className="text-xs text-muted-foreground">secret/token เดิมจะไม่แสดงกลับมา กรอกเฉพาะเมื่อต้องการเปลี่ยน</p>
+          <Button type="submit" className="w-full" disabled={update.isPending}>บันทึกการแก้ไข</Button>
         </form>
       </Dialog>
 

@@ -12,7 +12,7 @@ jest.mock('../src/api', () => ({
   api: {
     get: jest.fn(async (path: string) => {
       if (path.includes('/api/customers?limit=50')) return { items: [], total: 0 };
-      if (path === '/api/customers/customer-1/detail') return { customer: { id: 'customer-1', customer_code: 'LINE-FA1C237B', display_name: null, phone: null, line_user_id: null, status: 'active' }, bill_plans: [] };
+      if (path === '/api/customers/customer-1/detail') return { customer: { id: 'customer-1', customer_code: 'LINE-FA1C237B', display_name: null, phone: null, line_user_id: null, status: 'active' }, bill_plans: [{ id: 'bill-1', bill_no: 1, principal_amount: 3000, installment_amount: 1000, total_installments: 3, status: 'completed', installments: [{ id: 'installment-1', installment_no: 1, due_date: '2026-08-31', amount_due: 1000, amount_paid: 1000, status: 'paid' }] }] };
       if (path.includes('/api/customers?limit=100')) return { items: [{ id: 'customer-1', customer_code: 'LINE-FA1C237B', display_name: null, phone: null, line_user_id: null, status: 'active' }] };
       if (path === '/api/bill-plans') return [];
       if (path === '/api/bank-accounts') return [];
@@ -72,6 +72,17 @@ test('customer detail can link a LINE user id', async () => {
   await waitFor(() => expect(screen.getByPlaceholderText('Uxxxxxxxx').props.value).toBe(' U123 '));
   fireEvent(screen.getByRole('button', { name: 'ผูก LINE' }), 'click');
   await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith('/api/customers/link-line', { customer_code: 'LINE-FA1C237B', line_user_id: 'U123' }));
+});
+
+test('customer detail opens a bill detail when a bill card is pressed', async () => {
+  await renderWithQuery(<CustomerDetailScreen route={{ params: { id: 'customer-1', name: 'LINE-FA1C237B' } }} />);
+  fireEvent.press(await screen.findByLabelText('เปิดรายละเอียดบิล 1'));
+  expect(await screen.findByText('รายละเอียดบิล')).toBeTruthy();
+  expect(screen.getByText('สรุปบิล')).toBeTruthy();
+  expect(screen.getByText('รายการงวด (1)')).toBeTruthy();
+  expect(screen.getByText('งวดที่ 1')).toBeTruthy();
+  fireEvent.press(screen.getByLabelText('ปิดรายละเอียดบิล'));
+  await waitFor(() => expect(screen.queryByText('รายละเอียดบิล')).toBeNull());
 });
 
 test('bill screen can link the selected customer to a LINE user', async () => {

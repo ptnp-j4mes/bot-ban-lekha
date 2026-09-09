@@ -95,8 +95,8 @@ const NAV = NAV_GROUPS.flatMap((g) => g.items);
 function SidebarBrand() {
   return (
     <div className="flex h-[62px] shrink-0 items-center gap-3 border-b border-border px-4 py-3">
-      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
-        <span className="fig text-base font-bold text-white">฿</span>
+      <div className="h-9 w-9 overflow-hidden rounded-lg bg-primary">
+        <img src="/apple-touch-icon.png" alt="" className="h-full w-full object-cover" />
       </div>
       <div className="leading-tight">
         <div className="font-head text-[15px] font-bold text-foreground">Bill Admin</div>

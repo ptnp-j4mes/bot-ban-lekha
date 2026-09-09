@@ -84,8 +84,8 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/40 p-3 sm:p-4" onClick={onClose}>
-      <div className="my-1 w-full max-w-5xl space-y-4 sm:my-4" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/40 p-0" onClick={onClose}>
+      <div className="min-h-full w-full max-w-none space-y-4 bg-card p-3 sm:p-4" onClick={(e) => e.stopPropagation()}>
         <Card>
           <CardHeader className="flex-row items-start gap-2">
             <div className="min-w-0">

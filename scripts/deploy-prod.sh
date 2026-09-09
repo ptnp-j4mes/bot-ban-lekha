@@ -15,14 +15,14 @@ fi
 echo "ตรวจสอบ Docker Compose configuration..."
 docker compose -f "$COMPOSE_FILE" config --quiet
 
-echo "หยุด backend และ admin ก่อน build (PostgreSQL จะทำงานต่อ)..."
-docker compose -f "$COMPOSE_FILE" stop backend admin
+echo "หยุด backend, admin และ caddy ก่อน build (PostgreSQL จะทำงานต่อ)..."
+docker compose -f "$COMPOSE_FILE" stop backend admin caddy
 
 echo "Build backend และ admin..."
 docker compose -f "$COMPOSE_FILE" build backend admin
 
-echo "เริ่ม backend และ admin จาก image ที่ build แล้ว..."
-docker compose -f "$COMPOSE_FILE" up -d --no-build backend admin
+echo "เริ่ม backend, admin และ caddy จาก image ที่ build แล้ว..."
+docker compose -f "$COMPOSE_FILE" up -d --no-build backend admin caddy
 
 echo "ตรวจสอบสถานะ service..."
 docker compose -f "$COMPOSE_FILE" ps

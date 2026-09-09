@@ -1,7 +1,7 @@
 # Production stack for a VPS:
 #   cp .env.example .env  →  fill secrets  →  ./scripts/deploy-prod.sh
-# Admin UI + API on port 80. Put TLS in front (Cloudflare proxied DNS or a reverse proxy) —
-# the LINE webhook requires HTTPS.
+# Caddy terminates HTTPS and obtains/renews the Let's Encrypt certificate.
+# The LINE webhook requires HTTPS.
 services:
   postgres:
     image: postgres:16-alpine
@@ -49,12 +49,25 @@ services:
       PORT: 5173
       BACKEND_HOST: backend
       BACKEND_PORT: 3000
-    ports:
-      - "80:5173"
     depends_on:
       backend:
         condition: service_healthy
 
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - admin
+
 volumes:
   pgdata:
   slips:
+  caddy_data:
+  caddy_config:

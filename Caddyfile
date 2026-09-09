@@ -1,0 +1,3 @@
+baan-lekha.com, www.baan-lekha.com {
+    reverse_proxy admin:5173
+}

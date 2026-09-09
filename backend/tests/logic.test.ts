@@ -3,7 +3,7 @@ import { generateInstallments } from "../src/services/bill";
 import { toEmojiNumber } from "../src/lib/emoji-number";
 import { renderBillStatusLines, renderDailyReminder, renderBillText, renderGroupedBillText, renderCustomerBills } from "../src/services/messages";
 import { scoreInstallment, decideMatch } from "../src/services/matching";
-import { mapGeminiResult, detectImageMime } from "../src/services/ocr";
+import { getOcrService, mapGeminiResult, detectImageMime } from "../src/services/ocr";
 import { deleteSlipFile } from "../src/services/storage";
 import { bangkokDayEndExclusive, bangkokDayStart, dateOnly, toISODate } from "../src/lib/date";
 import { verifySignature } from "../src/lib/line";
@@ -313,6 +313,18 @@ test("mapGeminiResult: coerces types, nulls -> undefined", () => {
   expect(r.accountNo).toBeUndefined();
   expect(r.confidence).toBe(92);
   expect(r.rawText).toBe("{raw}");
+});
+
+test("mapGeminiResult: removes NUL bytes before database write", () => {
+  const r = mapGeminiResult({ bankName: "Bank\u0000", accountNo: "123\u0000" }, "{raw\u0000}");
+  expect(r.rawText).toBe("{raw}");
+  expect(r.bankName).toBe("Bank");
+  expect(r.accountNo).toBe("123");
+});
+
+test("mock OCR: binary image does not become database text", async () => {
+  const r = await getOcrService().parseSlip(Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01]));
+  expect(r.rawText).toBe("");
 });
 
 test("detectImageMime: real images pass, junk rejected", () => {

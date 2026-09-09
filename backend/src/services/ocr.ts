@@ -40,10 +40,13 @@ class MockOcrProvider implements OcrService {
         confidence: j.confidence ?? 95,
       };
     } catch {
-      return { rawText: text, confidence: 0 };
+      // A real image is not OCR text. Keeping its decoded bytes can inject NULs into PostgreSQL.
+      return { rawText: "", confidence: 0 };
     }
   }
 }
+
+const withoutNul = (value: string) => value.replace(/\u0000/g, "");
 
 // Detect supported image mime from magic bytes. null = unsupported/not an image.
 export function detectImageMime(buf?: Buffer): "image/jpeg" | "image/png" | "image/webp" | null {
@@ -83,9 +86,9 @@ const SLIP_SCHEMA = {
 // Map Gemini's structured JSON into an OcrResult (defensive: tolerate missing/odd fields).
 export function mapGeminiResult(j: any, rawText: string): OcrResult {
   const num = (v: any) => (v == null || v === "" || isNaN(Number(v)) ? undefined : Number(v));
-  const str = (v: any) => (v == null || v === "" ? undefined : String(v));
+  const str = (v: any) => (v == null || v === "" ? undefined : withoutNul(String(v)));
   return {
-    rawText,
+    rawText: withoutNul(rawText),
     docType: asDocType(j?.docType),
     amount: num(j?.amount),
     transferDate: str(j?.transferDate),

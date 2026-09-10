@@ -12,7 +12,7 @@ const AUTHORIZE = "https://access.line.me/oauth2/v2.1/authorize";
 const TOKEN = "https://api.line.me/oauth2/v2.1/token";
 const PROFILE = "https://api.line.me/v2/profile";
 const LOGIN_COMPLETION_TTL_MS = 5 * 60 * 1000;
-const secureCookie = env.frontendUrl.startsWith("https://");
+const secureCookie = process.env.NODE_ENV === "production" || env.frontendUrl.startsWith("https://");
 
 type LineAdminProfile = { sub: string; name?: string; pictureUrl?: string };
 

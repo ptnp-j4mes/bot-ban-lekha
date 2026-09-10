@@ -5,14 +5,17 @@ import { Badge, Button, Card, Field, Header, Screen } from '../../../../shared/s
 import { useColors } from '../../../../shared/src/theme';
 import type { BankAccount } from '../../../../shared/src/types';
 import { api } from '../api';
+import { useAdminAuth } from '../auth';
 
 export function BanksScreen() {
   const colors = useColors();
   const qc = useQueryClient();
+  const { me, orgId } = useAdminAuth();
+  const queryScope = me?.user_id || orgId ? [me?.user_id ?? null, orgId ?? null] as const : [] as const;
   const [accountName, setAccountName] = useState('');
   const [accountNo, setAccountNo] = useState('');
   const [bankName, setBankName] = useState('');
-  const accounts = useQuery({ queryKey: ['mobile-banks'], queryFn: () => api.get<BankAccount[]>('/api/bank-accounts') });
+  const accounts = useQuery({ queryKey: ['mobile-banks', ...queryScope], queryFn: () => api.get<BankAccount[]>('/api/bank-accounts') });
   const create = useMutation({ mutationFn: () => api.post('/api/bank-accounts', { account_name: accountName.trim(), account_no: accountNo.trim(), bank_name: bankName.trim(), is_default: (accounts.data?.length ?? 0) === 0 }), onSuccess: async () => { setAccountName(''); setAccountNo(''); setBankName(''); await qc.invalidateQueries({ queryKey: ['mobile-banks'] }); } });
   const mutateAccount = async (id: string, action: 'set-default' | 'deactivate') => {
     try { await api.patch(`/api/bank-accounts/${id}/${action}`); await qc.invalidateQueries({ queryKey: ['mobile-banks'] }); } catch (err) { Alert.alert('ทำรายการไม่สำเร็จ', err instanceof Error ? err.message : 'กรุณาลองใหม่'); }

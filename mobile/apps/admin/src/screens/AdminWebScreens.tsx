@@ -6,6 +6,7 @@ import { Badge, Button, Card, Field, Header, Metric, Screen, StickyHeader } from
 import { formatBaht, formatDate, todayIso } from '../../../../shared/src/format';
 import { font, useColors } from '../../../../shared/src/theme';
 import { api } from '../api';
+import { useAdminAuth } from '../auth';
 import { config } from '../config';
 import { store } from '../storage';
 
@@ -21,9 +22,11 @@ function StateText({ children, error = false }: { children: string; error?: bool
 function RegistryScreen({ title, eyebrow, endpoint, queryKey, empty, nameLabel, idLabel, countLabel }: { title: string; eyebrow: string; endpoint: string; queryKey: string; empty: string; nameLabel: string; idLabel: string; countLabel: string }) {
   const colors = useColors();
   const qc = useQueryClient();
+  const { me, orgId } = useAdminAuth();
+  const queryScope = me?.user_id || orgId ? [me?.user_id ?? null, orgId ?? null] as const : [] as const;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
-  const list = useQuery({ queryKey: [queryKey], queryFn: () => api.get<any[]>(endpoint) });
+  const list = useQuery({ queryKey: [queryKey, ...queryScope], queryFn: () => api.get<any[]>(endpoint) });
   const rename = useMutation({ mutationFn: () => api.patch(`${endpoint}/${editingId}`, { name: draft.trim() }), onSuccess: async () => { setEditingId(null); setDraft(''); await qc.invalidateQueries({ queryKey: [queryKey] }); } });
   const rows = list.data ?? [];
   return <Screen stickyHeader={<StickyHeader><Header eyebrow={eyebrow} title={title} /></StickyHeader>}>{list.isLoading ? <StateText>กำลังโหลดข้อมูล…</StateText> : null}{list.isError ? <StateText error>โหลดข้อมูลไม่สำเร็จ</StateText> : null}{!list.isLoading && !rows.length ? <Card><StateText>{empty}</StateText></Card> : rows.map((row) => <Card key={row.id}><View style={styles.rowTop}><View style={styles.rowCopy}><Text style={[styles.rowTitle, { color: colors.ink }]}>{row.name || '-'}</Text><Text style={[styles.rowMeta, { color: colors.muted }]}>{idLabel}: {row.line_user_id || row.line_group_id || '-'}</Text></View><Badge tone={row.slip_count > 0 ? 'green' : 'muted'}>{row.slip_count ?? 0} {countLabel}</Badge></View>{editingId === row.id ? <View style={styles.editBox}><Field label={nameLabel} value={draft} onChangeText={setDraft} /><View style={styles.buttonRow}><View style={styles.buttonHalf}><Button title="ยกเลิก" secondary onPress={() => { setEditingId(null); setDraft(''); }} /></View><View style={styles.buttonHalf}><Button title={rename.isPending ? 'กำลังบันทึก…' : 'บันทึก'} disabled={!draft.trim() || rename.isPending} onPress={() => rename.mutate()} /></View></View></View> : <Button title="เปลี่ยนชื่อ" secondary onPress={() => { setEditingId(row.id); setDraft(row.name ?? ''); }} />}</Card>)}</Screen>;
@@ -39,6 +42,8 @@ export function GroupsScreen() {
 
 export function ReportsScreen() {
   const colors = useColors();
+  const { me, orgId } = useAdminAuth();
+  const queryScope = me?.user_id || orgId ? [me?.user_id ?? null, orgId ?? null] as const : [] as const;
   const [fromDraft, setFromDraft] = useState('');
   const [toDraft, setToDraft] = useState('');
   const [from, setFrom] = useState('');
@@ -48,9 +53,9 @@ export function ReportsScreen() {
   const params = new URLSearchParams();
   if (from) params.set('from', from);
   if (to) params.set('to', to);
-  const summary = useQuery({ queryKey: ['mobile-report-summary', from, to], queryFn: () => api.get<any>(`/api/reports/summary${params.toString() ? `?${params}` : ''}`) });
-  const daily = useQuery({ queryKey: ['mobile-report-daily', day], queryFn: () => api.get<any>(`/api/reports/daily?date=${day}`) });
-  const overdue = useQuery({ queryKey: ['mobile-report-overdue'], queryFn: () => api.get<any[]>('/api/installments/overdue') });
+  const summary = useQuery({ queryKey: ['mobile-report-summary', ...queryScope, from, to], queryFn: () => api.get<any>(`/api/reports/summary${params.toString() ? `?${params}` : ''}`) });
+  const daily = useQuery({ queryKey: ['mobile-report-daily', ...queryScope, day], queryFn: () => api.get<any>(`/api/reports/daily?date=${day}`) });
+  const overdue = useQuery({ queryKey: ['mobile-report-overdue', ...queryScope], queryFn: () => api.get<any[]>('/api/installments/overdue') });
   const s = summary.data;
   return <Screen stickyHeader={<StickyHeader><Header eyebrow="รายงาน & ระบบ" title="รายงาน" /></StickyHeader>}><Card><Text style={[styles.cardTitle, { color: colors.ink }]}>สรุปตามช่วงเวลา</Text><View style={styles.twoColumns}><View style={styles.column}><Field label="เริ่มวันที่" value={fromDraft} onChangeText={setFromDraft} placeholder="YYYY-MM-DD" /></View><View style={styles.column}><Field label="ถึงวันที่" value={toDraft} onChangeText={setToDraft} placeholder="YYYY-MM-DD" /></View></View><Button title="ค้นหา" onPress={() => { setFrom(fromDraft); setTo(toDraft); }} /></Card><View style={styles.metricGrid}><View style={styles.metricHalf}><Metric label="ยอดเก็บได้ (บาท)" value={formatBaht(s?.collected ?? 0)} /></View><View style={styles.metricHalf}><Metric label="จำนวนรายการชำระ" value={String(s?.payment_count ?? 0)} tone="green" /></View><View style={styles.metricHalf}><Metric label="สลิปรอตรวจ" value={String(s?.pending_count ?? 0)} tone="amber" /></View><View style={styles.metricHalf}><Metric label="งวดค้างชำระ" value={String(s?.overdue_count ?? 0)} tone="red" /></View><View style={styles.metricHalf}><Metric label="ยอดค้างชำระ (บาท)" value={formatBaht(s?.overdue_amount ?? 0)} tone="red" /></View><View style={styles.metricHalf}><Metric label="ลูกค้าทั้งหมด" value={String(s?.customers ?? 0)} /></View></View><Card><Text style={[styles.cardTitle, { color: colors.ink }]}>รายงานรายวัน — ต่อกลุ่ม LINE</Text><Field label="วันที่" value={dayDraft} onChangeText={setDayDraft} /><Button title="ค้นหารายวัน" secondary onPress={() => setDay(dayDraft)} />{daily.isLoading ? <StateText>กำลังโหลดรายงาน…</StateText> : null}{(daily.data?.groups ?? []).map((group: any) => <View key={group.line_group_id} style={[styles.reportRow, { borderBottomColor: colors.line }]}><View style={styles.rowCopy}><Text style={[styles.rowTitle, { color: colors.ink }]}>{group.name}</Text><Text style={[styles.rowMeta, { color: colors.muted }]}>รับ {group.received} · อนุมัติ {group.approved} · รอตรวจ {group.pending}</Text></View><Text style={[styles.amount, { color: colors.ink }]}>{formatBaht(group.amount)}</Text></View>)}{!daily.data?.groups?.length && !daily.isLoading ? <StateText>วันนี้ยังไม่มีสลิปจากกลุ่ม</StateText> : null}</Card><Card><Text style={[styles.cardTitle, { color: colors.ink }]}>ค้างชำระ ({overdue.data?.length ?? 0})</Text>{(overdue.data ?? []).slice(0, 30).map((item: any) => <View key={item.id} style={[styles.reportRow, { borderBottomColor: colors.line }]}><View style={styles.rowCopy}><Text style={[styles.rowTitle, { color: colors.ink }]}>{item.bill_plan?.customer?.display_name ?? item.bill_plan?.customer?.customer_code ?? '-'}</Text><Text style={[styles.rowMeta, { color: colors.muted }]}>บิล {item.bill_plan?.bill_no ?? '-'} · งวด {item.installment_no ?? '-'} · {formatDate(item.due_date)}</Text></View><Text style={[styles.amount, { color: colors.red }]}>{formatBaht(Number(item.amount_due) - Number(item.amount_paid ?? 0))}</Text></View>)}{!overdue.data?.length ? <StateText>ไม่มีงวดค้างชำระ</StateText> : null}</Card></Screen>;
 }
@@ -58,12 +63,14 @@ export function ReportsScreen() {
 export function LineOaScreen() {
   const colors = useColors();
   const qc = useQueryClient();
+  const { me, orgId } = useAdminAuth();
+  const queryScope = me?.user_id || orgId ? [me?.user_id ?? null, orgId ?? null] as const : [] as const;
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [channelId, setChannelId] = useState('');
   const [secret, setSecret] = useState('');
   const [accessToken, setAccessToken] = useState('');
-  const list = useQuery({ queryKey: ['mobile-line-oa'], queryFn: () => api.get<any[]>('/api/line-oa-accounts') });
+  const list = useQuery({ queryKey: ['mobile-line-oa', ...queryScope], queryFn: () => api.get<any[]>('/api/line-oa-accounts') });
   const create = useMutation({ mutationFn: () => api.post('/api/line-oa-accounts', { name: name.trim(), channel_id: channelId.trim(), channel_secret: secret, channel_access_token: accessToken }), onSuccess: async () => { setOpen(false); setName(''); setChannelId(''); setSecret(''); setAccessToken(''); await qc.invalidateQueries({ queryKey: ['mobile-line-oa'] }); } });
   const toggle = useMutation({ mutationFn: (item: any) => api.patch(`/api/line-oa-accounts/${item.id}`, { is_active: !item.is_active }), onSuccess: () => qc.invalidateQueries({ queryKey: ['mobile-line-oa'] }) });
   return <Screen><Header eyebrow="รายงาน & ระบบ" title="LINE OA" />{open ? <Card><Text style={[styles.cardTitle, { color: colors.ink }]}>เพิ่ม LINE OA</Text><Field label="ชื่อ OA" value={name} onChangeText={setName} placeholder="เช่น ร้าน A" /><Field label="Channel ID" value={channelId} onChangeText={setChannelId} /><Field label="Channel Secret" value={secret} onChangeText={setSecret} secureTextEntry /><Field label="Channel Access Token" value={accessToken} onChangeText={setAccessToken} secureTextEntry /><Text style={[styles.hint, { color: colors.muted }]}>secret/token จะเก็บฝั่ง server และไม่แสดงกลับมา</Text><View style={styles.buttonRow}><View style={styles.buttonHalf}><Button title="ยกเลิก" secondary onPress={() => setOpen(false)} /></View><View style={styles.buttonHalf}><Button title={create.isPending ? 'กำลังบันทึก…' : 'เพิ่ม OA'} disabled={!name || !channelId || !secret || !accessToken || create.isPending} onPress={() => create.mutate()} /></View></View></Card> : <Button title="เพิ่ม LINE OA" onPress={() => setOpen(true)} />}{list.isLoading ? <StateText>กำลังโหลด LINE OA…</StateText> : null}{(list.data ?? []).map((item: any) => <Card key={item.id}><View style={styles.rowTop}><View style={styles.rowCopy}><Text style={[styles.rowTitle, { color: colors.ink }]}>{item.name}</Text><Text style={[styles.rowMeta, { color: colors.muted }]}>channel_id: {item.channel_id}</Text><Text style={[styles.rowMeta, { color: colors.muted }]}>Webhook: /api/line/webhook/{item.id}</Text></View><Badge tone={item.is_active ? 'green' : 'muted'}>{item.is_active ? 'active' : 'off'}</Badge></View><Button title={item.is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'} secondary onPress={() => toggle.mutate(item)} /></Card>)}{!list.isLoading && !list.data?.length ? <Card><StateText>ยังไม่มี LINE OA</StateText></Card> : null}</Screen>;
@@ -76,7 +83,9 @@ const MESSAGE_FIELDS = [
 export function MessageResponseSettingsScreen() {
   const colors = useColors();
   const qc = useQueryClient();
-  const settings = useQuery({ queryKey: ['mobile-settings'], queryFn: () => api.get<any>('/api/settings') });
+  const { me, orgId } = useAdminAuth();
+  const queryScope = me?.user_id || orgId ? [me?.user_id ?? null, orgId ?? null] as const : [] as const;
+  const settings = useQuery({ queryKey: ['mobile-settings', ...queryScope], queryFn: () => api.get<any>('/api/settings') });
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   useEffect(() => { const templates = settings.data?.message_templates; if (templates) setDrafts(Object.fromEntries(MESSAGE_FIELDS.map(([key]) => [key, templates[key] ?? '']))); }, [settings.data]);
   const save = useMutation({ mutationFn: () => api.patch('/api/settings', { message_templates: { ...drafts, custom_messages: settings.data?.message_templates?.custom_messages ?? [] } }), onSuccess: () => qc.invalidateQueries({ queryKey: ['mobile-settings'] }) });
@@ -87,7 +96,9 @@ export function MessageResponseSettingsScreen() {
 export function SettingsScreen() {
   const colors = useColors();
   const qc = useQueryClient();
-  const settings = useQuery({ queryKey: ['mobile-org-settings'], queryFn: () => api.get<any>('/api/settings') });
+  const { me, orgId } = useAdminAuth();
+  const queryScope = me?.user_id || orgId ? [me?.user_id ?? null, orgId ?? null] as const : [] as const;
+  const settings = useQuery({ queryKey: ['mobile-org-settings', ...queryScope], queryFn: () => api.get<any>('/api/settings') });
   const [name, setName] = useState('');
   const [timezone, setTimezone] = useState('Asia/Bangkok');
   const [footer, setFooter] = useState('');
@@ -103,10 +114,12 @@ export function SettingsScreen() {
 
 export function LogsScreen() {
   const colors = useColors();
+  const { me, orgId } = useAdminAuth();
+  const queryScope = me?.user_id || orgId ? [me?.user_id ?? null, orgId ?? null] as const : [] as const;
   const [tab, setTab] = useState<'audit' | 'inbound'>('audit');
   const [page, setPage] = useState(1);
-  const audit = useQuery({ queryKey: ['mobile-audit', page], queryFn: () => api.get<any>(`/api/audit-logs?page=${page}&limit=30`) });
-  const inbound = useQuery({ queryKey: ['mobile-inbound', page], queryFn: () => api.get<any>(`/api/message-logs?page=${page}&limit=30`) });
+  const audit = useQuery({ queryKey: ['mobile-audit', ...queryScope, page], queryFn: () => api.get<any>(`/api/audit-logs?page=${page}&limit=30`) });
+  const inbound = useQuery({ queryKey: ['mobile-inbound', ...queryScope, page], queryFn: () => api.get<any>(`/api/message-logs?page=${page}&limit=30`) });
   const data = tab === 'audit' ? audit.data : inbound.data;
   const items = data?.items ?? [];
   return <Screen><Header eyebrow="รายงาน & ระบบ" title="ประวัติ" /><View style={[styles.tabRow, { borderColor: colors.line }]}><Pressable onPress={() => { setTab('audit'); setPage(1); }} style={[styles.tab, tab === 'audit' && { backgroundColor: colors.coral }]}><Text style={[styles.tabText, { color: tab === 'audit' ? '#FFFFFF' : colors.ink }]}>Audit log</Text></Pressable><Pressable onPress={() => { setTab('inbound'); setPage(1); }} style={[styles.tab, tab === 'inbound' && { backgroundColor: colors.coral }]}><Text style={[styles.tabText, { color: tab === 'inbound' ? '#FFFFFF' : colors.ink }]}>ข้อความ LINE</Text></Pressable></View>{items.map((item: any) => <Card key={item.id}><Text style={[styles.rowTitle, { color: colors.ink }]}>{tab === 'audit' ? item.action : item.message_text || item.message_type}</Text><Text style={[styles.rowMeta, { color: colors.muted }]}>{dateTime(tab === 'audit' ? item.created_at : item.sent_at)}</Text><Text numberOfLines={4} style={[styles.logBody, { color: colors.muted }]}>{tab === 'audit' ? `${item.entity_type ?? '-'} · ${item.actor_type ?? '-'}` : `${item.source_name ?? item.line_user_id ?? '-'} · ${item.status ?? '-'}`}</Text></Card>)}{!items.length ? <Card><StateText>{tab === 'audit' ? 'ยังไม่มีประวัติ' : 'ยังไม่มีข้อความขาเข้า'}</StateText></Card> : null}<View style={styles.pagination}><Button title="ก่อนหน้า" secondary disabled={page <= 1} onPress={() => setPage((value) => value - 1)} /><Text style={[styles.pageText, { color: colors.muted }]}>{page} / {Math.max(1, Math.ceil((data?.total ?? 0) / 30))}</Text><Button title="ถัดไป" secondary disabled={page >= Math.ceil((data?.total ?? 0) / 30)} onPress={() => setPage((value) => value + 1)} /></View></Screen>;
@@ -114,15 +127,17 @@ export function LogsScreen() {
 
 export function ChatCloneScreen() {
   const colors = useColors();
+  const { me, orgId } = useAdminAuth();
+  const queryScope = me?.user_id || orgId ? [me?.user_id ?? null, orgId ?? null] as const : [] as const;
   const { width } = useWindowDimensions();
   const isWide = width >= 760;
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const conversations = useQuery({ queryKey: ['mobile-conversations', query], queryFn: () => api.get<any>(`/api/conversations?page=1&limit=50&search=${encodeURIComponent(query)}`), refetchInterval: 30_000 });
+  const conversations = useQuery({ queryKey: ['mobile-conversations', ...queryScope, query], queryFn: () => api.get<any>(`/api/conversations?page=1&limit=50&search=${encodeURIComponent(query)}`), refetchInterval: 30_000 });
   const conversationItems = conversations.data?.items;
   const items = useMemo(() => conversationItems ?? [], [conversationItems]);
-  const detail = useQuery({ queryKey: ['mobile-conversation', selectedId], queryFn: () => api.get<any>(`/api/conversations/${encodeURIComponent(selectedId ?? '')}`), enabled: Boolean(selectedId), refetchInterval: 30_000 });
+  const detail = useQuery({ queryKey: ['mobile-conversation', ...queryScope, selectedId], queryFn: () => api.get<any>(`/api/conversations/${encodeURIComponent(selectedId ?? '')}`), enabled: Boolean(selectedId), refetchInterval: 30_000 });
 
   useEffect(() => {
     if (!items.length) {

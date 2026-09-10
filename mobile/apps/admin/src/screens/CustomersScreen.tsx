@@ -8,6 +8,7 @@ import { formatBaht, formatDate, statusLabel } from '../../../../shared/src/form
 import { useColors } from '../../../../shared/src/theme';
 import type { Customer } from '../../../../shared/src/types';
 import { api } from '../api';
+import { useAdminAuth } from '../auth';
 import type { AdminStackParamList } from '../navigation';
 
 type CustomerBill = {
@@ -27,10 +28,12 @@ export function CustomersScreen() {
   const colors = useColors();
   const navigation = useNavigation<NativeStackNavigationProp<AdminStackParamList>>();
   const qc = useQueryClient();
+  const { me, orgId } = useAdminAuth();
+  const queryScope = me?.user_id || orgId ? [me?.user_id ?? null, orgId ?? null] as const : [] as const;
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const customers = useQuery({ queryKey: ['mobile-customers'], queryFn: () => api.get<{ items: Customer[]; total: number }>('/api/customers?limit=50&page=1') });
+  const customers = useQuery({ queryKey: ['mobile-customers', ...queryScope], queryFn: () => api.get<{ items: Customer[]; total: number }>('/api/customers?limit=50&page=1') });
   const create = useMutation({ mutationFn: () => api.post('/api/customers', { customer_code: code.trim(), display_name: name.trim() || undefined, phone: phone.trim() || undefined }), onSuccess: async () => { setCode(''); setName(''); setPhone(''); await qc.invalidateQueries({ queryKey: ['mobile-customers'] }); } });
 
   return (
@@ -69,9 +72,11 @@ export function CustomersScreen() {
 export function CustomerDetailScreen({ route }: { route: { params: { id: string; name: string } } }) {
   const colors = useColors();
   const qc = useQueryClient();
+  const { me, orgId } = useAdminAuth();
+  const queryScope = me?.user_id || orgId ? [me?.user_id ?? null, orgId ?? null] as const : [] as const;
   const [lineUserId, setLineUserId] = useState('');
   const [selectedBill, setSelectedBill] = useState<CustomerBill | null>(null);
-  const detail = useQuery({ queryKey: ['mobile-customer-detail', route.params.id], queryFn: () => api.get<any>(`/api/customers/${route.params.id}/detail`) });
+  const detail = useQuery({ queryKey: ['mobile-customer-detail', route.params.id, ...queryScope], queryFn: () => api.get<any>(`/api/customers/${route.params.id}/detail`) });
   const linkLine = useMutation({
     mutationFn: () => {
       const customerCode = String(detail.data?.customer?.customer_code ?? '');

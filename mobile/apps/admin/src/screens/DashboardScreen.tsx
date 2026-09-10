@@ -122,20 +122,21 @@ export function DashboardScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 800;
   const navigation = useNavigation<NativeStackNavigationProp<AdminStackParamList>>();
-  const { orgName } = useAdminAuth();
+  const { me, orgId, orgName } = useAdminAuth();
+  const queryScope = me?.user_id || orgId ? [me?.user_id ?? null, orgId ?? null] as const : [] as const;
   const currentIso = todayIso();
   const [todayYear, todayMonth] = currentIso.split('-').map(Number);
   const [chartPeriod, setChartPeriod] = useState<'month' | 'year'>('month');
   const [chartYear, setChartYear] = useState(todayYear);
   const [chartMonth, setChartMonth] = useState(todayMonth);
-  const summary = useQuery({ queryKey: ['mobile-summary', orgName, currentIso], queryFn: () => api.get<DashboardSummary>(`/api/reports/summary?from=${currentIso}&to=${currentIso}`) });
+  const summary = useQuery({ queryKey: ['mobile-summary', ...queryScope, currentIso], queryFn: () => api.get<DashboardSummary>(`/api/reports/summary?from=${currentIso}&to=${currentIso}`) });
   const charts = useQuery({
-    queryKey: ['mobile-dashboard-charts', orgName, chartPeriod, chartYear, chartMonth],
+    queryKey: ['mobile-dashboard-charts', ...queryScope, chartPeriod, chartYear, chartMonth],
     queryFn: () => api.get<DashboardChartData>(`/api/reports/dashboard-charts?period=${chartPeriod}&year=${chartYear}&month=${chartMonth}`),
   });
-  const due = useQuery({ queryKey: ['mobile-due'], queryFn: () => api.get<any[]>('/api/installments/due-today') });
-  const overdue = useQuery({ queryKey: ['mobile-overdue'], queryFn: () => api.get<any[]>('/api/installments/overdue') });
-  const pending = useQuery({ queryKey: ['mobile-pending'], queryFn: () => api.get<{ items: any[]; total: number }>('/api/admin/payment-submissions?review_status=pending_review&limit=1') });
+  const due = useQuery({ queryKey: ['mobile-due', ...queryScope], queryFn: () => api.get<any[]>('/api/installments/due-today') });
+  const overdue = useQuery({ queryKey: ['mobile-overdue', ...queryScope], queryFn: () => api.get<any[]>('/api/installments/overdue') });
+  const pending = useQuery({ queryKey: ['mobile-pending', ...queryScope], queryFn: () => api.get<{ items: any[]; total: number }>('/api/admin/payment-submissions?review_status=pending_review&limit=1') });
   const today = new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
   const dayNumber = new Date().toLocaleDateString('th-TH', { day: 'numeric' });
 

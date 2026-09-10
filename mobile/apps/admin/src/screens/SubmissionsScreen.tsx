@@ -5,11 +5,14 @@ import { formatBaht, formatDate, statusLabel } from '../../../../shared/src/form
 import { useColors } from '../../../../shared/src/theme';
 import type { PaymentSubmission } from '../../../../shared/src/types';
 import { api } from '../api';
+import { useAdminAuth } from '../auth';
 
 export function SubmissionsScreen() {
   const colors = useColors();
   const qc = useQueryClient();
-  const list = useQuery({ queryKey: ['mobile-submissions'], queryFn: () => api.get<{ items: PaymentSubmission[]; total: number }>('/api/admin/payment-submissions?review_status=pending_review&limit=50') });
+  const { me, orgId } = useAdminAuth();
+  const queryScope = me?.user_id || orgId ? [me?.user_id ?? null, orgId ?? null] as const : [] as const;
+  const list = useQuery({ queryKey: ['mobile-submissions', ...queryScope], queryFn: () => api.get<{ items: PaymentSubmission[]; total: number }>('/api/admin/payment-submissions?review_status=pending_review&limit=50') });
   const approve = useMutation({ mutationFn: (id: string) => api.post(`/api/admin/payment-submissions/${id}/approve`), onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['mobile-submissions'] }); } });
   const reject = useMutation({ mutationFn: (id: string) => api.post(`/api/admin/payment-submissions/${id}/reject`, { reason: 'ปฏิเสธจาก mobile admin' }), onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['mobile-submissions'] }); } });
   const run = (kind: 'approve' | 'reject', id: string) => Alert.alert(kind === 'approve' ? 'ยืนยันการอนุมัติ' : 'ยืนยันการปฏิเสธ', kind === 'approve' ? 'ระบบจะบันทึกการชำระเงินและอัปเดตงวด' : 'สลิปจะถูกปฏิเสธ', [{ text: 'ยกเลิก' }, { text: 'ยืนยัน', onPress: () => (kind === 'approve' ? approve.mutate(id) : reject.mutate(id)) }]);

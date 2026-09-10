@@ -115,7 +115,7 @@ function initials(value?: string | null) {
   return text.slice(0, 2).toUpperCase();
 }
 
-export function AdminMenuProvider({ children, mode, profileLabel, onLogout, navigationRef }: PropsWithChildren<{ mode: 'org' | 'platform'; profileLabel?: string | null; onLogout: () => void; navigationRef: AdminNavigation }>) {
+export function AdminMenuProvider({ children, mode, profileLabel, onLogout, navigationRef, queryScope = [] }: PropsWithChildren<{ mode: 'org' | 'platform'; profileLabel?: string | null; onLogout: () => void; navigationRef: AdminNavigation; queryScope?: readonly (string | null)[] }>) {
   const colors = useColors();
   const isDark = useColorScheme() === 'dark';
   const [open, setOpen] = useState(false);
@@ -126,9 +126,9 @@ export function AdminMenuProvider({ children, mode, profileLabel, onLogout, navi
   const islandActiveRoute = islandItems.find((item) => activeRoute === item.route || (item.route === 'Customers' && activeRoute === 'CustomerDetail'))?.route ?? islandItems[0]?.route;
   const profileInitials = useMemo(() => initials(profileLabel), [profileLabel]);
   const notificationsEnabled = mode === 'org';
-  const pending = useQuery({ queryKey: ['mobile-pending'], queryFn: () => api.get<{ total: number }>('/api/admin/payment-submissions?review_status=pending_review&limit=1'), enabled: notificationsEnabled, refetchInterval: 30_000 });
-  const due = useQuery({ queryKey: ['mobile-due'], queryFn: () => api.get<any[]>('/api/installments/due-today'), enabled: notificationsEnabled, refetchInterval: 60_000 });
-  const overdue = useQuery({ queryKey: ['mobile-overdue'], queryFn: () => api.get<any[]>('/api/installments/overdue'), enabled: notificationsEnabled, refetchInterval: 60_000 });
+  const pending = useQuery({ queryKey: ['mobile-pending', ...queryScope], queryFn: () => api.get<{ total: number }>('/api/admin/payment-submissions?review_status=pending_review&limit=1'), enabled: notificationsEnabled, refetchInterval: 30_000 });
+  const due = useQuery({ queryKey: ['mobile-due', ...queryScope], queryFn: () => api.get<any[]>('/api/installments/due-today'), enabled: notificationsEnabled, refetchInterval: 60_000 });
+  const overdue = useQuery({ queryKey: ['mobile-overdue', ...queryScope], queryFn: () => api.get<any[]>('/api/installments/overdue'), enabled: notificationsEnabled, refetchInterval: 60_000 });
   const notificationItems: NotificationItem[] = [
     { id: 'subs', label: 'สลิปรอตรวจสอบ', count: pending.data?.total ?? 0, tone: 'warn', icon: Receipt, route: 'Submissions' },
     { id: 'due', label: 'ครบกำหนดวันนี้', count: due.data?.length ?? 0, tone: 'info', icon: CalendarDays, route: 'Dashboard' },

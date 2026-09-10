@@ -6,6 +6,7 @@ import { formatBaht, formatDate, statusLabel, todayIso } from '../../../../share
 import { useColors } from '../../../../shared/src/theme';
 import type { BankAccount, BillPlan, Customer } from '../../../../shared/src/types';
 import { api } from '../api';
+import { useAdminAuth } from '../auth';
 
 type CreateMode = 'interval' | 'custom';
 type BillStatusFilter = '' | 'active' | 'completed' | 'cancelled';
@@ -20,6 +21,8 @@ const statusTone = (status: string): 'green' | 'red' | 'muted' => status === 'ac
 export function BillsScreen() {
   const colors = useColors();
   const qc = useQueryClient();
+  const { me, orgId } = useAdminAuth();
+  const queryScope = me?.user_id || orgId ? [me?.user_id ?? null, orgId ?? null] as const : [] as const;
   const [mode, setMode] = useState<CreateMode>('interval');
   const [customerId, setCustomerId] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
@@ -41,10 +44,10 @@ export function BillsScreen() {
   const [expandedPlans, setExpandedPlans] = useState<Record<string, boolean>>({});
   const [previewBill, setPreviewBill] = useState<MobileBillPlan | null>(null);
 
-  const customers = useQuery({ queryKey: ['mobile-customers-for-bills'], queryFn: () => api.get<{ items: Customer[] }>('/api/customers?limit=100&page=1') });
-  const banks = useQuery({ queryKey: ['mobile-banks-for-bills'], queryFn: () => api.get<BankAccount[]>('/api/bank-accounts') });
-  const bills = useQuery({ queryKey: ['mobile-bills'], queryFn: () => api.get<BillPlan[]>('/api/bill-plans') });
-  const preview = useQuery({ queryKey: ['mobile-bill-preview', previewBill?.id], queryFn: () => api.get<{ text: string }>(`/api/bill-plans/${previewBill!.id}/preview`), enabled: Boolean(previewBill) });
+  const customers = useQuery({ queryKey: ['mobile-customers-for-bills', ...queryScope], queryFn: () => api.get<{ items: Customer[] }>('/api/customers?limit=100&page=1') });
+  const banks = useQuery({ queryKey: ['mobile-banks-for-bills', ...queryScope], queryFn: () => api.get<BankAccount[]>('/api/bank-accounts') });
+  const bills = useQuery({ queryKey: ['mobile-bills', ...queryScope], queryFn: () => api.get<BillPlan[]>('/api/bill-plans') });
+  const preview = useQuery({ queryKey: ['mobile-bill-preview', previewBill?.id, ...queryScope], queryFn: () => api.get<{ text: string }>(`/api/bill-plans/${previewBill!.id}/preview`), enabled: Boolean(previewBill) });
   const createInterval = useMutation({ mutationFn: (payload: Record<string, unknown>) => api.post('/api/bill-plans', payload), onSuccess: async () => { resetForm(); await qc.invalidateQueries({ queryKey: ['mobile-bills'] }); Alert.alert('สร้างบิลสำเร็จ', 'ระบบบันทึกแผนการชำระเงินแล้ว'); } });
   const createCustom = useMutation({ mutationFn: (payload: Record<string, unknown>) => api.post('/api/bill-plans/custom-dates', payload), onSuccess: async () => { resetForm(); await qc.invalidateQueries({ queryKey: ['mobile-bills'] }); Alert.alert('สร้างบิลสำเร็จ', 'ระบบบันทึกแผนการชำระเงินแล้ว'); } });
   const linkLine = useMutation({

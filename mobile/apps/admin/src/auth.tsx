@@ -1,6 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import Line, { Scope } from '@xmartlabs/react-native-line';
 import { MobileApiError } from '../../../shared/src/api';
+import { clearQueryCache } from '../../../shared/src/queryCache';
 import type { AdminMe } from '../../../shared/src/types';
 import { config } from './config';
 import { api } from './api';
@@ -29,29 +31,37 @@ export function useAdminAuth() {
 }
 
 export function AdminAuthProvider({ children }: PropsWithChildren) {
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<AuthState['status']>('loading');
   const [me, setMe] = useState<AdminMe | null>(null);
   const [orgId, setOrgId] = useState<string | null>(null);
   const [orgName, setOrgName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const meRef = useRef<AdminMe | null>(null);
+
+  const clearCache = useCallback(() => clearQueryCache(queryClient), [queryClient]);
 
   const enterOrg = useCallback(async (org: { id: string; name: string }) => {
+    if ((await store.get('org_id')) !== org.id) await clearCache();
     await store.set('org_id', org.id);
     await store.set('org_name', org.name);
     setOrgId(org.id);
     setOrgName(org.name);
-  }, []);
+  }, [clearCache]);
 
   const exitOrg = useCallback(async () => {
+    await clearCache();
     await store.remove('org_id');
     await store.remove('org_name');
     setOrgId(null);
     setOrgName(null);
-  }, []);
+  }, [clearCache]);
 
   const refresh = useCallback(async () => {
     try {
       const current = await api.get<AdminMe>('/api/auth/me', { org: false });
+      if (meRef.current?.user_id && meRef.current.user_id !== current.user_id) await clearCache();
+      meRef.current = current;
       setMe(current);
       const savedOrg = await store.get('org_id');
       if (!current.is_platform_admin && current.org) {
@@ -63,12 +73,14 @@ export function AdminAuthProvider({ children }: PropsWithChildren) {
       setStatus('signed_in');
       setError(null);
     } catch (err) {
+      await exitOrg();
       await api.clearToken();
+      meRef.current = null;
       setMe(null);
       setStatus('signed_out');
       setError(err instanceof MobileApiError ? err.message : 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่');
     }
-  }, [enterOrg]);
+  }, [clearCache, enterOrg, exitOrg]);
 
   useEffect(() => {
     let alive = true;
@@ -81,36 +93,57 @@ export function AdminAuthProvider({ children }: PropsWithChildren) {
         return;
       }
       await refresh();
-    })().catch((err) => {
+    })().catch(async (err) => {
       if (alive) {
+        await clearCache();
+        await api.clearToken();
         setStatus('signed_out');
         setError(err instanceof Error ? err.message : 'เริ่มต้นแอปไม่สำเร็จ');
       }
     });
     return () => { alive = false; };
-  }, [refresh]);
+  }, [clearCache, refresh]);
 
   const login = useCallback(async (username: string, password: string) => {
     setError(null);
-    const result = await api.post<{ token: string }>('/api/auth/login', { username, password }, { auth: false, org: false });
-    await api.setToken(result.token);
-    await refresh();
-  }, [refresh]);
+    setStatus('loading');
+    try {
+      await clearCache();
+      await api.clearToken();
+      const result = await api.post<{ token: string }>('/api/auth/login', { username, password }, { auth: false, org: false });
+      await api.setToken(result.token);
+      await refresh();
+    } catch (err) {
+      await clearCache();
+      await api.clearToken();
+      throw err;
+    }
+  }, [clearCache, refresh]);
 
   const loginWithLine = useCallback(async () => {
     setError(null);
-    if (!config.lineChannelId) throw new Error('ยังไม่ได้ตั้งค่า LINE_LOGIN_CHANNEL_ID ใน mobile app');
-    const result = await Line.login({ scopes: [Scope.Profile, Scope.OpenId] });
-    const idToken = result.accessToken?.idToken;
-    if (!idToken) throw new Error('LINE ไม่ได้ส่ง ID token กลับมา');
-    const session = await api.post<{ token: string }>('/api/auth/mobile/line', { id_token: idToken }, { auth: false, org: false });
-    await api.setToken(session.token);
-    await refresh();
-  }, [refresh]);
+    setStatus('loading');
+    try {
+      await clearCache();
+      await api.clearToken();
+      if (!config.lineChannelId) throw new Error('ยังไม่ได้ตั้งค่า LINE_LOGIN_CHANNEL_ID ใน mobile app');
+      const result = await Line.login({ scopes: [Scope.Profile, Scope.OpenId] });
+      const idToken = result.accessToken?.idToken;
+      if (!idToken) throw new Error('LINE ไม่ได้ส่ง ID token กลับมา');
+      const session = await api.post<{ token: string }>('/api/auth/mobile/line', { id_token: idToken }, { auth: false, org: false });
+      await api.setToken(session.token);
+      await refresh();
+    } catch (err) {
+      await clearCache();
+      await api.clearToken();
+      throw err;
+    }
+  }, [clearCache, refresh]);
 
   const logout = useCallback(async () => {
-    await api.clearToken();
     await exitOrg();
+    await api.clearToken();
+    meRef.current = null;
     setMe(null);
     setStatus('signed_out');
   }, [exitOrg]);

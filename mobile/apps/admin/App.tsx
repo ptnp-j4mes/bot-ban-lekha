@@ -22,14 +22,14 @@ import { AdminMenuProvider } from './src/components/AdminMenu';
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 20_000 } } });
 const Stack = createNativeStackNavigator<AdminStackParamList>();
 
-function AdminNavigator({ profileLabel, onLogout }: { profileLabel?: string | null; onLogout: () => void }) {
+function AdminNavigator({ profileLabel, onLogout, queryScope }: { profileLabel?: string | null; onLogout: () => void; queryScope: readonly (string | null)[] }) {
   const navigationRef = useRef(createNavigationContainerRef<AdminStackParamList>()).current;
-  return <NavigationContainer ref={navigationRef}><AdminMenuProvider mode="org" profileLabel={profileLabel} onLogout={onLogout} navigationRef={navigationRef}><Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}><Stack.Screen name="Dashboard" component={DashboardScreen} /><Stack.Screen name="Customers" component={CustomersScreen} /><Stack.Screen name="CustomerDetail" component={CustomerDetailScreen} /><Stack.Screen name="Bills" component={BillsScreen} /><Stack.Screen name="Banks" component={BanksScreen} /><Stack.Screen name="Submissions" component={SubmissionsScreen} /><Stack.Screen name="Reports" component={ReportsScreen} /><Stack.Screen name="LineOa" component={LineOaScreen} /><Stack.Screen name="ChatClone" component={ChatCloneScreen} /><Stack.Screen name="Senders" component={SendersScreen} /><Stack.Screen name="Groups" component={GroupsScreen} /><Stack.Screen name="Settings" component={SettingsScreen} /><Stack.Screen name="MessageSettings" component={MessageResponseSettingsScreen} /><Stack.Screen name="Logs" component={LogsScreen} /><Stack.Screen name="Platform" component={PlatformScreen} /><Stack.Screen name="ComingSoon" component={ComingSoonScreen} /></Stack.Navigator></AdminMenuProvider></NavigationContainer>;
+  return <NavigationContainer ref={navigationRef}><AdminMenuProvider mode="org" profileLabel={profileLabel} onLogout={onLogout} navigationRef={navigationRef} queryScope={queryScope}><Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}><Stack.Screen name="Dashboard" component={DashboardScreen} /><Stack.Screen name="Customers" component={CustomersScreen} /><Stack.Screen name="CustomerDetail" component={CustomerDetailScreen} /><Stack.Screen name="Bills" component={BillsScreen} /><Stack.Screen name="Banks" component={BanksScreen} /><Stack.Screen name="Submissions" component={SubmissionsScreen} /><Stack.Screen name="Reports" component={ReportsScreen} /><Stack.Screen name="LineOa" component={LineOaScreen} /><Stack.Screen name="ChatClone" component={ChatCloneScreen} /><Stack.Screen name="Senders" component={SendersScreen} /><Stack.Screen name="Groups" component={GroupsScreen} /><Stack.Screen name="Settings" component={SettingsScreen} /><Stack.Screen name="MessageSettings" component={MessageResponseSettingsScreen} /><Stack.Screen name="Logs" component={LogsScreen} /><Stack.Screen name="Platform" component={PlatformScreen} /><Stack.Screen name="ComingSoon" component={ComingSoonScreen} /></Stack.Navigator></AdminMenuProvider></NavigationContainer>;
 }
 
-function PlatformNavigator({ profileLabel, onLogout }: { profileLabel?: string | null; onLogout: () => void }) {
+function PlatformNavigator({ profileLabel, onLogout, queryScope }: { profileLabel?: string | null; onLogout: () => void; queryScope: readonly (string | null)[] }) {
   const navigationRef = useRef(createNavigationContainerRef<AdminStackParamList>()).current;
-  return <NavigationContainer ref={navigationRef}><AdminMenuProvider mode="platform" profileLabel={profileLabel} onLogout={onLogout} navigationRef={navigationRef}><Stack.Navigator screenOptions={{ headerShown: false }}><Stack.Screen name="Platform" component={PlatformScreen} /><Stack.Screen name="ComingSoon" component={ComingSoonScreen} /></Stack.Navigator></AdminMenuProvider></NavigationContainer>;
+  return <NavigationContainer ref={navigationRef}><AdminMenuProvider mode="platform" profileLabel={profileLabel} onLogout={onLogout} navigationRef={navigationRef} queryScope={queryScope}><Stack.Navigator screenOptions={{ headerShown: false }}><Stack.Screen name="Platform" component={PlatformScreen} /><Stack.Screen name="ComingSoon" component={ComingSoonScreen} /></Stack.Navigator></AdminMenuProvider></NavigationContainer>;
 }
 
 function Root() {
@@ -40,8 +40,9 @@ function Root() {
   if (auth.status === 'loading') return <Screen><Text style={{ color: colors.muted, textAlign: 'center', marginTop: 80 }}>กำลังโหลดบัญชี…</Text></Screen>;
   if (auth.status === 'signed_out') return <LoginScreen />;
   const profileLabel = auth.me?.name ?? auth.orgName;
-  if (auth.me?.is_platform_admin && !auth.orgId) return <PlatformNavigator profileLabel={profileLabel} onLogout={() => void auth.logout()} />;
-  return <AdminNavigator profileLabel={profileLabel} onLogout={() => void auth.logout()} />;
+  const queryScope = auth.me?.user_id || auth.orgId ? [auth.me?.user_id ?? null, auth.orgId ?? null] as const : [] as const;
+  if (auth.me?.is_platform_admin && !auth.orgId) return <PlatformNavigator profileLabel={profileLabel} onLogout={() => void auth.logout()} queryScope={queryScope} />;
+  return <AdminNavigator profileLabel={profileLabel} onLogout={() => void auth.logout()} queryScope={queryScope} />;
 }
 
 export default function App() {

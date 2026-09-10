@@ -1414,7 +1414,7 @@ test("private document storage fails closed and remote retention uses configured
     await expect(deleteSlipFile("gdrive:drive-id")).rejects.toThrow("Google Drive delete failed: 500");
   } finally {
     await updateSystemSettings({
-      storageDriver: previousSettings.storageDriver,
+      storageDriver: "local",
       gdriveServiceAccount: previousSettings.gdriveServiceAccount,
       gdriveRootFolderId: previousSettings.gdriveRootFolderId,
     });

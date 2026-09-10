@@ -180,7 +180,7 @@ export function PlatformSettings() {
                 <Row k="API key" v={<Badge variant={i.ocr.configured ? "success" : "secondary"}>{i.ocr.configured ? "ตั้งค่าแล้ว" : "ยังไม่ตั้ง"}</Badge>} />
                 <Row k="OCR guards" v={<Badge variant={i.ocr.guards_enabled ? "success" : "warning"}>{i.ocr.guards_enabled ? "เปิด" : "ปิด"}</Badge>} />
                 <Row k="Rate limit" v={`${i.ocr.rate_max} / ${Math.round(i.ocr.rate_window_sec / 60)} นาที`} />
-                <Row k="อนุมัติอัตโนมัติ" v={<Badge variant={i.auto_approve ? "success" : "secondary"}>{i.auto_approve ? "เปิด" : "ปิด"}</Badge>} />
+                <Row k="อนุมัติการชำระเงิน" v={<Badge variant="secondary">ต้องอนุมัติโดยแอดมิน</Badge>} />
                 <Row k="Storage" v={i.storage_driver} />
                 <Row k="เก็บสลิป (.env default)" v={`${i.slip_retention_days_env_default} วัน`} />
               </>

@@ -202,7 +202,7 @@ export const platformRoutes = new Elysia({ prefix: "/api/platform" })
         rate_max: env.ocrRateMax,
         rate_window_sec: env.ocrRateWindowSec,
       },
-      auto_approve: env.autoApprove,
+      auto_approve: false,
       slip_retention_days_env_default: env.slipRetentionDays,
       storage_driver: s.storageDriver,
       storage_gdrive_configured: !!(s.gdriveServiceAccount?.client_email && s.gdriveRootFolderId),

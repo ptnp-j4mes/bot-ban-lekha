@@ -41,8 +41,9 @@ export async function authContext(headers: Headers): Promise<AuthContext> {
   if (orgId && !user.isPlatformAdmin) {
     const member = await prisma.membership.findUnique({
       where: { orgId_adminUserId: { orgId, adminUserId: user.id } },
+      include: { organization: { select: { isActive: true } } },
     });
-    if (!member) throw new ApiError("FORBIDDEN", "ไม่มีสิทธิ์เข้าถึงองค์กรนี้");
+    if (!member || !member.organization.isActive) throw new ApiError("FORBIDDEN", "องค์กรถูกปิดใช้งานหรือไม่มีสิทธิ์เข้าถึง");
   }
   return { userId: user.id, isPlatformAdmin: user.isPlatformAdmin, orgId, name: user.displayName };
 }
@@ -87,7 +88,9 @@ export async function authorizeLiff(headers: Headers): Promise<LiffContext> {
     throw new ApiError("UNAUTHORIZED", "Invalid or expired session");
   }
   if (payload.typ !== "liff") throw new ApiError("UNAUTHORIZED", "Invalid session");
-  const customer = await prisma.customer.findFirst({ where: { id: payload.sub, orgId: payload.orgId, lineUserId: payload.lineUserId } });
+  const customer = await prisma.customer.findFirst({
+    where: { id: payload.sub, orgId: payload.orgId, lineUserId: payload.lineUserId, organization: { isActive: true } },
+  });
   if (!customer || customer.status !== "active") throw new ApiError("UNAUTHORIZED", "Customer not found");
   return { customerId: customer.id, orgId: customer.orgId, lineOaId: payload.lineOaId, lineUserId: payload.lineUserId };
 }

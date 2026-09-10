@@ -148,7 +148,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
     let org: { id: string; name: string } | null = null;
     let menuPrefs: unknown = null;
     if (!ctx.isPlatformAdmin && ctx.userId !== "apikey") {
-      const m = await prisma.membership.findFirst({ where: { adminUserId: ctx.userId }, include: { organization: true } });
+      const m = await prisma.membership.findFirst({ where: { adminUserId: ctx.userId, organization: { isActive: true } }, include: { organization: true } });
       if (m) org = { id: m.orgId, name: m.organization.name };
     }
     if (ctx.userId !== "apikey") {

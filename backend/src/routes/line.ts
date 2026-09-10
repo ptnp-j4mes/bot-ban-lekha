@@ -37,6 +37,8 @@ export const lineRoutes = new Elysia().post(
   async ({ params, body, headers }: any) => {
     const oa = await prisma.lineOaAccount.findUnique({ where: { id: params.oaId } });
     if (!oa || !oa.isActive) throw new ApiError("NOT_FOUND", "Unknown or inactive LINE OA");
+    const organization = await prisma.organization.findUnique({ where: { id: oa.orgId }, select: { isActive: true } });
+    if (!organization?.isActive) return { success: true, data: { received: 0 }, message: "success" };
 
     // Security: verify signature with THIS OA's channel secret (skip only if unset, dev).
     if (oa.channelSecret) {

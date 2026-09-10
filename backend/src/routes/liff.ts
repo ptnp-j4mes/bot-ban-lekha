@@ -15,7 +15,7 @@ export const liffRoutes = new Elysia({ prefix: "/api/liff" })
       const { id_token, oa_id } = body ?? {};
       if (!env.lineLiffChannelId) throw new ApiError("INTERNAL_ERROR", "LIFF not configured");
 
-      const oa = await prisma.lineOaAccount.findFirst({ where: { id: oa_id, isActive: true } });
+      const oa = await prisma.lineOaAccount.findFirst({ where: { id: oa_id, isActive: true, organization: { isActive: true } } });
       if (!oa) throw new ApiError("NOT_FOUND", "LINE OA not found");
 
       const profile = await verifyLineIdToken(id_token, env.lineLiffChannelId);

@@ -8,6 +8,7 @@ import { app } from "../src/app";
 import { env } from "../src/env";
 import { signJwt } from "../src/lib/jwt";
 import { createHmac } from "node:crypto";
+import { markOverdue, retryFailed, runReminder } from "../src/routes/jobs";
 
 const tag = `${Date.now()}`;
 const rnd = () => Math.random().toString(36).slice(2, 8);
@@ -245,6 +246,48 @@ test("webhook signature covers the parsed events and cannot be replaced by __raw
   }));
   expect(res.status).toBe(401);
   expect(await prisma.messageLog.count({ where: { lineOaId: oa.id, direction: "inbound" } })).toBe(0);
+});
+
+test("disabled organizations revoke member, LIFF, webhook, and job access", async () => {
+  const org = await mkOrg("disabled");
+  const oa = await mkOa(org.id);
+  const member = await mkMember(org.id, "user");
+  const { customer, inst } = await makePlan(org.id, 490, oa.id);
+  await prisma.billInstallment.update({ where: { id: inst.id }, data: { dueDate: new Date(today.getTime() - 86_400_000) } });
+  await prisma.messageLog.create({
+    data: { orgId: org.id, lineOaId: oa.id, lineUserId: customer.lineUserId, direction: "outbound", messageType: "failed", messageText: "retry", status: "failed" },
+  });
+  await prisma.organization.update({ where: { id: org.id }, data: { isActive: false } });
+
+  const forbidden = await app.handle(new Request("http://localhost/api/customers", { headers: hdr(member.token, org.id) }));
+  expect(forbidden.status).toBe(403);
+
+  const webhookResponse = await webhook(oa.id, { events: [{ type: "message", source: { userId: customer.lineUserId }, message: { type: "text", text: "ยอด" } }] });
+  expect(webhookResponse.status).toBe(200);
+  expect((await prisma.messageLog.count({ where: { lineOaId: oa.id, direction: "inbound" } }))).toBe(0);
+
+  await runReminder("morningSentAt", "daily_reminder");
+  await markOverdue();
+  await retryFailed();
+  const retained = await prisma.billInstallment.findUnique({ where: { id: inst.id }, select: { status: true, morningSentAt: true } });
+  expect(retained?.status).toBe("pending");
+  expect(retained?.morningSentAt).toBeNull();
+  expect((await prisma.messageLog.findFirst({ where: { orgId: org.id, status: "failed" } }))?.status).toBe("failed");
+
+  const previousChannel = env.lineLiffChannelId;
+  const previousFetch = globalThis.fetch;
+  env.lineLiffChannelId = "liff-line-channel";
+  globalThis.fetch = (async () => new Response(JSON.stringify({ sub: customer.lineUserId, aud: "liff-line-channel" }), { status: 200 })) as typeof fetch;
+  try {
+    const liff = await app.handle(new Request("http://localhost/api/liff/session", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id_token: "customer-id-token", oa_id: oa.id }),
+    }));
+    expect(liff.status).toBe(404);
+  } finally {
+    env.lineLiffChannelId = previousChannel;
+    globalThis.fetch = previousFetch;
+  }
 });
 
 test("group slip: webhook stores group id (no customer); matched org-wide then approved", async () => {

@@ -25,6 +25,7 @@ export async function runReminder(
       [field]: null,
       billPlan: {
         status: "active",
+        organization: { isActive: true },
         customer: { status: "active", lineUserId: { not: null } },
         ...(match ? { organization: { [match.hourField]: match.hour } } : {}),
       },
@@ -58,7 +59,7 @@ export async function runReminder(
 export async function markOverdue() {
   const today = bangkokToday();
   const r = await prisma.billInstallment.updateMany({
-    where: { dueDate: { lt: today }, status: { in: ["pending", "partial_paid"] } },
+    where: { dueDate: { lt: today }, status: { in: ["pending", "partial_paid"] }, billPlan: { organization: { isActive: true } } },
     data: { status: "overdue" },
   });
   return { marked: r.count };
@@ -66,7 +67,7 @@ export async function markOverdue() {
 
 export async function retryFailed() {
   const failed = await prisma.messageLog.findMany({
-    where: { status: "failed", lineUserId: { not: null } },
+    where: { status: "failed", lineUserId: { not: null }, lineOa: { organization: { isActive: true } } },
     include: { lineOa: true },
     take: 100,
   });

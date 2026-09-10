@@ -7,7 +7,7 @@ import { deleteSlipFile, readStoredFile, storeCustomerDocument } from "../src/se
 import { app } from "../src/app";
 import { env } from "../src/env";
 import { signJwt } from "../src/lib/jwt";
-import { createHmac } from "node:crypto";
+import { createHmac, generateKeyPairSync } from "node:crypto";
 import { sha256 } from "../src/lib/hash";
 import { markOverdue, retryFailed, runReminder } from "../src/routes/jobs";
 import { getSystemSettings, updateSystemSettings } from "../src/services/systemSettings";
@@ -250,6 +250,22 @@ test("webhook signature covers the parsed events and cannot be replaced by __raw
   expect(await prisma.messageLog.count({ where: { lineOaId: oa.id, direction: "inbound" } })).toBe(0);
 });
 
+test("webhook accepts the exact signed body and rejects missing or invalid signatures", async () => {
+  const org = await mkOrg();
+  const secret = `signed-${rnd()}`;
+  const oa = await mkOa(org.id, secret);
+  const body = JSON.stringify({ events: [] });
+  const sign = (value: string) => createHmac("sha256", secret).update(value).digest("base64");
+  const request = (signature?: string) => app.handle(new Request(`http://localhost/api/line/webhook/${oa.id}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...(signature ? { "x-line-signature": signature } : {}) },
+    body,
+  }));
+  expect((await request(sign(body))).status).toBe(200);
+  expect((await request()).status).toBe(401);
+  expect((await request(sign(`${body}x`))).status).toBe(401);
+});
+
 test("disabled organizations revoke member, LIFF, webhook, and job access", async () => {
   const org = await mkOrg("disabled");
   const oa = await mkOa(org.id);
@@ -453,6 +469,13 @@ test("LINE login completion codes are verifier-bound, single-use, and expire", a
   expect(ok.status).toBe(200);
   expect((await ok.json()).data.token).toBeString();
   expect((await redeem({ code, code_verifier: verifier })).status).toBe(401);
+
+  const raceCode = `race-${rnd()}`;
+  await prisma.adminLoginCompletion.create({
+    data: { codeHash: sha256(raceCode), challengeHash: sha256(sha256(verifier)), adminUserId: user.id, expiresAt: new Date(Date.now() + 5 * 60_000) },
+  });
+  const race = await Promise.all([redeem({ code: raceCode, code_verifier: verifier }), redeem({ code: raceCode, code_verifier: verifier })]);
+  expect(race.map((response) => response.status).sort()).toEqual([200, 401]);
 });
 
 test("LINE login completion rejects wrong verifier without consuming the code and rejects expiry", async () => {
@@ -745,6 +768,22 @@ test("settings: auto match mode defaults on and can be toggled", async () => {
     expect(patch.status).toBe(200);
     expect((await patch.json()).data.auto_match_enabled).toBe(enabled);
   }
+});
+
+test("bill plan API rejects excessive installments before creating rows", async () => {
+  const org = await mkOrg();
+  const member = await mkMember(org.id, "user");
+  const customer = await prisma.customer.create({ data: { orgId: org.id, customerCode: `CAP${rnd()}` } });
+  await prisma.bankAccount.create({ data: { orgId: org.id, accountName: "cap", accountNo: `CAP${rnd()}`, bankName: "bank", isDefault: true, isActive: true } });
+  const before = await prisma.billPlan.count({ where: { orgId: org.id } });
+  const response = await app.handle(new Request("http://localhost/api/bill-plans", {
+    method: "POST",
+    headers: { ...hdr(member.token, org.id), "content-type": "application/json" },
+    body: JSON.stringify({ customer_id: customer.id, bill_no: 1, principal_amount: 1000, installment_amount: 1, cycle_days: 1, total_installments: 1001, start_date: "2026-09-10" }),
+  }));
+  expect(response.status).toBe(400);
+  expect(await prisma.billPlan.count({ where: { orgId: org.id } })).toBe(before);
+  expect(await prisma.billInstallment.count({ where: { billPlan: { orgId: org.id } } })).toBe(0);
 });
 
 test("settings: OCR auto-approval is always disabled", async () => {
@@ -1350,8 +1389,35 @@ test("private document storage fails closed and remote retention uses configured
       return new Response(null, { status: 404 });
     }) as typeof fetch;
     expect(await deleteSlipFile("s3://public-slips/org/slip/a.jpg")).toBe("missing");
+
+    globalThis.fetch = (async () => new Response(null, { status: 500 })) as unknown as typeof fetch;
+    await expect(deleteSlipFile("s3://public-slips/org/slip/a.jpg")).rejects.toThrow("S3 DELETE failed: 500");
+
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    await updateSystemSettings({
+      gdriveServiceAccount: { client_email: `storage-test-${rnd()}@example.test`, private_key: privateKey.export({ type: "pkcs8", format: "pem" }).toString() },
+      gdriveRootFolderId: "root-folder",
+    });
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "https://oauth2.googleapis.com/token") return new Response(JSON.stringify({ access_token: "drive-token", expires_in: 3600 }), { status: 200 });
+      expect(url).toContain("/drive/v3/files/drive-id");
+      expect(init?.method).toBe("DELETE");
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    expect(await deleteSlipFile("https://drive.google.com/file/d/drive-id/view")).toBe("missing");
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      if (String(input) === "https://oauth2.googleapis.com/token") return new Response(JSON.stringify({ access_token: "drive-token", expires_in: 3600 }), { status: 200 });
+      return new Response(null, { status: 500 });
+    }) as typeof fetch;
+    await expect(deleteSlipFile("gdrive:drive-id")).rejects.toThrow("Google Drive delete failed: 500");
   } finally {
-    await updateSystemSettings({ storageDriver: previousSettings.storageDriver });
+    await updateSystemSettings({
+      storageDriver: previousSettings.storageDriver,
+      gdriveServiceAccount: previousSettings.gdriveServiceAccount,
+      gdriveRootFolderId: previousSettings.gdriveRootFolderId,
+    });
     Object.assign(env, previous);
     globalThis.fetch = previous.fetch;
   }

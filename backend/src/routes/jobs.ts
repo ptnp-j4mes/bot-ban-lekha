@@ -25,9 +25,11 @@ export async function runReminder(
       [field]: null,
       billPlan: {
         status: "active",
-        organization: { isActive: true },
+        organization: {
+          isActive: true,
+          ...(match ? { [match.hourField]: match.hour } : {}),
+        },
         customer: { status: "active", lineUserId: { not: null } },
-        ...(match ? { organization: { [match.hourField]: match.hour } } : {}),
       },
     },
     include: { billPlan: { include: { organization: true, customer: { include: { lineOa: true } } } } },

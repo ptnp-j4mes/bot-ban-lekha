@@ -20,7 +20,6 @@ export function Settings() {
       reminder_text: fd.get("reminder_text"),
       slip_retention_days: retention === "" ? null : Number(retention),
       auto_match_enabled: fd.get("auto_match") === "on",
-      auto_approve_enabled: fd.get("auto_approve") === "on",
     });
   };
   const submitPw = (e: React.FormEvent<HTMLFormElement>) => {
@@ -83,13 +82,10 @@ export function Settings() {
                   <span className="block text-xs text-muted-foreground">OCR จะจับคู่ยอด/วัน/เลขบัญชีกับงวดให้เอง; ปิดโหมดนี้แล้วสลิปจะรอแอดมินเลือกงวด</span>
                 </span>
               </label>
-              <label className="flex items-start gap-2 text-sm">
-                <input type="checkbox" name="auto_approve" defaultChecked={d.auto_approve_enabled} className="mt-0.5" />
-                <span>
-                  อนุมัติสลิปอัตโนมัติสำหรับผลจับคู่ทั่วไป
-                  <span className="block text-xs text-muted-foreground">ถ้ายอด วัน และเลขบัญชีปลายทางตรงกัน ระบบจะยืนยันและส่งบิลกลับทันทีอยู่แล้ว; ตัวเลือกนี้ใช้กับผลจับคู่จากเกณฑ์อื่น — บิลเงินสดยังรอแอดมินเสมอ</span>
-                </span>
-              </label>
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                <div className="font-medium">การอนุมัติสลิปต้องทำโดยแอดมิน</div>
+                <div className="mt-1 text-xs text-amber-900">OCR ใช้ช่วยจับคู่งวดเท่านั้น ระบบจะไม่ลงรายการชำระหรือส่งข้อความอนุมัติจนกว่าแอดมินจะตรวจสอบ</div>
+              </div>
               <Button size="sm" type="submit">บันทึก</Button>
             </form>
           )}

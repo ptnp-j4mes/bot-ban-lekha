@@ -73,7 +73,7 @@ test("auto-match + approve: paid + plan completed, scoped to org", async () => {
   expect((await prisma.payment.findFirst({ where: { paymentSubmissionId: sub.id } }))!.orgId).toBe(org.id);
 });
 
-test("exact amount, date, and destination account auto-approve with one payment_approved reply", async () => {
+test("exact OCR match stays pending and never auto-approves a payment", async () => {
   const org = await mkOrg();
   const oa = await mkOa(org.id);
   const { plan, inst, customer } = await makePlan(org.id, 490, oa.id);
@@ -98,16 +98,15 @@ test("exact amount, date, and destination account auto-approve with one payment_
 
   const updated = await prisma.paymentSubmission.findUnique({ where: { id: sub.id } });
   expect(updated?.matchStatus).toBe("auto_matched");
-  expect(updated?.reviewStatus).toBe("approved");
-  expect((await prisma.billInstallment.findUnique({ where: { id: inst.id } }))?.status).toBe("paid");
-  expect((await prisma.payment.findFirst({ where: { paymentSubmissionId: sub.id } }))?.amount.toString()).toBe("490");
+  expect(updated?.reviewStatus).toBe("pending_review");
+  expect((await prisma.billInstallment.findUnique({ where: { id: inst.id } }))?.status).toBe("pending");
+  expect(await prisma.payment.count({ where: { paymentSubmissionId: sub.id } })).toBe(0);
 
   const replies = await prisma.messageLog.findMany({
     where: { paymentSubmissionId: sub.id, direction: "outbound" },
     orderBy: { sentAt: "asc" },
   });
-  expect(replies.map((reply) => reply.messageType)).toEqual(["payment_approved"]);
-  expect(replies[0]?.messageText).toContain(`${today.getUTCDate()}💸 490✅`);
+  expect(replies.map((reply) => reply.messageType)).not.toContain("payment_approved");
 });
 
 test("exact facts from an unknown document do not auto-approve", async () => {
@@ -604,6 +603,22 @@ test("settings: auto match mode defaults on and can be toggled", async () => {
     expect(patch.status).toBe(200);
     expect((await patch.json()).data.auto_match_enabled).toBe(enabled);
   }
+});
+
+test("settings: OCR auto-approval is always disabled", async () => {
+  const org = await mkOrg();
+  const m = await mkMember(org.id, "user");
+  await prisma.organization.update({ where: { id: org.id }, data: { autoApproveEnabled: true } });
+
+  const get = await app.handle(new Request("http://localhost/api/settings", { headers: hdr(m.token, org.id) }));
+  expect((await get.json()).data.auto_approve_enabled).toBe(false);
+
+  const patch = await app.handle(new Request("http://localhost/api/settings", {
+    method: "PATCH",
+    headers: { ...hdr(m.token, org.id), "content-type": "application/json" },
+    body: JSON.stringify({ auto_approve_enabled: true }),
+  }));
+  expect(patch.status).toBe(400);
 });
 
 test("disabled auto match keeps an exact slip pending for admin matching", async () => {

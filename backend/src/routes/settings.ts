@@ -15,7 +15,8 @@ const view = (org: any) => ({
   reminder_text: org.reminderText,
   slip_retention_days: org.slipRetentionDays,
   auto_match_enabled: org.autoMatchEnabled,
-  auto_approve_enabled: org.autoApproveEnabled,
+  // Kept in the response for backwards compatibility; OCR-only evidence is never trusted.
+  auto_approve_enabled: false,
   message_templates: {
     ...mergeMessageTemplates(org.messageTemplates),
     enabled: mergeMessageTemplateEnabled((org.messageTemplates as any)?.enabled),
@@ -45,7 +46,10 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
       if (body.reminder_text !== undefined) data.reminderText = body.reminder_text || null;
       if (body.slip_retention_days !== undefined) data.slipRetentionDays = body.slip_retention_days;
       if (body.auto_match_enabled !== undefined) data.autoMatchEnabled = body.auto_match_enabled;
-      if (body.auto_approve_enabled !== undefined) data.autoApproveEnabled = body.auto_approve_enabled;
+      if (body.auto_approve_enabled === true) {
+        throw new ApiError("VALIDATION_ERROR", "OCR auto-approval is disabled; every payment requires admin approval");
+      }
+      if (body.auto_approve_enabled !== undefined) data.autoApproveEnabled = false;
       if (body.message_templates !== undefined) {
         if (!body.message_templates || typeof body.message_templates !== "object" || Array.isArray(body.message_templates))
           throw new ApiError("VALIDATION_ERROR", "message_templates ต้องเป็น object");

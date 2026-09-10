@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { ApiError } from "../lib/response";
 import { bangkokToday } from "../lib/date";
-import { decideMatch, isVerifiedExactMatch, type Candidate } from "./matching";
+import { decideMatch, type Candidate } from "./matching";
 import { audit } from "./audit";
 import { renderPlanBill } from "./bill";
 import { oaForSubmission } from "./oa";
@@ -103,17 +103,6 @@ export async function processSubmission(submissionId: string) {
     actorType: "system",
     newValue: { matchStatus: decision.status, score: decision.score },
   });
-
-  // Exact amount/date/destination-account matches are trusted immediately; other auto-matches
-  // still require the org opt-in. Cash bills always wait for an admin.
-  const matchedCandidate = effective.installmentId ? candidates.find((candidate) => candidate.id === effective.installmentId) : undefined;
-  const verifiedExactMatch = !!matchedCandidate && isVerifiedExactMatch(parsedSlip, matchedCandidate);
-  if (sub.docType === "slip" && effective.status === "auto_matched" && sub.orgId) {
-    if (org?.autoApproveEnabled || verifiedExactMatch) {
-      await approveSubmission(sub.id, "system", sub.orgId);
-      return prisma.paymentSubmission.findUnique({ where: { id: sub.id } });
-    }
-  }
 
   const config = await getOrgMessageConfig(sub.orgId);
   const templates = config.templates;

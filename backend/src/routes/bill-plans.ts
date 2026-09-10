@@ -3,7 +3,7 @@ import { prisma } from "../lib/prisma";
 import { ok, ApiError } from "../lib/response";
 import { authorize } from "../lib/auth";
 import { audit } from "../services/audit";
-import { generateInstallments, resolveBankAccount, renderPlanBill } from "../services/bill";
+import { generateInstallments, MAX_INSTALLMENTS, resolveBankAccount, renderPlanBill } from "../services/bill";
 import { sendAndLog } from "../services/messages";
 import { dateOnly } from "../lib/date";
 
@@ -17,7 +17,7 @@ const intervalBody = t.Object({
   installment_amount: t.Number(),
   cycle_type: t.Optional(t.String()),
   cycle_days: t.Number(),
-  total_installments: t.Integer({ minimum: 1, maximum: 1000 }),
+  total_installments: t.Integer({ minimum: 1, maximum: MAX_INSTALLMENTS }),
   start_date: t.String({ minLength: 1 }),
   bank_account_id: t.Optional(t.String()),
   bill_penalty_amount: t.Optional(t.Number({ minimum: 0 })),
@@ -33,8 +33,8 @@ const customDatesBody = t.Object({
   bill_penalty_amount: t.Optional(t.Number({ minimum: 0 })),
   note: t.Optional(t.String()),
   installments: t.Array(
-    t.Object({ installment_no: t.Number(), due_date: t.String({ minLength: 1 }), amount_due: t.Number(), penalty_amount: t.Optional(t.Number({ minimum: 0 })) }),
-    { minItems: 1 }
+    t.Object({ installment_no: t.Integer({ minimum: 1, maximum: MAX_INSTALLMENTS }), due_date: t.String({ minLength: 1 }), amount_due: t.Number(), penalty_amount: t.Optional(t.Number({ minimum: 0 })) }),
+    { minItems: 1, maxItems: MAX_INSTALLMENTS }
   ),
 });
 
@@ -93,6 +93,8 @@ export const billPlanRoutes = new Elysia({ prefix: "/api/bill-plans" })
     if (!b.customer_id) throw new ApiError("VALIDATION_ERROR", "customer_id is required");
     if (!Array.isArray(b.installments) || b.installments.length === 0)
       throw new ApiError("VALIDATION_ERROR", "installments is required");
+    if (b.installments.length > MAX_INSTALLMENTS)
+      throw new ApiError("VALIDATION_ERROR", `installments must contain at most ${MAX_INSTALLMENTS} items`);
     const customer = await prisma.customer.findFirst({ where: { id: b.customer_id, orgId: ctx.orgId } });
     if (!customer) throw new ApiError("NOT_FOUND", "Customer not found");
 

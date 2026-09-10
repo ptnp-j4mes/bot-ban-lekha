@@ -5,6 +5,7 @@ import { renderGroupedBillText } from "./messages";
 import { getSystemSettings } from "./systemSettings";
 
 type Tx = PrismaClient | Prisma.TransactionClient;
+export const MAX_INSTALLMENTS = 1000;
 
 export type GeneratedInstallment = { installmentNo: number; dueDate: Date; amountDue: number };
 
@@ -17,8 +18,8 @@ export function generateInstallments(
   amount: number
 ): GeneratedInstallment[] {
   if (cycleDays <= 0) throw new ApiError("VALIDATION_ERROR", "cycle_days must be > 0");
-  if (!Number.isFinite(total) || !Number.isInteger(total) || total < 1 || total > 1000)
-    throw new ApiError("VALIDATION_ERROR", "total_installments must be an integer between 1 and 1000");
+  if (!Number.isFinite(total) || !Number.isInteger(total) || total < 1 || total > MAX_INSTALLMENTS)
+    throw new ApiError("VALIDATION_ERROR", `total_installments must be an integer between 1 and ${MAX_INSTALLMENTS}`);
   if (amount <= 0) throw new ApiError("VALIDATION_ERROR", "installment_amount must be > 0");
   return Array.from({ length: total }, (_, i) => ({
     installmentNo: i + 1,

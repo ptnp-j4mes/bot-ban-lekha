@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { generateInstallments } from "../src/services/bill";
+import { generateInstallments, MAX_INSTALLMENTS } from "../src/services/bill";
 import { toEmojiNumber } from "../src/lib/emoji-number";
 import { renderBillStatusLines, renderDailyReminder, renderBillText, renderGroupedBillText, renderCustomerBills } from "../src/services/messages";
 import { scoreInstallment, decideMatch } from "../src/services/matching";
@@ -44,7 +44,7 @@ test("generateInstallments: rejects bad input", () => {
 test("generateInstallments: total installments must be a finite integer from 1 through 1000", () => {
   for (const total of [Number.NaN, Number.POSITIVE_INFINITY, 1.5, 0, 1001]) {
     expect(() => generateInstallments(dateOnly("2026-06-16"), 7, total, 490)).toThrow(
-      "total_installments must be an integer between 1 and 1000"
+      `total_installments must be an integer between 1 and ${MAX_INSTALLMENTS}`
     );
   }
   expect(generateInstallments(dateOnly("2026-06-16"), 7, 1, 490)).toHaveLength(1);

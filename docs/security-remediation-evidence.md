@@ -21,4 +21,4 @@ Branch: `codex/security-remediation`
 - Backend: `101 pass`, `0 fail`, `362 expect()` calls; disposable PostgreSQL schema reports up to date with 21 migrations.
 - Admin: `rtk bun test tests` passed; `rtk bun run build` passed.
 - Mobile: admin Jest `5 suites / 25 tests` passed with `--runInBand --forceExit`; customer Jest `3 suites / 9 tests` passed with `--runInBand`.
-- Backend TypeScript still reports the pre-existing `src/routes/logs.ts` BodyInit error and existing test typing errors; no new production-source type error was introduced by this branch.
+- Backend TypeScript: `rtk proxy bunx tsc --noEmit` passed.

@@ -144,7 +144,7 @@ export const logRoutes = new Elysia()
     const image = await getMessageContent(log.lineMessageId, oa.accessToken);
     const mime = detectImageMime(image);
     if (!mime) throw new ApiError("NOT_FOUND", "Image content is unavailable");
-    return new Response(image, {
+    return new Response(image as unknown as BodyInit, {
       headers: {
         "content-type": mime,
         "cache-control": "private, max-age=300",

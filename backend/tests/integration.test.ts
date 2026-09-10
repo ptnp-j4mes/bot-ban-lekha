@@ -81,12 +81,12 @@ test("exact OCR match stays pending and never auto-approves a payment", async ()
   const org = await mkOrg();
   const oa = await mkOa(org.id);
   const { plan, inst, customer } = await makePlan(org.id, 490, oa.id);
-  await prisma.bankAccount.update({ where: { id: plan.bankAccountId }, data: { accountNo: "1234567890" } });
+  await prisma.bankAccount.update({ where: { id: plan.bankAccountId! }, data: { accountNo: "1234567890" } });
   const sub = await prisma.paymentSubmission.create({
     data: {
       orgId: org.id,
       lineOaId: oa.id,
-      lineUserId: customer.lineUserId,
+      lineUserId: customer.lineUserId!,
       customerId: customer.id,
       parsedAmount: 490,
       parsedTransferDate: today,
@@ -117,12 +117,12 @@ test("exact facts from an unknown document do not auto-approve", async () => {
   const org = await mkOrg();
   const oa = await mkOa(org.id);
   const { plan, inst, customer } = await makePlan(org.id, 490, oa.id);
-  await prisma.bankAccount.update({ where: { id: plan.bankAccountId }, data: { accountNo: "1234567890" } });
+  await prisma.bankAccount.update({ where: { id: plan.bankAccountId! }, data: { accountNo: "1234567890" } });
   const sub = await prisma.paymentSubmission.create({
     data: {
       orgId: org.id,
       lineOaId: oa.id,
-      lineUserId: customer.lineUserId,
+      lineUserId: customer.lineUserId!,
       customerId: customer.id,
       parsedAmount: 490,
       parsedTransferDate: today,
@@ -295,7 +295,7 @@ test("disabled organizations revoke member, LIFF, webhook, and job access", asyn
   const previousChannel = env.lineLiffChannelId;
   const previousFetch = globalThis.fetch;
   env.lineLiffChannelId = "liff-line-channel";
-  globalThis.fetch = (async () => new Response(JSON.stringify({ sub: customer.lineUserId, aud: "liff-line-channel" }), { status: 200 })) as typeof fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({ sub: customer.lineUserId, aud: "liff-line-channel" }), { status: 200 })) as unknown as typeof fetch;
   try {
     const liff = await app.handle(new Request("http://localhost/api/liff/session", {
       method: "POST", headers: { "content-type": "application/json" },
@@ -511,7 +511,7 @@ test("LINE browser callback issues a verifier-bound login code instead of a JWT 
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     if (String(input) === "https://api.line.me/oauth2/v2.1/token") return new Response(JSON.stringify({ access_token: "line-access-token" }), { status: 200 });
     return new Response(JSON.stringify({ userId: `Uweb${rnd()}`, displayName: "Browser Admin" }), { status: 200 });
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
   try {
     const login = await app.handle(new Request(`http://localhost/api/auth/line/login?code_challenge=${challenge}`));
     expect(login.status).toBe(302);
@@ -541,7 +541,7 @@ test("native LINE login: verifies ID token, upserts admin, and returns JWT", asy
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     expect(String(input)).toBe("https://api.line.me/oauth2/v2.1/verify");
     return new Response(JSON.stringify({ sub: `Umobile${rnd()}`, name: "Native Admin", aud: "mobile-line-channel" }), { status: 200 });
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 
   try {
     const res = await app.handle(new Request("http://localhost/api/auth/mobile/line", {
@@ -564,7 +564,7 @@ test("native LINE login: rejects an ID token issued for another channel", async 
   const previousFetch = globalThis.fetch;
   env.lineLoginChannelId = "mobile-line-channel";
   globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ sub: `Uwrong${rnd()}`, aud: "different-channel" }), { status: 200 })) as typeof fetch;
+    new Response(JSON.stringify({ sub: `Uwrong${rnd()}`, aud: "different-channel" }), { status: 200 })) as unknown as typeof fetch;
 
   try {
     const res = await app.handle(new Request("http://localhost/api/auth/mobile/line", {
@@ -588,7 +588,7 @@ test("native LINE login: inactive account is blocked", async () => {
   const previousFetch = globalThis.fetch;
   env.lineLoginChannelId = "mobile-line-channel";
   globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ sub: lineUserId, aud: "mobile-line-channel" }), { status: 200 })) as typeof fetch;
+    new Response(JSON.stringify({ sub: lineUserId, aud: "mobile-line-channel" }), { status: 200 })) as unknown as typeof fetch;
 
   try {
     const res = await app.handle(new Request("http://localhost/api/auth/mobile/line", {
@@ -613,7 +613,7 @@ test("native LINE login: active account without org membership cannot access ten
   const previousFetch = globalThis.fetch;
   env.lineLoginChannelId = "mobile-line-channel";
   globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ sub: lineUserId, aud: "mobile-line-channel" }), { status: 200 })) as typeof fetch;
+    new Response(JSON.stringify({ sub: lineUserId, aud: "mobile-line-channel" }), { status: 200 })) as unknown as typeof fetch;
 
   try {
     const res = await app.handle(new Request("http://localhost/api/auth/mobile/line", {
@@ -650,7 +650,7 @@ test("customer LIFF session: oa_id selects the correct tenant", async () => {
   const previousFetch = globalThis.fetch;
   env.lineLiffChannelId = "liff-line-channel";
   globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ sub: lineUserId, aud: "liff-line-channel" }), { status: 200 })) as typeof fetch;
+    new Response(JSON.stringify({ sub: lineUserId, aud: "liff-line-channel" }), { status: 200 })) as unknown as typeof fetch;
 
   try {
     const session = await app.handle(new Request("http://localhost/api/liff/session", {
@@ -679,7 +679,7 @@ test("customer LIFF session: rejects an OA that is not active or does not match"
   const previousFetch = globalThis.fetch;
   env.lineLiffChannelId = "liff-line-channel";
   globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ sub: `Uliff${rnd()}`, aud: "liff-line-channel" }), { status: 200 })) as typeof fetch;
+    new Response(JSON.stringify({ sub: `Uliff${rnd()}`, aud: "liff-line-channel" }), { status: 200 })) as unknown as typeof fetch;
 
   try {
     const missing = await app.handle(new Request("http://localhost/api/liff/session", {
@@ -716,7 +716,7 @@ test("customer LIFF session: unlinked and inactive customers are rejected", asyn
   const previousFetch = globalThis.fetch;
   env.lineLiffChannelId = "liff-line-channel";
   globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ sub: lineUserId, aud: "liff-line-channel" }), { status: 200 })) as typeof fetch;
+    new Response(JSON.stringify({ sub: lineUserId, aud: "liff-line-channel" }), { status: 200 })) as unknown as typeof fetch;
 
   try {
     const inactiveResponse = await app.handle(new Request("http://localhost/api/liff/session", {
@@ -728,7 +728,7 @@ test("customer LIFF session: unlinked and inactive customers are rejected", asyn
     expect(inactive.status).toBe("inactive");
 
     globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ sub: `Uunlinked${rnd()}`, aud: "liff-line-channel" }), { status: 200 })) as typeof fetch;
+      new Response(JSON.stringify({ sub: `Uunlinked${rnd()}`, aud: "liff-line-channel" }), { status: 200 })) as unknown as typeof fetch;
     const unlinked = await app.handle(new Request("http://localhost/api/liff/session", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -814,12 +814,12 @@ test("disabled auto match keeps an exact slip pending for admin matching", async
   expect(setting.status).toBe(200);
 
   const { plan, inst, customer } = await makePlan(org.id, 490, oa.id);
-  await prisma.bankAccount.update({ where: { id: plan.bankAccountId }, data: { accountNo: "1234567890" } });
+  await prisma.bankAccount.update({ where: { id: plan.bankAccountId! }, data: { accountNo: "1234567890" } });
   const sub = await prisma.paymentSubmission.create({
     data: {
       orgId: org.id,
       lineOaId: oa.id,
-      lineUserId: customer.lineUserId,
+      lineUserId: customer.lineUserId!,
       customerId: customer.id,
       parsedAmount: 490,
       parsedTransferDate: today,
@@ -918,7 +918,7 @@ test("customer profile and private document upload are org-scoped", async () => 
   globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method === "GET") return new Response("test-document", { status: 200, headers: { "content-type": "application/pdf" } });
     return new Response(null, { status: init?.method === "DELETE" ? 204 : 200 });
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 
   try {
     const patch = await app.handle(new Request(`http://localhost/api/customers/${customer.id}`, {
@@ -1376,7 +1376,7 @@ test("private document storage fails closed and remote retention uses configured
       if (init?.method === "PUT") return new Response(null, { status: 200 });
       expect(init?.method).toBe("GET");
       return new Response("private", { status: 200, headers: { "content-type": "text/plain" } });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     const stored = await storeCustomerDocument("org", "customer", "document", Buffer.from("x"), "txt", "text/plain");
     expect(stored).toBe("s3://private-docs/org/customer-documents/customer/document.txt");
     expect(await (await readStoredFile("s3://private-docs/org/customer-document/a.txt")).text()).toBe("private");
@@ -1387,7 +1387,7 @@ test("private document storage fails closed and remote retention uses configured
       expect(String(input)).toContain("/public-slips/org/slip/a.jpg");
       expect(init?.method).toBe("DELETE");
       return new Response(null, { status: 404 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     expect(await deleteSlipFile("s3://public-slips/org/slip/a.jpg")).toBe("missing");
 
     globalThis.fetch = (async () => new Response(null, { status: 500 })) as unknown as typeof fetch;
@@ -1404,13 +1404,13 @@ test("private document storage fails closed and remote retention uses configured
       expect(url).toContain("/drive/v3/files/drive-id");
       expect(init?.method).toBe("DELETE");
       return new Response(null, { status: 404 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     expect(await deleteSlipFile("https://drive.google.com/file/d/drive-id/view")).toBe("missing");
 
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       if (String(input) === "https://oauth2.googleapis.com/token") return new Response(JSON.stringify({ access_token: "drive-token", expires_in: 3600 }), { status: 200 });
       return new Response(null, { status: 500 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     await expect(deleteSlipFile("gdrive:drive-id")).rejects.toThrow("Google Drive delete failed: 500");
   } finally {
     await updateSystemSettings({

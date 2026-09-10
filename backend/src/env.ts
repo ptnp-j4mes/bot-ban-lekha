@@ -22,6 +22,7 @@ export const env = {
   googleDriveRootFolderId: process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID ?? "",
   // S3 / S3-compatible storage. Endpoint and public URL are optional for AWS S3.
   s3Bucket: process.env.S3_BUCKET ?? "",
+  s3PrivateBucket: process.env.S3_PRIVATE_BUCKET ?? "",
   s3Region: process.env.S3_REGION ?? "",
   s3AccessKeyId: process.env.S3_ACCESS_KEY_ID ?? "",
   s3SecretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? "",

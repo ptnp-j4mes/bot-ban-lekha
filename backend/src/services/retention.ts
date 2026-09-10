@@ -33,6 +33,17 @@ export async function purgeSlipImage(submissionId: string): Promise<{ purged: bo
 
   try {
     const result = await deleteSlipFile(sub.imageUrl);
+    if (result === "skipped") {
+      await audit(prisma, {
+        action: "purge_slip_image_skipped",
+        entityType: "payment_submission",
+        entityId: sub.id,
+        orgId: sub.orgId,
+        actorType: "system",
+        newValue: { result },
+      });
+      return { purged: false, reason: "unsupported_storage" };
+    }
     await prisma.paymentSubmission.update({
       where: { id: sub.id },
       data: { imageUrl: null, imagePurgedAt: new Date() },

@@ -47,8 +47,8 @@ export type R2UsagePoint = {
   object_count: number;
 };
 
-function s3Config(): S3Config | null {
-  const bucket = env.s3Bucket.trim();
+function s3Config(bucketName = env.s3Bucket): S3Config | null {
+  const bucket = bucketName.trim();
   const region = env.s3Region.trim();
   const accessKeyId = env.s3AccessKeyId.trim();
   const secretAccessKey = env.s3SecretAccessKey.trim();
@@ -69,6 +69,19 @@ function s3Config(): S3Config | null {
     publicBaseUrl: env.s3PublicBaseUrl.trim().replace(/\/$/, ""),
     prefix: env.s3Prefix.trim().replace(/^\/+|\/+$/g, ""),
   };
+}
+
+function s3PrivateConfig(): S3Config | null {
+  const privateBucket = env.s3PrivateBucket.trim();
+  if (!privateBucket || privateBucket === env.s3Bucket.trim()) return null;
+  return s3Config(privateBucket);
+}
+
+function s3PrivateMissingConfig() {
+  const missing = s3MissingConfig();
+  if (!env.s3PrivateBucket.trim()) missing.push("S3_PRIVATE_BUCKET");
+  else if (env.s3PrivateBucket.trim() === env.s3Bucket.trim()) missing.push("S3_PRIVATE_BUCKET must differ from S3_BUCKET");
+  return missing;
 }
 
 function s3MissingConfig(): string[] {
@@ -142,7 +155,7 @@ async function hmacSha256(key: string | Uint8Array, input: string) {
 
 async function s3Request(
   config: S3Config,
-  method: "GET" | "PUT",
+  method: "GET" | "PUT" | "DELETE",
   key: string,
   body?: Uint8Array,
   contentType?: string,
@@ -174,7 +187,7 @@ async function s3Request(
   const authorization = `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
   const headers = new Headers({ ...headerValues, Authorization: authorization });
   const response = await fetch(address.url, { method, headers, body: method === "PUT" && body ? Buffer.from(body) : undefined });
-  if (!response.ok) throw new Error(`S3 ${method} failed: ${response.status}`);
+  if (!response.ok && !(method === "DELETE" && response.status === 404)) throw new Error(`S3 ${method} failed: ${response.status}`);
   return response;
 }
 
@@ -191,11 +204,35 @@ function s3Driver(config: S3Config): StorageDriver {
 
 export async function readS3Object(reference: string): Promise<Response> {
   const parsed = new URL(reference);
-  const config = s3Config();
-  if (!config || parsed.protocol !== "s3:" || parsed.hostname !== config.bucket) throw new Error("S3 is not configured");
+  const config = parsed.protocol === "s3:"
+    ? parsed.hostname === env.s3PrivateBucket.trim() ? s3PrivateConfig() : parsed.hostname === env.s3Bucket.trim() ? s3Config() : null
+    : null;
+  if (!config) throw new Error("S3 bucket is not configured");
   const objectKey = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
   const response = await s3Request(config, "GET", objectKey, undefined, undefined, true);
   return new Response(response.body, { headers: { "content-type": response.headers.get("content-type") ?? "application/octet-stream" } });
+}
+
+async function deleteS3Reference(reference: string, config: S3Config): Promise<DeleteSlipResult> {
+  const parsed = new URL(reference);
+  const key = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+  const response = await s3Request(config, "DELETE", key, undefined, undefined, true);
+  return response.status === 404 ? "missing" : "deleted";
+}
+
+async function deleteDriveReference(reference: string): Promise<DeleteSlipResult> {
+  const settings = await getSystemSettings();
+  const config = driveConfig(settings);
+  if (!config) return "skipped";
+  const id = reference.slice("gdrive:".length);
+  const token = await driveToken(config.serviceAccount, DRIVE_FILE_SCOPE);
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (response.status === 404) return "missing";
+  if (!response.ok) throw new Error(`Google Drive delete failed: ${response.status}`);
+  return "deleted";
 }
 
 export async function getS3StorageStatus() {
@@ -583,6 +620,16 @@ export async function readStoredFile(reference: string): Promise<Response> {
     return new Response(response.body, { headers: { "content-type": response.headers.get("content-type") ?? "application/octet-stream" } });
   }
   if (reference.startsWith("http://") || reference.startsWith("https://")) {
+    const config = s3Config();
+    if (config?.publicBaseUrl && reference.startsWith(`${config.publicBaseUrl}/`)) {
+      const base = new URL(config.publicBaseUrl);
+      const given = new URL(reference);
+      const basePath = base.pathname.replace(/\/$/, "");
+      if (given.origin === base.origin && given.pathname.startsWith(`${basePath}/`)) {
+        const key = decodeURIComponent(given.pathname.slice(basePath.length + 1));
+        return readS3Object(`s3://${config.bucket}/${key}`);
+      }
+    }
     return Response.redirect(reference, 302);
   }
   const file = Bun.file(reference);
@@ -604,6 +651,15 @@ async function resolveDriver(): Promise<StorageDriver> {
     return s3Driver(s3Config()!);
   }
   return localDriver;
+}
+
+async function resolvePrivateDriver(): Promise<StorageDriver> {
+  const settings = await getSystemSettings();
+  if (settings.storageDriver !== "s3") return resolveDriver();
+  const missing = s3PrivateMissingConfig();
+  const config = s3PrivateConfig();
+  if (!config || missing.length) throw new Error(`Private document storage is not configured: ${missing.join(", ")}`);
+  return s3Driver(config);
 }
 
 export async function storeSlip(
@@ -638,7 +694,7 @@ export async function storeCustomerDocument(
   contentType: string,
   sender?: { userId?: string | null; userName?: string | null },
 ): Promise<string> {
-  const driver = await resolveDriver();
+  const driver = await resolvePrivateDriver();
   const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true, gdriveFolderId: true } });
   return driver.put(customerDocumentKey(orgId, customerId, documentId, ext), data, contentType, {
     orgId,
@@ -656,7 +712,25 @@ export type DeleteSlipResult = "deleted" | "missing" | "skipped";
 export async function deleteSlipFile(path: string): Promise<DeleteSlipResult> {
   const root = resolve(env.localStoragePath);
   const target = resolve(path);
-  if (target !== root && !target.startsWith(root + sep)) return "skipped";
+  if (target !== root && !target.startsWith(root + sep)) {
+    if (path.startsWith("s3://")) {
+      const parsed = new URL(path);
+      const config = parsed.hostname === env.s3PrivateBucket.trim() ? s3PrivateConfig() : parsed.hostname === env.s3Bucket.trim() ? s3Config() : null;
+      return config ? deleteS3Reference(path, config) : "skipped";
+    }
+    if (path.startsWith("gdrive:")) return deleteDriveReference(path);
+    const config = s3Config();
+    if (config?.publicBaseUrl && path.startsWith(`${config.publicBaseUrl}/`)) {
+      const base = new URL(config.publicBaseUrl);
+      const given = new URL(path);
+      const basePath = base.pathname.replace(/\/$/, "");
+      if (given.origin === base.origin && given.pathname.startsWith(`${basePath}/`)) {
+        const key = decodeURIComponent(given.pathname.slice(basePath.length + 1));
+        return deleteS3Reference(`s3://${config.bucket}/${key}`, config);
+      }
+    }
+    return "skipped";
+  }
   try {
     await unlink(target);
     return "deleted";

@@ -41,6 +41,16 @@ test("generateInstallments: rejects bad input", () => {
   expect(() => generateInstallments(dateOnly("2026-06-16"), 7, 3, 0)).toThrow();
 });
 
+test("generateInstallments: total installments must be a finite integer from 1 through 1000", () => {
+  for (const total of [Number.NaN, Number.POSITIVE_INFINITY, 1.5, 0, 1001]) {
+    expect(() => generateInstallments(dateOnly("2026-06-16"), 7, total, 490)).toThrow(
+      "total_installments must be an integer between 1 and 1000"
+    );
+  }
+  expect(generateInstallments(dateOnly("2026-06-16"), 7, 1, 490)).toHaveLength(1);
+  expect(generateInstallments(dateOnly("2026-06-16"), 7, 1000, 490)).toHaveLength(1000);
+});
+
 test("Bangkok date filters use the correct UTC boundaries", () => {
   expect(bangkokDayStart("2026-08-14").toISOString()).toBe("2026-08-13T17:00:00.000Z");
   expect(bangkokDayEndExclusive("2026-08-14").toISOString()).toBe("2026-08-14T17:00:00.000Z");

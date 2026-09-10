@@ -17,7 +17,7 @@ const intervalBody = t.Object({
   installment_amount: t.Number(),
   cycle_type: t.Optional(t.String()),
   cycle_days: t.Number(),
-  total_installments: t.Number(),
+  total_installments: t.Integer({ minimum: 1, maximum: 1000 }),
   start_date: t.String({ minLength: 1 }),
   bank_account_id: t.Optional(t.String()),
   bill_penalty_amount: t.Optional(t.Number({ minimum: 0 })),

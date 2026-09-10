@@ -17,7 +17,8 @@ export function generateInstallments(
   amount: number
 ): GeneratedInstallment[] {
   if (cycleDays <= 0) throw new ApiError("VALIDATION_ERROR", "cycle_days must be > 0");
-  if (total <= 0) throw new ApiError("VALIDATION_ERROR", "total_installments must be > 0");
+  if (!Number.isFinite(total) || !Number.isInteger(total) || total < 1 || total > 1000)
+    throw new ApiError("VALIDATION_ERROR", "total_installments must be an integer between 1 and 1000");
   if (amount <= 0) throw new ApiError("VALIDATION_ERROR", "installment_amount must be > 0");
   return Array.from({ length: total }, (_, i) => ({
     installmentNo: i + 1,

@@ -402,6 +402,18 @@ async function importPrivateKey(pem: string): Promise<CryptoKey> {
 
 const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+
+function driveReferenceId(reference: string): string | null {
+  if (reference.startsWith("gdrive:")) return reference.slice("gdrive:".length) || null;
+  try {
+    const url = new URL(reference);
+    if (!new Set(["drive.google.com", "docs.google.com"]).has(url.hostname)) return null;
+    const fileMatch = url.pathname.match(/\/file\/d\/([^/]+)/);
+    return decodeURIComponent(fileMatch?.[1] ?? url.searchParams.get("id") ?? "") || null;
+  } catch {
+    return null;
+  }
+}
 const tokenCache = new Map<string, { token: string; exp: number }>();
 async function driveToken(sa: { client_email: string; private_key: string }, scope = DRIVE_FILE_SCOPE): Promise<string> {
   const cacheKey = `${sa.client_email}:${scope}`;
@@ -620,6 +632,8 @@ export async function readStoredFile(reference: string): Promise<Response> {
     return new Response(response.body, { headers: { "content-type": response.headers.get("content-type") ?? "application/octet-stream" } });
   }
   if (reference.startsWith("http://") || reference.startsWith("https://")) {
+    const driveId = driveReferenceId(reference);
+    if (driveId) return readStoredFile(`gdrive:${driveId}`);
     const config = s3Config();
     if (config?.publicBaseUrl && reference.startsWith(`${config.publicBaseUrl}/`)) {
       const base = new URL(config.publicBaseUrl);
@@ -630,7 +644,7 @@ export async function readStoredFile(reference: string): Promise<Response> {
         return readS3Object(`s3://${config.bucket}/${key}`);
       }
     }
-    return Response.redirect(reference, 302);
+    throw new Error("Storage reference is not a configured bucket");
   }
   const file = Bun.file(reference);
   if (!(await file.exists())) throw new Error("Stored file is missing");
@@ -654,8 +668,6 @@ async function resolveDriver(): Promise<StorageDriver> {
 }
 
 async function resolvePrivateDriver(): Promise<StorageDriver> {
-  const settings = await getSystemSettings();
-  if (settings.storageDriver !== "s3") return resolveDriver();
   const missing = s3PrivateMissingConfig();
   const config = s3PrivateConfig();
   if (!config || missing.length) throw new Error(`Private document storage is not configured: ${missing.join(", ")}`);
@@ -718,7 +730,8 @@ export async function deleteSlipFile(path: string): Promise<DeleteSlipResult> {
       const config = parsed.hostname === env.s3PrivateBucket.trim() ? s3PrivateConfig() : parsed.hostname === env.s3Bucket.trim() ? s3Config() : null;
       return config ? deleteS3Reference(path, config) : "skipped";
     }
-    if (path.startsWith("gdrive:")) return deleteDriveReference(path);
+    const driveId = driveReferenceId(path);
+    if (driveId) return deleteDriveReference(`gdrive:${driveId}`);
     const config = s3Config();
     if (config?.publicBaseUrl && path.startsWith(`${config.publicBaseUrl}/`)) {
       const base = new URL(config.publicBaseUrl);

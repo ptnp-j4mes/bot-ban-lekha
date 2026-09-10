@@ -3,12 +3,14 @@ import { prisma } from "../src/lib/prisma";
 import { bangkokToday } from "../src/lib/date";
 import { processSubmission, approveSubmission, matchInstallment, rejectSubmission } from "../src/services/payment";
 import { effectiveRetentionDays, purgeSlipImage, purgeExpiredSlips } from "../src/services/retention";
-import { deleteSlipFile } from "../src/services/storage";
+import { deleteSlipFile, readStoredFile, storeCustomerDocument } from "../src/services/storage";
 import { app } from "../src/app";
 import { env } from "../src/env";
 import { signJwt } from "../src/lib/jwt";
 import { createHmac } from "node:crypto";
+import { sha256 } from "../src/lib/hash";
 import { markOverdue, retryFailed, runReminder } from "../src/routes/jobs";
+import { getSystemSettings, updateSystemSettings } from "../src/services/systemSettings";
 
 const tag = `${Date.now()}`;
 const rnd = () => Math.random().toString(36).slice(2, 8);
@@ -431,6 +433,84 @@ test("username/password login: super admin gets a working platform token", async
   expect(plat.status).toBe(200);
 });
 
+test("LINE login completion codes are verifier-bound, single-use, and expire", async () => {
+  const user = await prisma.adminUser.create({ data: { username: `complete${rnd()}`, isActive: true, displayName: "Completion" } });
+  const code = `code-${rnd()}`;
+  const verifier = `verifier-${rnd()}`;
+  await prisma.adminLoginCompletion.create({
+    data: {
+      codeHash: sha256(code),
+      challengeHash: sha256(sha256(verifier)),
+      adminUserId: user.id,
+      expiresAt: new Date(Date.now() + 5 * 60_000),
+    },
+  });
+
+  const redeem = (body: any) => app.handle(new Request("http://localhost/api/auth/line/complete", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+  const ok = await redeem({ code, code_verifier: verifier });
+  expect(ok.status).toBe(200);
+  expect((await ok.json()).data.token).toBeString();
+  expect((await redeem({ code, code_verifier: verifier })).status).toBe(401);
+});
+
+test("LINE login completion rejects wrong verifier without consuming the code and rejects expiry", async () => {
+  const user = await prisma.adminUser.create({ data: { username: `complete2${rnd()}`, isActive: true } });
+  const code = `code-${rnd()}`;
+  const verifier = `verifier-${rnd()}`;
+  await prisma.adminLoginCompletion.create({
+    data: { codeHash: sha256(code), challengeHash: sha256(sha256(verifier)), adminUserId: user.id, expiresAt: new Date(Date.now() + 5 * 60_000) },
+  });
+  const redeem = (body: any) => app.handle(new Request("http://localhost/api/auth/line/complete", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+  expect((await redeem({ code, code_verifier: "wrong" })).status).toBe(401);
+  expect((await redeem({ code, code_verifier: verifier })).status).toBe(200);
+
+  const expired = `expired-${rnd()}`;
+  await prisma.adminLoginCompletion.create({
+    data: { codeHash: sha256(expired), challengeHash: sha256(sha256(verifier)), adminUserId: user.id, expiresAt: new Date(Date.now() - 1) },
+  });
+  expect((await redeem({ code: expired, code_verifier: verifier })).status).toBe(401);
+});
+
+test("LINE browser callback issues a verifier-bound login code instead of a JWT fragment", async () => {
+  const previous = {
+    channel: env.lineLoginChannelId,
+    secret: env.lineLoginChannelSecret,
+    fetch: globalThis.fetch,
+  };
+  env.lineLoginChannelId = "browser-line-channel";
+  env.lineLoginChannelSecret = "browser-secret";
+  const verifier = `browser-verifier-${rnd()}`;
+  const challenge = sha256(verifier);
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    if (String(input) === "https://api.line.me/oauth2/v2.1/token") return new Response(JSON.stringify({ access_token: "line-access-token" }), { status: 200 });
+    return new Response(JSON.stringify({ userId: `Uweb${rnd()}`, displayName: "Browser Admin" }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const login = await app.handle(new Request(`http://localhost/api/auth/line/login?code_challenge=${challenge}`));
+    expect(login.status).toBe(302);
+    const state = new URL(login.headers.get("location")!).searchParams.get("state");
+    const setCookie = login.headers.get("set-cookie");
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("oauth_state=");
+
+    const callback = await app.handle(new Request(`http://localhost/api/auth/line/callback?code=authorization-code&state=${state}`, {
+      headers: { cookie: setCookie!.split(";")[0] },
+    }));
+    expect(callback.status).toBe(302);
+    const location = callback.headers.get("location")!;
+    expect(location).toContain("#login_code=");
+    expect(location).not.toContain("#token=");
+  } finally {
+    env.lineLoginChannelId = previous.channel;
+    env.lineLoginChannelSecret = previous.secret;
+    globalThis.fetch = previous.fetch;
+  }
+});
+
 test("native LINE login: verifies ID token, upserts admin, and returns JWT", async () => {
   const previousChannel = env.lineLoginChannelId;
   const previousFetch = globalThis.fetch;
@@ -786,40 +866,59 @@ test("customer profile and private document upload are org-scoped", async () => 
   const member = await mkMember(org.id, "user");
   const customer = await prisma.customer.create({ data: { orgId: org.id, customerCode: `DOC${rnd()}` } });
   const H = hdr(member.token, org.id);
+  const previousStorage = {
+    bucket: env.s3Bucket,
+    privateBucket: env.s3PrivateBucket,
+    region: env.s3Region,
+    key: env.s3AccessKeyId,
+    secret: env.s3SecretAccessKey,
+    endpoint: env.s3Endpoint,
+    fetch: globalThis.fetch,
+  };
+  Object.assign(env, { s3Bucket: "public-slips", s3PrivateBucket: "private-docs", s3Region: "auto", s3AccessKeyId: "key", s3SecretAccessKey: "secret", s3Endpoint: "https://storage.example.test" });
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === "GET") return new Response("test-document", { status: 200, headers: { "content-type": "application/pdf" } });
+    return new Response(null, { status: init?.method === "DELETE" ? 204 : 200 });
+  }) as typeof fetch;
 
-  const patch = await app.handle(new Request(`http://localhost/api/customers/${customer.id}`, {
-    method: "PATCH",
-    headers: { ...H, "content-type": "application/json" },
-    body: JSON.stringify({ facebook_url: "https://facebook.com/example", email: "customer@example.com", address: "Bangkok", contact_note: "โทรช่วงเย็น" }),
-  }));
-  expect(patch.status).toBe(200);
-  expect((await patch.json()).data.facebook_url).toBe("https://facebook.com/example");
+  try {
+    const patch = await app.handle(new Request(`http://localhost/api/customers/${customer.id}`, {
+      method: "PATCH",
+      headers: { ...H, "content-type": "application/json" },
+      body: JSON.stringify({ facebook_url: "https://facebook.com/example", email: "customer@example.com", address: "Bangkok", contact_note: "โทรช่วงเย็น" }),
+    }));
+    expect(patch.status).toBe(200);
+    expect((await patch.json()).data.facebook_url).toBe("https://facebook.com/example");
 
-  const form = new FormData();
-  form.append("document_type", "identity");
-  form.append("title", "หลักฐานทดสอบ");
-  form.append("file", new File(["test-document"], "proof.pdf", { type: "application/pdf" }));
-  const upload = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/documents`, { method: "POST", headers: H, body: form }));
-  expect(upload.status).toBe(200);
-  const uploaded = (await upload.json()).data;
-  expect(uploaded.document_type).toBe("identity");
-  expect(uploaded.original_file_name).toBe("proof.pdf");
+    const form = new FormData();
+    form.append("document_type", "identity");
+    form.append("title", "หลักฐานทดสอบ");
+    form.append("file", new File(["test-document"], "proof.pdf", { type: "application/pdf" }));
+    const upload = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/documents`, { method: "POST", headers: H, body: form }));
+    expect(upload.status).toBe(200);
+    const uploaded = (await upload.json()).data;
+    expect(uploaded.document_type).toBe("identity");
+    expect(uploaded.original_file_name).toBe("proof.pdf");
 
-  const detail = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/detail`, { headers: H }));
-  const detailData = (await detail.json()).data;
-  expect(detailData.customer.email).toBe("customer@example.com");
-  expect(detailData.documents).toHaveLength(1);
+    const detail = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/detail`, { headers: H }));
+    const detailData = (await detail.json()).data;
+    expect(detailData.customer.email).toBe("customer@example.com");
+    expect(detailData.documents).toHaveLength(1);
 
-  const file = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/documents/${uploaded.id}/file`, { headers: H }));
-  expect(file.status).toBe(200);
-  expect(await file.text()).toBe("test-document");
+    const file = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/documents/${uploaded.id}/file`, { headers: H }));
+    expect(file.status).toBe(200);
+    expect(await file.text()).toBe("test-document");
 
-  const otherOrg = await mkOrg("other-customer-files");
-  const otherMember = await mkMember(otherOrg.id, "user");
-  const cross = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/documents/${uploaded.id}/file`, { headers: hdr(otherMember.token, otherOrg.id) }));
-  expect(cross.status).toBe(404);
+    const otherOrg = await mkOrg("other-customer-files");
+    const otherMember = await mkMember(otherOrg.id, "user");
+    const cross = await app.handle(new Request(`http://localhost/api/customers/${customer.id}/documents/${uploaded.id}/file`, { headers: hdr(otherMember.token, otherOrg.id) }));
+    expect(cross.status).toBe(404);
 
-  await deleteSlipFile(uploaded.file_url);
+    await deleteSlipFile(uploaded.file_url);
+  } finally {
+    Object.assign(env, previousStorage);
+    globalThis.fetch = previousStorage.fetch;
+  }
 });
 
 test("health open; bare /api/customers needs auth", async () => {
@@ -1071,18 +1170,20 @@ test("purgeSlipImage: clears image but keeps OCR/match metadata + image_hash, id
   void inst;
 });
 
-test("purgeSlipImage: never deletes a file outside the storage root, still clears the DB pointer safely", async () => {
+test("purgeSlipImage: unknown external references stay tracked for retry", async () => {
   const org = await mkOrg();
   const { customer } = await makePlan(org.id);
   const sub = await prisma.paymentSubmission.create({
     data: { orgId: org.id, customerId: customer.id, imageUrl: "/etc/passwd", imageHash: `OUT${tag}${rnd()}`, ocrRawText: "raw" },
   });
   const r = await purgeSlipImage(sub.id);
-  expect(r.purged).toBe(true); // DB pointer cleared, but...
+  expect(r.purged).toBe(false);
+  expect(r.reason).toBe("unsupported_storage");
   const { access } = await import("node:fs/promises");
-  await access("/etc/passwd"); // ...the outside file is untouched
+  await access("/etc/passwd");
   const after = await prisma.paymentSubmission.findUnique({ where: { id: sub.id } });
-  expect(after!.ocrRawText).toBe("raw"); // metadata untouched either way
+  expect(after!.imageUrl).toBe("/etc/passwd");
+  expect(after!.ocrRawText).toBe("raw");
 });
 
 test("purgeSlipImage: missing submission / already-missing file never throws", async () => {
@@ -1117,7 +1218,7 @@ test("purgeExpiredSlips: only purges submissions past each org's own retention c
   await purgeExpiredSlips();
   expect((await prisma.paymentSubmission.findUnique({ where: { id: subShort.id } }))!.imageUrl).toBeNull();
   expect((await prisma.paymentSubmission.findUnique({ where: { id: subLong.id } }))!.imageUrl).not.toBeNull();
-});
+}, 15000);
 
 test("retention 0: webhook purges the slip immediately after OCR, metadata survives", async () => {
   const org = await mkOrg();
@@ -1207,4 +1308,51 @@ test("bulk-approve: cross-org submissions are rejected as failures, not silently
   expect(data.approved).toHaveLength(0);
   expect(data.failed).toHaveLength(1);
   expect((await prisma.billInstallment.findUnique({ where: { id: inst.id } }))!.status).not.toBe("paid");
+});
+
+test("private document storage fails closed and remote retention uses configured buckets", async () => {
+  const previous = {
+    driver: env.storageDriver,
+    bucket: env.s3Bucket,
+    privateBucket: env.s3PrivateBucket,
+    region: env.s3Region,
+    key: env.s3AccessKeyId,
+    secret: env.s3SecretAccessKey,
+    endpoint: env.s3Endpoint,
+    publicBaseUrl: env.s3PublicBaseUrl,
+    fetch: globalThis.fetch,
+  };
+  const previousSettings = await getSystemSettings();
+  await updateSystemSettings({ storageDriver: "s3" });
+  Object.assign(env, { s3Bucket: "public-slips", s3PrivateBucket: "", s3Region: "auto", s3AccessKeyId: "key", s3SecretAccessKey: "secret", s3Endpoint: "https://storage.example.test" });
+  try {
+    await expect(storeCustomerDocument("org", "customer", "document", Buffer.from("x"), "txt", "text/plain")).rejects.toThrow("S3_PRIVATE_BUCKET");
+
+    Object.assign(env, { s3PrivateBucket: "private-docs" });
+    await updateSystemSettings({ storageDriver: "local" });
+    let calls = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls++;
+      expect(String(input)).toContain("/private-docs/org/customer-document");
+      if (init?.method === "PUT") return new Response(null, { status: 200 });
+      expect(init?.method).toBe("GET");
+      return new Response("private", { status: 200, headers: { "content-type": "text/plain" } });
+    }) as typeof fetch;
+    const stored = await storeCustomerDocument("org", "customer", "document", Buffer.from("x"), "txt", "text/plain");
+    expect(stored).toBe("s3://private-docs/org/customer-documents/customer/document.txt");
+    expect(await (await readStoredFile("s3://private-docs/org/customer-document/a.txt")).text()).toBe("private");
+    await expect(readStoredFile("https://untrusted.example/customer.txt")).rejects.toThrow("configured bucket");
+    expect(calls).toBe(2);
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toContain("/public-slips/org/slip/a.jpg");
+      expect(init?.method).toBe("DELETE");
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    expect(await deleteSlipFile("s3://public-slips/org/slip/a.jpg")).toBe("missing");
+  } finally {
+    await updateSystemSettings({ storageDriver: previousSettings.storageDriver });
+    Object.assign(env, previous);
+    globalThis.fetch = previous.fetch;
+  }
 });

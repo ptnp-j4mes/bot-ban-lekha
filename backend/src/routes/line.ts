@@ -69,7 +69,8 @@ export const lineRoutes = new Elysia().post(
       try {
         parsed = JSON.parse(raw);
       } catch {}
-      return { __raw: raw, ...parsed };
+      // Keep the server-captured bytes authoritative; parsed JSON must not replace them.
+      return { ...parsed, __raw: raw };
     },
   }
 );

@@ -7,6 +7,7 @@ import { deleteSlipFile } from "../src/services/storage";
 import { app } from "../src/app";
 import { env } from "../src/env";
 import { signJwt } from "../src/lib/jwt";
+import { createHmac } from "node:crypto";
 
 const tag = `${Date.now()}`;
 const rnd = () => Math.random().toString(36).slice(2, 8);
@@ -226,6 +227,24 @@ test("webhook per-OA sets org + customer; unknown OA 404", async () => {
   expect(sub!.customerId).toBe(customer.id);
 
   expect((await webhook("00000000-0000-0000-0000-000000000000", imageEvent("Ux", "mx"))).status).toBe(404);
+});
+
+test("webhook signature covers the parsed events and cannot be replaced by __raw", async () => {
+  const org = await mkOrg();
+  const secret = `secret-${rnd()}`;
+  const oa = await mkOa(org.id, secret);
+  const oldBody = JSON.stringify({ events: [] });
+  const injectedEvent = { type: "message", source: { type: "group", groupId: `G${rnd()}`, userId: `U${rnd()}` }, message: { type: "text", text: "ปลอม" } };
+  const body = JSON.stringify({ __raw: oldBody, events: [injectedEvent] });
+  const signature = createHmac("sha256", secret).update(oldBody).digest("base64");
+
+  const res = await app.handle(new Request(`http://localhost/api/line/webhook/${oa.id}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-line-signature": signature },
+    body,
+  }));
+  expect(res.status).toBe(401);
+  expect(await prisma.messageLog.count({ where: { lineOaId: oa.id, direction: "inbound" } })).toBe(0);
 });
 
 test("group slip: webhook stores group id (no customer); matched org-wide then approved", async () => {

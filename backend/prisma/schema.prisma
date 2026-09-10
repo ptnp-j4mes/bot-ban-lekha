@@ -405,8 +405,25 @@ model AdminUser {
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
   memberships Membership[]
+  loginCompletions AdminLoginCompletion[]
 
   @@map("admin_users")
+}
+
+model AdminLoginCompletion {
+  id            String    @id @default(uuid())
+  codeHash      String    @unique @map("code_hash")
+  challengeHash String    @map("challenge_hash")
+  adminUserId   String    @map("admin_user_id")
+  expiresAt     DateTime  @map("expires_at")
+  consumedAt    DateTime? @map("consumed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([adminUserId, expiresAt])
+  @@map("admin_login_completions")
 }
 
 model AuditLog {

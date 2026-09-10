@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-toastify";
-import { apiGet, clearAuth, hasCreds, setToken, getOrgId, setOrgId } from "./api";
+import { apiGet, apiSend, clearAuth, hasCreds, setToken, getLineLoginVerifier, clearLineLoginVerifier, getOrgId, setOrgId } from "./api";
 
 type Org = { id: string; name: string };
 export type MenuGroup = { label: string; items: string[] };
@@ -32,13 +32,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [orgName, setOrgName] = useState(localStorage.getItem("orgName") || "");
 
   useEffect(() => {
-    const h = new URLSearchParams(window.location.hash.slice(1));
-    const token = h.get("token");
-    const err = h.get("error");
-    if (token) setToken(token);
-    if (err) toast.error(`เข้าสู่ระบบไม่สำเร็จ: ${err}`);
-    if (token || err) history.replaceState(null, "", window.location.pathname);
-    setReady(true);
+    let alive = true;
+    const completeLogin = async () => {
+      const h = new URLSearchParams(window.location.hash.slice(1));
+      const code = h.get("login_code");
+      const legacyToken = h.get("token");
+      const err = h.get("error");
+      try {
+        if (legacyToken) throw new Error("ลิงก์เข้าสู่ระบบหมดอายุ กรุณาเริ่มเข้าสู่ระบบใหม่");
+        if (err) throw new Error(`เข้าสู่ระบบไม่สำเร็จ: ${err}`);
+        if (code) {
+          const verifier = getLineLoginVerifier();
+          if (!verifier) throw new Error("ไม่พบข้อมูลยืนยันการเข้าสู่ระบบ กรุณาเริ่มใหม่");
+          const result = await apiSend<{ token: string }>("/api/auth/line/complete", "POST", { code, code_verifier: verifier });
+          if (alive) setToken(result.token);
+        }
+      } catch (error: any) {
+        if (alive) toast.error(error?.message || "เข้าสู่ระบบไม่สำเร็จ");
+      } finally {
+        clearLineLoginVerifier();
+        if (code || legacyToken || err) history.replaceState(null, "", window.location.pathname);
+        if (alive) setReady(true);
+      }
+    };
+    void completeLogin();
+    return () => { alive = false; };
   }, []);
 
   const me = useQuery<any>({ queryKey: ["me"], queryFn: () => apiGet("/api/auth/me"), enabled: ready && hasCreds(), retry: false });

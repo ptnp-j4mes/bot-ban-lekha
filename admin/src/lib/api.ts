@@ -15,6 +15,24 @@ export const clearAuth = () => {
 };
 
 export const loginUrl = `${BASE}/api/auth/line/login`;
+const loginVerifierKey = "lineLoginCodeVerifier";
+
+const base64Url = (bytes: Uint8Array) => {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+};
+
+export async function beginLineLogin() {
+  const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  const challenge = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  sessionStorage.setItem(loginVerifierKey, verifier);
+  window.location.assign(`${loginUrl}?code_challenge=${encodeURIComponent(challenge)}`);
+}
+
+export const getLineLoginVerifier = () => sessionStorage.getItem(loginVerifierKey) || "";
+export const clearLineLoginVerifier = () => sessionStorage.removeItem(loginVerifierKey);
 
 function authHeaders(): Record<string, string> {
   const h: Record<string, string> = {};

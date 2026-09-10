@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { toast } from "react-toastify";
 import { Eye, EyeOff } from "lucide-react";
-import { loginUrl, setDevKey, setToken, clearAuth } from "@/lib/api";
+import { beginLineLogin, setDevKey, setToken, clearAuth } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -93,9 +93,7 @@ export function Login() {
             <div className="h-px flex-1 bg-border" /> หรือ <div className="h-px flex-1 bg-border" />
           </div>
 
-          <a href={loginUrl}>
-            <Button variant="outline" className="w-full h-10">เข้าสู่ระบบด้วย LINE</Button>
-          </a>
+          <Button variant="outline" className="w-full h-10" type="button" onClick={() => { void beginLineLogin(); }}>เข้าสู่ระบบด้วย LINE</Button>
 
           <details className="mt-5 font-mono text-[11px] text-muted-foreground">
             <summary className="cursor-pointer hover:text-foreground">dev · ใช้ API key</summary>

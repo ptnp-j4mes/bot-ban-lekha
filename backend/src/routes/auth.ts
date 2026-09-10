@@ -6,10 +6,13 @@ import { ok, ApiError } from "../lib/response";
 import { signJwt } from "../lib/jwt";
 import { authContext } from "../lib/auth";
 import { verifyLineIdToken } from "../lib/line";
+import { sha256 } from "../lib/hash";
 
 const AUTHORIZE = "https://access.line.me/oauth2/v2.1/authorize";
 const TOKEN = "https://api.line.me/oauth2/v2.1/token";
 const PROFILE = "https://api.line.me/v2/profile";
+const LOGIN_COMPLETION_TTL_MS = 5 * 60 * 1000;
+const secureCookie = env.frontendUrl.startsWith("https://");
 
 type LineAdminProfile = { sub: string; name?: string; pictureUrl?: string };
 
@@ -41,7 +44,7 @@ async function upsertLineAdmin(profile: LineAdminProfile) {
       });
 }
 
-export const authRoutes = new Elysia({ prefix: "/api/auth" })
+export const authRoutes = new Elysia({ prefix: "/api/auth", cookie: { secrets: env.jwtSecret, sign: ["oauth_state"] } })
   // Username + password login (for super admin / non-LINE accounts). Argon2 via Bun.password.
   .post("/login", async ({ body }: any) => {
     const { username, password } = body ?? {};
@@ -54,10 +57,11 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
     return ok({ token: signJwt({ sub: u.id, name: u.displayName }, env.jwtSecret) });
   }, { body: t.Object({ username: t.String({ minLength: 1 }), password: t.String({ minLength: 1 }) }) })
   // Step 1: redirect the admin to LINE Login with a CSRF state cookie.
-  .get("/line/login", ({ cookie, set }) => {
+  .get("/line/login", ({ cookie, set, query }: any) => {
     if (!env.lineLoginChannelId) throw new ApiError("INTERNAL_ERROR", "LINE Login not configured");
+    if (!/^[a-f0-9]{64}$/i.test(query.code_challenge ?? "")) throw new ApiError("VALIDATION_ERROR", "Missing login verifier");
     const state = randomBytes(16).toString("hex");
-    cookie.oauth_state.set({ value: state, httpOnly: true, maxAge: 600, path: "/", sameSite: "lax" });
+    cookie.oauth_state.set({ value: { state, challenge: query.code_challenge.toLowerCase() }, httpOnly: true, maxAge: 600, path: "/", sameSite: "lax", secure: secureCookie });
     const u = new URL(AUTHORIZE);
     u.searchParams.set("response_type", "code");
     u.searchParams.set("client_id", env.lineLoginChannelId);
@@ -77,7 +81,8 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
       return "";
     };
     if (!query.code || !query.state) return fail("missing code/state");
-    if (!cookie.oauth_state?.value || cookie.oauth_state.value !== query.state) return fail("bad state");
+    const oauthState = cookie.oauth_state?.value as { state?: string; challenge?: string } | undefined;
+    if (!oauthState?.state || oauthState.state !== query.state || !/^[a-f0-9]{64}$/.test(oauthState.challenge ?? "")) return fail("bad state");
     cookie.oauth_state.remove();
 
     const tokenRes = await fetch(TOKEN, {
@@ -101,12 +106,49 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
     // First-ever admin to log in becomes the platform admin (you). Others just get an account;
     // org access is granted by being added to an org (member/platform admin).
     const user = await upsertLineAdmin({ sub: prof.userId, name: prof.displayName, pictureUrl: prof.pictureUrl });
-
-    const jwt = signJwt({ sub: user.id, name: user.displayName }, env.jwtSecret);
+    const code = randomBytes(32).toString("base64url");
+    await prisma.$transaction(async (tx) => {
+      const now = new Date();
+      await tx.adminLoginCompletion.deleteMany({ where: { OR: [{ expiresAt: { lte: now } }, { consumedAt: { not: null } }] } });
+      await tx.adminLoginCompletion.create({
+        data: {
+          codeHash: sha256(code),
+          challengeHash: sha256(oauthState.challenge!),
+          adminUserId: user.id,
+          expiresAt: new Date(now.getTime() + LOGIN_COMPLETION_TTL_MS),
+        },
+      });
+    });
     set.status = 302;
-    set.headers["location"] = `${env.frontendUrl}/#token=${jwt}`;
+    set.headers["location"] = `${env.frontendUrl}/#login_code=${encodeURIComponent(code)}`;
     return "";
   })
+
+  // Redeem the one-time browser-bound code issued by the LINE callback.
+  .post(
+    "/line/complete",
+    async ({ body }: any) => {
+      const now = new Date();
+      return ok(await prisma.$transaction(async (tx) => {
+        await tx.adminLoginCompletion.deleteMany({ where: { OR: [{ expiresAt: { lte: now } }, { consumedAt: { not: null } }] } });
+        const codeHash = sha256(body.code);
+        const challengeHash = sha256(sha256(body.code_verifier));
+        const completion = await tx.adminLoginCompletion.findUnique({ where: { codeHash } });
+        if (!completion || completion.expiresAt <= now || completion.consumedAt || completion.challengeHash !== challengeHash)
+          throw new ApiError("UNAUTHORIZED", "Invalid or expired login completion");
+        const consumed = await tx.adminLoginCompletion.updateMany({
+          where: { id: completion.id, consumedAt: null, expiresAt: { gt: now }, challengeHash },
+          data: { consumedAt: now },
+        });
+        if (consumed.count !== 1) throw new ApiError("UNAUTHORIZED", "Invalid or expired login completion");
+        const user = await tx.adminUser.findUnique({ where: { id: completion.adminUserId } });
+        if (!user || !user.isActive) throw new ApiError("FORBIDDEN", "บัญชีถูกปิดใช้งาน");
+        await tx.adminUser.update({ where: { id: user.id }, data: { lastLoginAt: now } });
+        return { token: signJwt({ sub: user.id, name: user.displayName }, env.jwtSecret) };
+      }));
+    },
+    { body: t.Object({ code: t.String({ minLength: 1 }), code_verifier: t.String({ minLength: 1 }) }) }
+  )
 
   // Native LINE Login: the iOS SDK returns an ID token directly, so no browser
   // hash redirect or cookie is needed. The token is verified by LINE before the

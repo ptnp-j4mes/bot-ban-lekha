@@ -4,6 +4,14 @@ import { ok, ApiError } from "../lib/response";
 import { authorize } from "../lib/auth";
 import { bangkokDayEndExclusive, bangkokDayStart, bangkokToday, dateOnly, toISODate } from "../lib/date";
 
+const CSV_FORMULA_PREFIX = /^[\s\x00-\x1f]*[=+\-@]/;
+
+export const csvEscape = (value: unknown) => {
+  const text = String(value ?? "");
+  const safe = typeof value === "string" && CSV_FORMULA_PREFIX.test(text) ? `'${text}` : text;
+  return `"${safe.replace(/"/g, '""')}"`;
+};
+
 // Org-scoped reporting. Any member can view/export.
 export const reportRoutes = new Elysia({ prefix: "/api/reports" })
   .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
@@ -125,12 +133,11 @@ export const reportRoutes = new Elysia({ prefix: "/api/reports" })
       if (query.to) where.createdAt.lt = bangkokDayEndExclusive(query.to);
     }
     const rows = await prisma.payment.findMany({ where, include: { customer: true, billInstallment: true }, orderBy: { createdAt: "desc" } });
-    const esc = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const header = "paid_at,customer_code,customer_name,amount,installment_due,approved_at";
     const body = rows
       .map((p) =>
         [p.paidAt?.toISOString().slice(0, 10), p.customer?.customerCode, p.customer?.displayName, Number(p.amount), p.billInstallment?.dueDate.toISOString().slice(0, 10), p.approvedAt.toISOString()]
-          .map(esc)
+          .map(csvEscape)
           .join(",")
       )
       .join("\n");

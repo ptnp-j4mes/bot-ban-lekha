@@ -24,4 +24,4 @@ Branch: `main` (fast-forwarded from `codex/security-remediation`)
 - Backend TypeScript: `rtk proxy bunx tsc --noEmit` passed.
 - Prisma client: `rtk proxy bunx prisma generate` passed after the login-completion migration.
 
-Local implementation HEAD: `3bec01a`; the pre-existing `admin/src/pages/BillPlans.tsx` change remains uncommitted. No production host, private bucket, OAuth callback, device runtime, or spreadsheet application was available for deployment verification, so those gates remain open.
+Implementation commits through `3bec01a` plus this evidence report; the pre-existing `admin/src/pages/BillPlans.tsx` change remains uncommitted. No production host, private bucket, OAuth callback, device runtime, or spreadsheet application was available for deployment verification, so those gates remain open.

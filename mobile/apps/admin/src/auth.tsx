@@ -114,11 +114,15 @@ export function AdminAuthProvider({ children }: PropsWithChildren) {
       await api.setToken(result.token);
       await refresh();
     } catch (err) {
-      await clearCache();
+      await exitOrg();
       await api.clearToken();
+      meRef.current = null;
+      setMe(null);
+      setStatus('signed_out');
+      setError(err instanceof MobileApiError ? err.message : 'เข้าสู่ระบบไม่สำเร็จ');
       throw err;
     }
-  }, [clearCache, refresh]);
+  }, [exitOrg, refresh]);
 
   const loginWithLine = useCallback(async () => {
     setError(null);
@@ -134,11 +138,15 @@ export function AdminAuthProvider({ children }: PropsWithChildren) {
       await api.setToken(session.token);
       await refresh();
     } catch (err) {
-      await clearCache();
+      await exitOrg();
       await api.clearToken();
+      meRef.current = null;
+      setMe(null);
+      setStatus('signed_out');
+      setError(err instanceof MobileApiError ? err.message : 'เข้าสู่ระบบไม่สำเร็จ');
       throw err;
     }
-  }, [clearCache, refresh]);
+  }, [exitOrg, refresh]);
 
   const logout = useCallback(async () => {
     await exitOrg();

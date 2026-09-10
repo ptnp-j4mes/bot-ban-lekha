@@ -23,7 +23,7 @@ const mockApi = jest.requireMock('../src/api').api as { getToken: jest.Mock; get
 
 function Probe() {
   const auth = useAdminAuth();
-  return <><Text testID="status">{auth.status}</Text><Pressable testID="login" onPress={() => void auth.login('admin', 'password')}><Text>login</Text></Pressable><Pressable testID="logout" onPress={() => void auth.logout()}><Text>logout</Text></Pressable><Pressable testID="switch-org" onPress={() => void auth.enterOrg({ id: 'org-2', name: 'Org 2' })}><Text>switch org</Text></Pressable></>;
+  return <><Text testID="status">{auth.status}</Text><Pressable testID="login" onPress={() => void auth.login('admin', 'password').catch(() => undefined)}><Text>login</Text></Pressable><Pressable testID="logout" onPress={() => void auth.logout()}><Text>logout</Text></Pressable><Pressable testID="switch-org" onPress={() => void auth.enterOrg({ id: 'org-2', name: 'Org 2' })}><Text>switch org</Text></Pressable></>;
 }
 
 function renderAuth(queryClient: QueryClient) {
@@ -85,4 +85,16 @@ test('clears cached admin data when the auth session fails to refresh', async ()
   await waitFor(() => expect(screen.getByTestId('status').props.children).toBe('signed_out'));
   expect(queryClient.getQueryData(['mobile-customers', 'admin-1', 'org-1'])).toBeUndefined();
   expect(mockApi.clearToken).toHaveBeenCalledTimes(1);
+});
+
+test('clears cached admin data and returns to signed out after replacement login fails', async () => {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  queryClient.setQueryData(['mobile-customers', 'admin-1', 'org-1'], { items: [{ id: 'secret' }] });
+  renderAuth(queryClient);
+  await waitFor(() => expect(screen.getByTestId('status').props.children).toBe('signed_in'));
+
+  mockApi.post.mockRejectedValueOnce(new Error('bad credentials'));
+  await fireEvent.press(screen.getByTestId('login'));
+  await waitFor(() => expect(screen.getByTestId('status').props.children).toBe('signed_out'));
+  expect(queryClient.getQueryData(['mobile-customers', 'admin-1', 'org-1'])).toBeUndefined();
 });

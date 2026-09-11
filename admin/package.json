@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:liff": "node --test tests/liff.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.0",

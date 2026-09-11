@@ -1,232 +1,120 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { liffGet, liffPost, getLiffToken, setLiffToken } from "./api";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { ArrowLeft, CircleAlert, Crown, MessageCircle, RefreshCw, ShieldCheck } from "lucide-react";
+import { clearLiffToken, liffGet, liffPost, setLiffToken } from "./api";
+import { TABS, unpaidInstallments, type Balance, type CustomerData, type Installment, type PaymentHistory, type Tab } from "./model";
+import { LiffSessionError, loadCustomerData, type CustomerApi, type LiffSdk, type Session, type SessionProblem } from "./session";
+import { BalanceHero, EmptyState, InstallmentCard, LoadingState, NextDueCard, PaymentHistoryItem } from "./components";
+import "./styles/liff.css";
 
-declare global {
-  interface Window {
-    liff?: any;
-  }
-}
+declare global { interface Window { liff?: LiffSdk; } }
 
-type Balance = { outstanding: number; count: number; next_due_date: string | null };
-type Installment = {
-  id: string;
-  installment_no: number;
-  due_date: string;
-  amount_due: number;
-  amount_paid: number;
-  status: string;
-  bill_plan: { bill_no: number };
+const api: CustomerApi = {
+  clearToken: clearLiffToken, setToken: setLiffToken,
+  createSession: (idToken, oaId, signal) => liffPost<Session>("/api/liff/session", { id_token: idToken, oa_id: oaId }, signal),
+  getBalance: (signal) => liffGet<Balance>("/api/liff/me/balance", signal),
+  getInstallments: (signal) => liffGet<Installment[]>("/api/liff/me/installments", signal),
+  getPayments: (signal) => liffGet<PaymentHistory[]>("/api/liff/me/payments", signal),
 };
-type PaymentHistory = {
-  id: string;
-  amount: number;
-  paid_at: string | null;
-  payment_method: string;
-  approved_at: string;
-  bill_installment: { installment_no: number; bill_plan: { bill_no: number } };
+type Problem = SessionProblem | "error";
+type State = { stage: "loading" } | { stage: "ready"; data: CustomerData } | { stage: Problem };
+const problems: Record<Problem, { title: string; description: string }> = {
+  not_configured: { title: "ลิงก์นี้ยังไม่พร้อมใช้งาน", description: "กรุณาเปิดจากเมนูใน LINE อีกครั้ง หากยังเปิดไม่ได้ กรุณาติดต่อแอดมินเพื่อตรวจสอบการตั้งค่า LIFF ค่ะ" },
+  sdk_unavailable: { title: "เชื่อมต่อ LINE ไม่สำเร็จ", description: "กรุณาตรวจสอบอินเทอร์เน็ต แล้วปิดหน้านี้และเปิดใหม่จากเมนูใน LINE ค่ะ" },
+  not_linked: { title: "ยังไม่พบข้อมูลลูกค้าของคุณ", description: "บัญชี LINE นี้ยังไม่ได้ผูกกับข้อมูลลูกค้า หรือบัญชียังไม่พร้อมใช้งาน กรุณาติดต่อแอดมินค่ะ" },
+  unauthorized: { title: "กรุณายืนยันตัวตนอีกครั้ง", description: "การเชื่อมต่อหมดอายุหรือยังไม่ได้รับสิทธิ์ กรุณาลองใหม่ หรือเปิดหน้านี้จากเมนูใน LINE อีกครั้งค่ะ" },
+  error: { title: "โหลดข้อมูลไม่สำเร็จ", description: "กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองอีกครั้ง ระบบยังไม่ได้เปลี่ยนแปลงข้อมูลการชำระเงินของคุณค่ะ" },
 };
-
-const fmtAmount = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
-const fmtDate = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" }) : "-";
-
-const STATUS_LABEL: Record<string, string> = {
-  pending: "รอชำระ",
-  partial_paid: "ชำระบางส่วน",
-  overdue: "เกินกำหนด",
-  paid: "ชำระแล้ว",
-};
-
-function getOaId(): string | null {
-  const params = new URLSearchParams(window.location.search);
-  return params.get("oa");
-}
-
-type Stage = "loading" | "not_in_line" | "not_configured" | "not_linked" | "error" | "ready";
+const PAGE_SIZE = 10;
 
 export function LiffApp() {
-  const [stage, setStage] = useState<Stage>("loading");
-  const [errorMsg, setErrorMsg] = useState("");
-  const [displayName, setDisplayName] = useState<string | null>(null);
-  const [balance, setBalance] = useState<Balance | null>(null);
-  const [installments, setInstallments] = useState<Installment[]>([]);
-  const [payments, setPayments] = useState<PaymentHistory[]>([]);
+  const [state, setState] = useState<State>({ stage: "loading" });
+  const [attempt, setAttempt] = useState(0);
+  const [tab, setTab] = useState<Tab>("unpaid");
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [showGuide, setShowGuide] = useState(false);
+  const tabsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    (async () => {
-      const oaId = getOaId();
-      const liffId = import.meta.env.VITE_LIFF_ID as string | undefined;
-      if (!liffId || !oaId) {
-        setStage("not_configured");
-        return;
-      }
-      if (!window.liff) {
-        setStage("not_in_line");
-        return;
-      }
+    const controller = new AbortController();
+    setState({ stage: "loading" });
+    loadCustomerData({ sdk: window.liff, liffId: import.meta.env.VITE_LIFF_ID, getSearch: () => window.location.search, api, signal: controller.signal })
+      .then((data) => { if (data && !controller.signal.aborted) setState({ stage: "ready", data }); })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        // Cancel sibling requests and discard private data, rather than presenting zero balances.
+        controller.abort();
+        clearLiffToken();
+        const failure = error as { status?: number; code?: string };
+        const stage = error instanceof LiffSessionError ? error.kind
+          : failure?.status === 401 || failure?.code === "UNAUTHORIZED" ? "unauthorized" : "error";
+        setState({ stage });
+      });
+    return () => controller.abort();
+  }, [attempt]);
 
-      try {
-        await window.liff.init({ liffId });
-        if (!window.liff.isLoggedIn()) {
-          window.liff.login();
-          return; // page redirects into LINE login; this render is done
-        }
-        const idToken = window.liff.getIDToken();
-        if (!idToken) throw new Error("no id token");
-
-        let token = getLiffToken();
-        if (!token) {
-          const session = await liffPost<{ token: string; customer: { customer_code: string; display_name: string | null } }>(
-            "/api/liff/session",
-            { id_token: idToken, oa_id: oaId }
-          );
-          token = session.token;
-          setLiffToken(token);
-          setDisplayName(session.customer.display_name ?? session.customer.customer_code);
-        }
-
-        const [b, i, p] = await Promise.all([
-          liffGet<Balance>("/api/liff/me/balance"),
-          liffGet<Installment[]>("/api/liff/me/installments"),
-          liffGet<PaymentHistory[]>("/api/liff/me/payments"),
-        ]);
-        setBalance(b);
-        setInstallments(i);
-        setPayments(p);
-        setStage("ready");
-      } catch (e: any) {
-        if (e?.code === "NOT_FOUND") {
-          setStage("not_linked");
-        } else {
-          setErrorMsg(e?.message || "เกิดข้อผิดพลาด");
-          setStage("error");
-        }
-      }
-    })();
-  }, []);
-
-  if (stage === "loading") {
-    return (
-      <Center>
-        <p className="text-sm text-muted-foreground">กำลังโหลดข้อมูล…</p>
-      </Center>
-    );
-  }
-
-  if (stage === "not_in_line" || stage === "not_configured") {
-    return (
-      <Center>
-        <p className="text-sm text-muted-foreground">กรุณาเปิดหน้านี้ผ่านแอป LINE ค่ะ</p>
-      </Center>
-    );
-  }
-
-  if (stage === "not_linked") {
-    return (
-      <Center>
-        <p className="text-base font-semibold text-foreground">ยังไม่พบข้อมูลลูกค้าของคุณ</p>
-        <p className="mt-2 text-sm text-muted-foreground">บัญชี LINE นี้ยังไม่ได้ผูกกับข้อมูลลูกค้า กรุณาติดต่อแอดมินของคุณค่ะ 🙏</p>
-      </Center>
-    );
-  }
-
-  if (stage === "error") {
-    return (
-      <Center>
-        <p className="text-sm text-destructive">{errorMsg}</p>
-      </Center>
-    );
-  }
-
-  const nextUnpaid = installments.find((i) => i.status !== "paid");
+  const selectTab = (next: Tab) => { setTab(next); setLimit(PAGE_SIZE); };
+  const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    const index = TABS.findIndex((entry) => entry.id === tab);
+    const next = event.key === "ArrowRight" ? (index + 1) % TABS.length
+      : event.key === "ArrowLeft" ? (index + TABS.length - 1) % TABS.length
+      : event.key === "Home" ? 0 : event.key === "End" ? TABS.length - 1 : -1;
+    if (next === -1) return;
+    event.preventDefault(); selectTab(TABS[next].id);
+    tabsRef.current?.querySelector<HTMLButtonElement>(`#liff-tab-${TABS[next].id}`)?.focus();
+  };
+  const returnToLine = () => {
+    if (window.liff?.isInClient()) {
+      try { window.liff.closeWindow(); return; } catch { /* Show manual instructions below. */ }
+    }
+    setShowGuide(true);
+  };
+  const viewInstallments = () => {
+    selectTab("unpaid");
+    tabsRef.current?.scrollIntoView({ block: "start" });
+    tabsRef.current?.querySelector<HTMLButtonElement>("#liff-tab-unpaid")?.focus({ preventScroll: true });
+  };
+  const data = state.stage === "ready" ? state.data : null;
+  const unpaid = data ? unpaidInstallments(data.installments) : [];
+  const rows = tab === "unpaid" ? unpaid : data?.installments ?? [];
+  const count = tab === "history" ? data?.payments.length ?? 0 : rows.length;
+  const name = data?.customer.display_name?.trim() || data?.customer.customer_code || "ลูกค้า";
+  const problem = state.stage !== "ready" && state.stage !== "loading" ? problems[state.stage] : null;
 
   return (
-    <div className="mx-auto min-h-screen max-w-md space-y-4 p-4 pb-10">
-      <header className="pt-2">
-        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">สวัสดีค่ะ</div>
-        <h1 className="font-head text-xl font-bold tracking-tight">{displayName ?? "ลูกค้า"}</h1>
-      </header>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>ยอดคงเหลือ</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {balance && balance.count === 0 ? (
-            <p className="text-sm text-muted-foreground">ไม่มียอดค้างชำระ ✅ ขอบคุณค่ะ 🙏</p>
-          ) : (
-            <>
-              <div className="fig text-3xl font-bold text-foreground">{fmtAmount(balance?.outstanding ?? 0)} บาท</div>
-              <div className="mt-1 text-sm text-muted-foreground">ค้างชำระทั้งหมด {balance?.count ?? 0} งวด</div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      {nextUnpaid && (
-        <Card>
-          <CardHeader>
-            <CardTitle>งวดถัดไป</CardTitle>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between">
-            <div>
-              <div className="text-sm text-muted-foreground">บิล {nextUnpaid.bill_plan.bill_no} · งวดที่ {nextUnpaid.installment_no}</div>
-              <div className="fig text-lg font-semibold">{fmtAmount(nextUnpaid.amount_due - nextUnpaid.amount_paid)} บาท</div>
+    <div className="liff-app">
+      <main className="liff-shell">
+        <header className="liff-header">
+          <div className="liff-brand"><span className="liff-brand-mark"><Crown size={21} aria-hidden="true" /></span><span>บ้านเลขา<small>ดูแลทุกบิลของคุณ</small></span></div>
+          <button type="button" className="liff-icon-button" aria-label="รีเฟรชข้อมูล" disabled={state.stage === "loading"} onClick={() => { setLimit(PAGE_SIZE); setAttempt((value) => value + 1); }}><RefreshCw size={19} aria-hidden="true" /></button>
+        </header>
+        {state.stage === "loading" && <LoadingState />}
+        {problem && <section className="liff-problem" role="alert"><span className="liff-empty-icon"><CircleAlert size={28} aria-hidden="true" /></span><h1>{problem.title}</h1><p>{problem.description}</p><button type="button" className="liff-button liff-button--outline" onClick={() => state.stage === "sdk_unavailable" ? window.location.reload() : setAttempt((value) => value + 1)}>ลองอีกครั้ง</button></section>}
+        {data && <>
+          <div className="liff-greeting"><div><p>สวัสดีค่ะ</p><h1>{name}</h1><span>รหัสลูกค้า {data.customer.customer_code}</span></div><span className="liff-avatar" aria-hidden="true">{name.slice(0, 1)}</span></div>
+          <BalanceHero balance={data.balance} />
+          <NextDueCard date={data.balance.next_due_date} onView={viewInstallments} />
+          <section className="liff-records" aria-label="รายการบิลและประวัติ">
+            <div className="liff-tabs" ref={tabsRef} role="tablist" aria-label="เลือกรายการ">
+              {TABS.map((entry) => <button key={entry.id} type="button" id={`liff-tab-${entry.id}`} role="tab" aria-controls="liff-panel" aria-selected={tab === entry.id} tabIndex={tab === entry.id ? 0 : -1} onClick={() => selectTab(entry.id)} onKeyDown={onTabKeyDown}>{entry.label}</button>)}
             </div>
-            <div className="text-right text-sm font-medium text-foreground">{fmtDate(nextUnpaid.due_date)}</div>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>รายการงวดทั้งหมด</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 p-0">
-          {installments.length === 0 && <p className="px-4 pb-4 text-sm text-muted-foreground">ยังไม่มีรายการ</p>}
-          {installments.map((i) => (
-            <div key={i.id} className="flex items-center justify-between border-b border-border px-4 py-2.5 last:border-b-0">
-              <div>
-                <div className="text-sm font-medium">บิล {i.bill_plan.bill_no} · งวดที่ {i.installment_no}</div>
-                <div className="text-xs text-muted-foreground">{fmtDate(i.due_date)}</div>
-              </div>
-              <div className="text-right">
-                <div className="fig text-sm font-semibold">{fmtAmount(i.amount_due)} บาท</div>
-                <div className={i.status === "paid" ? "text-xs text-[#059669]" : "text-xs text-muted-foreground"}>
-                  {STATUS_LABEL[i.status] ?? i.status}
-                </div>
-              </div>
+            <div id="liff-panel" role="tabpanel" aria-labelledby={`liff-tab-${tab}`} tabIndex={0}>
+              <div className="liff-list-heading"><h2>{tab === "history" ? "ประวัติการชำระ" : tab === "all" ? "รายการงวดทั้งหมด" : "รายการที่ยังไม่ชำระ"}</h2><span>{count} รายการ</span></div>
+              {tab === "unpaid" && count > 0 && <p className="liff-list-note">เรียงตามวันครบกำหนด · รวมงวดที่ยังไม่ถึงกำหนด</p>}
+              {tab === "history" && <p className="liff-list-note">แสดงเฉพาะรายการที่ได้รับการอนุมัติแล้ว</p>}
+              {count === 0 ? <EmptyState title={tab === "history" ? "ยังไม่มีประวัติการชำระ" : tab === "unpaid" ? "ไม่มีรายการที่ยังไม่ชำระ" : "ยังไม่มีรายการงวด"} description={tab === "history" ? "รายการจะแสดงที่นี่หลังตรวจสอบและอนุมัติสลิปแล้วค่ะ" : "หากมีข้อสงสัย สามารถสอบถามแอดมินในแชท LINE ได้เลยค่ะ"} /> : <div className="liff-list">
+                {tab === "history" ? data.payments.slice(0, limit).map((item) => <PaymentHistoryItem key={item.id} item={item} />) : rows.slice(0, limit).map((item) => <InstallmentCard key={item.id} item={item} />)}
+              </div>}
+              {count > limit && <button className="liff-button liff-button--outline liff-load-more" type="button" onClick={() => setLimit((value) => value + PAGE_SIZE)}>แสดงเพิ่มอีก {Math.min(PAGE_SIZE, count - limit)} รายการ</button>}
             </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>ประวัติการชำระ</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 p-0">
-          {payments.length === 0 && <p className="px-4 pb-4 text-sm text-muted-foreground">ยังไม่มีประวัติการชำระ</p>}
-          {payments.map((p) => (
-            <div key={p.id} className="flex items-center justify-between border-b border-border px-4 py-2.5 last:border-b-0">
-              <div>
-                <div className="text-sm font-medium">บิล {p.bill_installment.bill_plan.bill_no} · งวดที่ {p.bill_installment.installment_no}</div>
-                <div className="text-xs text-muted-foreground">{fmtDate(p.approved_at)}</div>
-              </div>
-              <div className="fig text-sm font-semibold text-[#059669]">{fmtAmount(p.amount)} บาท</div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <p className="px-1 text-center text-xs leading-relaxed text-muted-foreground">
-        หากต้องการแจ้งชำระเงิน กรุณาส่ง "รูปสลิป" โอนเงินกลับเข้ามาในแชท LINE นี้ได้เลยค่ะ 🙏
-      </p>
+          </section>
+          <p className="liff-privacy"><ShieldCheck size={15} aria-hidden="true" />แสดงเฉพาะข้อมูลที่ผูกกับบัญชี LINE ของคุณ</p>
+        </>}
+      </main>
+      <footer className="liff-dock"><div className="liff-dock-inner">
+        <p>ชำระแล้ว? ส่งรูปสลิปในแชทได้เลยค่ะ</p>
+        <button type="button" className="liff-button" onClick={returnToLine}><MessageCircle size={20} aria-hidden="true" />กลับไปส่งสลิปใน LINE<ArrowLeft size={18} aria-hidden="true" /></button>
+        {showGuide && <p className="liff-guide" role="status">เปิดแอป LINE กลับไปที่แชทของร้าน แล้วส่งรูปสลิปโอนเงินให้แอดมินได้เลยค่ะ หน้านี้ยังไม่รองรับการอัปโหลดสลิปโดยตรง</p>}
+      </div></footer>
     </div>
   );
-}
-
-function Center({ children }: { children: ReactNode }) {
-  return <div className="flex min-h-screen flex-col items-center justify-center p-6 text-center">{children}</div>;
 }

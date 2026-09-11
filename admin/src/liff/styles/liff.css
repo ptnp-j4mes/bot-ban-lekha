@@ -1,0 +1,123 @@
+/* All selectors are scoped to the LIFF root; the admin theme is unchanged. */
+.liff-app {
+  --liff-pink: #c61b60;
+  --liff-ink: #342532;
+  --liff-muted: #7d6975;
+  --liff-line: #f2e4eb;
+  color-scheme: light;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #fff8fb;
+  color: var(--liff-ink);
+  font-family: "Noto Sans Thai", "DM Sans", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.liff-app *, .liff-app *::before, .liff-app *::after { box-sizing: border-box; }
+.liff-app h1, .liff-app h2, .liff-app h3, .liff-app p, .liff-app dl, .liff-app dd { margin: 0; }
+.liff-app button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.liff-app button:disabled { cursor: wait; opacity: .5; }
+.liff-app button:focus-visible, .liff-app [tabindex="0"]:focus-visible {
+  outline: 3px solid #a61b55; outline-offset: 4px;
+}
+.liff-app .liff-shell { width: 100%; max-width: 520px; margin: 0 auto; flex: 1; padding: 20px 20px 28px; padding-top: max(20px, env(safe-area-inset-top)); }
+.liff-app .liff-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; gap: 16px; }
+.liff-app .liff-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
+.liff-app .liff-brand small { display: block; font-size: 11px; font-weight: 400; color: var(--liff-muted); }
+.liff-app .liff-brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid #f2c8d9; background: #fce5ef; border-radius: 15px; color: var(--liff-pink); }
+.liff-app .liff-icon-button { display: grid; place-items: center; width: 44px; height: 44px; flex-shrink: 0; background: white; border: 1px solid var(--liff-line); color: var(--liff-muted); border-radius: 50%; }
+.liff-app .liff-icon-button:hover { background: #fcebf2; color: var(--liff-pink); }
+.liff-app .liff-greeting { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+.liff-app .liff-greeting > div { min-width: 0; }
+.liff-app .liff-greeting p { font-size: 14px; color: var(--liff-muted); }
+.liff-app .liff-greeting h1 { font-size: 25px; font-weight: 700; line-height: 1.4; margin: 2px 0 3px; overflow-wrap: anywhere; }
+.liff-app .liff-greeting > div > span { font-size: 11px; color: var(--liff-muted); }
+.liff-app .liff-avatar { width: 48px; height: 48px; display: grid; place-items: center; flex-shrink: 0; border-radius: 50%; background: #f8dce8; border: 3px solid white; color: #a9225c; font-size: 21px; font-weight: 600; }
+.liff-app .liff-hero { position: relative; isolation: isolate; overflow: hidden; border-radius: 26px; padding: 24px; background: linear-gradient(125deg, #cb2468 0%, #ad1551 100%); color: white; box-shadow: 0 12px 28px #ae19521a; }
+.liff-app .liff-hero::after { content: ""; position: absolute; z-index: -1; width: 220px; height: 220px; right: -100px; bottom: -125px; border: 32px solid #ffffff0d; border-radius: 50%; }
+.liff-app .liff-hero-crown { position: absolute; z-index: -1; width: 120px; height: 120px; top: 17px; right: -13px; color: #ffffff15; transform: rotate(15deg); }
+.liff-app .liff-hero-eyebrow { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #fff1f7; margin-bottom: 20px; }
+.liff-app .liff-dot { width: 6px; height: 6px; border-radius: 50%; background: #ffcee1; }
+.liff-app .liff-hero h2 { font-size: 15px; font-weight: 400; }
+.liff-app .liff-hero-amount { font-family: "Plus Jakarta Sans", "DM Sans", sans-serif; font-size: clamp(25px, 8.4vw, 40px); font-weight: 800; letter-spacing: -1.3px; line-height: 1.5; margin: 3px 0 18px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.liff-app .liff-currency { font-size: .64em; font-weight: 500; margin-right: 8px; }
+.liff-app .liff-hero-bottom { display: flex; align-items: center; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; padding-top: 14px; border-top: 1px solid #ffffff35; font-size: 12px; }
+.liff-app .liff-hero-note { font-size: 10px; color: #ffedf4; }
+.liff-app .liff-next { width: 100%; display: flex; align-items: center; text-align: left; gap: 12px; padding: 15px 16px; margin-top: 14px; background: white; border: 1px solid var(--liff-line); border-radius: 20px; color: var(--liff-muted); box-shadow: 0 4px 12px #58384403; }
+.liff-app .liff-next:hover { border-color: #e7acc5; }
+.liff-app .liff-icon-tile { width: 43px; height: 43px; border-radius: 14px; background: #fff0f6; color: var(--liff-pink); display: grid; place-items: center; flex-shrink: 0; }
+.liff-app .liff-next-copy { flex: 1; min-width: 0; }
+.liff-app .liff-next-copy > span { display: block; font-size: 11px; }
+.liff-app .liff-next-copy strong { display: block; color: var(--liff-ink); font-size: 16px; font-weight: 600; }
+.liff-app .liff-records { margin-top: 27px; }
+.liff-app .liff-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 5px; border-radius: 16px; background: #f5e9ef; scroll-margin-top: 16px; }
+.liff-app .liff-tabs button { min-height: 44px; background: transparent; border: none; color: #7c5266; border-radius: 12px; font-weight: 500; font-size: 13px; }
+.liff-app .liff-tabs button[aria-selected="true"] { background: white; color: #ad1852; font-weight: 700; box-shadow: 0 2px 7px #6e254512; }
+.liff-app .liff-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 23px 1px 8px; }
+.liff-app .liff-list-heading h2 { font-size: 16px; font-weight: 600; }
+.liff-app .liff-list-heading > span { flex-shrink: 0; font-size: 11px; color: var(--liff-muted); }
+.liff-app .liff-list-note { font-size: 11px; color: var(--liff-muted); margin-bottom: 12px; }
+.liff-app .liff-list { display: grid; gap: 12px; }
+.liff-app .liff-installment { padding: 17px 17px 0; border: 1px solid var(--liff-line); border-radius: 20px; background: white; box-shadow: 0 3px 10px #58384403; }
+.liff-app .liff-card-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.liff-app .liff-bill-number { display: inline-flex; align-items: center; gap: 6px; color: var(--liff-muted); font-size: 12px; }
+.liff-app .liff-badge { display: inline-flex; align-items: center; gap: 5px; border-radius: 8px; padding: 3px 8px; font-size: 10px; font-weight: 600; white-space: nowrap; }
+.liff-app .liff-badge--pending { background: #fff0f6; color: #ae255b; }
+.liff-app .liff-badge--partial { background: #fff4de; color: #8d580d; }
+.liff-app .liff-badge--overdue { background: #fff0ef; color: #bc3533; }
+.liff-app .liff-badge--paid { background: #eaf7f0; color: #257347; }
+.liff-app .liff-badge--neutral { background: #f2eff1; color: #6d6167; }
+.liff-app .liff-installment-main { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 16px 0; }
+.liff-app .liff-installment h3 { font-size: 16px; font-weight: 600; }
+.liff-app .liff-due-date { font-size: 11px; color: var(--liff-muted); margin-top: 3px; }
+.liff-app .liff-installment-amount { margin-left: auto; text-align: right; }
+.liff-app .liff-installment-amount > span { display: block; color: var(--liff-muted); font-size: 10px; }
+.liff-app .liff-installment-amount strong { font-family: "Plus Jakarta Sans", sans-serif; font-size: 17px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.liff-app .liff-breakdown { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px dashed #eadce3; gap: 12px; padding: 12px 0 15px; }
+.liff-app .liff-breakdown > div:last-child { text-align: right; }
+.liff-app .liff-breakdown dt { font-size: 10px; color: var(--liff-muted); }
+.liff-app .liff-breakdown dd { font-family: "DM Sans", sans-serif; font-weight: 600; font-size: 14px; margin-top: 2px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.liff-app .liff-text-pink { color: var(--liff-pink); }
+.liff-app .liff-text-green { color: #257347; }
+.liff-app .liff-payment { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 16px 14px; background: white; border: 1px solid var(--liff-line); border-radius: 18px; }
+.liff-app .liff-payment-icon { display: grid; place-items: center; width: 35px; height: 35px; color: #257347; background: #eaf7f0; border-radius: 12px; flex-shrink: 0; }
+.liff-app .liff-payment-copy { flex: 1; min-width: 125px; }
+.liff-app .liff-payment h3 { font-size: 12px; font-weight: 600; }
+.liff-app .liff-payment-copy p { font-size: 10px; color: var(--liff-muted); }
+.liff-app .liff-payment-amount { margin-left: auto; text-align: right; color: #257347; }
+.liff-app .liff-payment-amount strong { display: block; font-family: "DM Sans", sans-serif; font-size: 14px; font-variant-numeric: tabular-nums; }
+.liff-app .liff-payment-amount span { font-size: 10px; }
+.liff-app .liff-button { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 52px; padding: 12px 16px; background: var(--liff-pink); color: white; border: 1px solid transparent; border-radius: 16px; font-size: 14px; font-weight: 600; }
+.liff-app .liff-button:hover { background: #a81950; }
+.liff-app .liff-button--outline { color: var(--liff-pink); border-color: #eac2d4; background: white; }
+.liff-app .liff-button--outline:hover { background: #ffedf5; }
+.liff-app .liff-load-more { margin-top: 16px; }
+.liff-app .liff-privacy { display: flex; align-items: center; justify-content: center; gap: 6px; text-align: center; font-size: 10px; color: var(--liff-muted); margin-top: 24px; }
+.liff-app .liff-privacy svg { flex-shrink: 0; }
+.liff-app .liff-dock { position: sticky; bottom: 0; background: #fffffffa; border-top: 1px solid var(--liff-line); z-index: 5; box-shadow: 0 -5px 20px #49283505; }
+.liff-app .liff-dock-inner { max-width: 520px; margin: 0 auto; padding: 12px 20px max(14px, env(safe-area-inset-bottom)); }
+.liff-app .liff-dock-inner > p { text-align: center; font-size: 11px; color: var(--liff-muted); margin-bottom: 8px; }
+.liff-app .liff-dock-inner > .liff-guide { margin-top: 12px; line-height: 1.8; }
+.liff-app .liff-empty, .liff-app .liff-problem { text-align: center; padding: 32px 18px; background: white; border: 1px solid var(--liff-line); border-radius: 22px; }
+.liff-app .liff-empty-icon { display: grid; place-items: center; width: 64px; height: 64px; background: #fff0f6; border-radius: 22px; color: #b82e66; margin: 0 auto 16px; }
+.liff-app .liff-empty h3 { font-size: 16px; font-weight: 600; }
+.liff-app .liff-empty p, .liff-app .liff-problem p { font-size: 13px; color: var(--liff-muted); margin-top: 8px; line-height: 1.9; }
+.liff-app .liff-problem { margin-top: 44px; }
+.liff-app .liff-problem h1 { font-size: 20px; font-weight: 700; }
+.liff-app .liff-problem .liff-button { margin-top: 24px; }
+.liff-app .liff-loading > p { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--liff-muted); margin: 24px 0; }
+.liff-app .liff-skeleton { border-radius: 20px; margin-bottom: 16px; background: linear-gradient(90deg, #f5e4ec 25%, #fbf1f6 50%, #f5e4ec 75%); background-size: 200% 100%; animation: liff-shimmer 1.6s linear infinite; }
+.liff-app .liff-skeleton--hero { height: 218px; }
+.liff-app .liff-skeleton--next { height: 76px; }
+.liff-app .liff-skeleton--card { height: 150px; }
+@keyframes liff-shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .liff-app .liff-skeleton { animation: none; } }
+@media (max-width: 359px) {
+  .liff-app .liff-shell { padding-left: 14px; padding-right: 14px; }
+  .liff-app .liff-hero { padding: 20px; }
+  .liff-app .liff-installment { padding-left: 14px; padding-right: 14px; }
+  .liff-app .liff-dock-inner { padding-left: 14px; padding-right: 14px; }
+}

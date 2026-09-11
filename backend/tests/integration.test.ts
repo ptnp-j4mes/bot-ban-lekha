@@ -308,6 +308,23 @@ test("disabled organizations revoke member, LIFF, webhook, and job access", asyn
   }
 });
 
+test("cron reminder includes the reminder message and full bill details", async () => {
+  const org = await mkOrg();
+  await prisma.organization.update({ where: { id: org.id }, data: { reminderText: "ข้อความแจ้งเตือนวันนี้" } });
+  const oa = await mkOa(org.id);
+  const { customer } = await makePlan(org.id, 490, oa.id);
+
+  await runReminder("morningSentAt", "daily_reminder");
+
+  const reply = await prisma.messageLog.findFirst({
+    where: { orgId: org.id, customerId: customer.id, messageType: "daily_reminder" },
+    orderBy: { sentAt: "desc" },
+  });
+  expect(reply?.messageText).toContain("ข้อความแจ้งเตือนวันนี้");
+  expect(reply?.messageText).toContain("บิล 1️⃣");
+  expect(reply?.messageText).toContain("เลขที่บัญชี 1");
+});
+
 test("group slip: webhook stores group id (no customer); matched org-wide then approved", async () => {
   const org = await mkOrg();
   const oa = await mkOa(org.id);

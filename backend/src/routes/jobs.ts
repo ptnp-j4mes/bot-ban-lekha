@@ -4,6 +4,7 @@ import { ok } from "../lib/response";
 import { requireJob } from "../lib/auth";
 import { bangkokToday } from "../lib/date";
 import { renderDailyReminder, sendAndLog } from "../services/messages";
+import { renderPlanBill } from "../services/bill";
 import { pushMessage } from "../lib/line";
 import { captureError } from "../lib/logger";
 import { purgeExpiredSlips } from "../services/retention";
@@ -38,9 +39,11 @@ export async function runReminder(
   for (const inst of due) {
     try {
       const cust = inst.billPlan.customer;
+      const bill = await renderPlanBill(prisma, inst.billPlanId);
+      const reminder = inst.billPlan.organization?.reminderText?.trim() || renderDailyReminder(inst.dueDate);
       await sendAndLog(prisma, {
         lineUserId: cust.lineUserId,
-        text: inst.billPlan.organization?.reminderText?.trim() || renderDailyReminder(inst.dueDate),
+        text: `${reminder}\n\n${bill.text}`,
         messageType,
         accessToken: cust.lineOa?.channelAccessToken,
         orgId: cust.orgId,

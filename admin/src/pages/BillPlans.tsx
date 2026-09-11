@@ -227,9 +227,9 @@ export function BillPlans() {
                       {statusBadge(p.status)}
                       {Number(p.penalty_amount ?? 0) > 0 && <span className="text-xs text-danger-text">ค่าปรับหัวบิล {baht(p.penalty_amount)}</span>}
                       <div className="ml-0 flex w-full flex-wrap gap-1 sm:ml-auto sm:w-auto">
-                        <Button size="sm" variant="ghost" type="button" aria-expanded={expandedPlans[p.id] ?? true} onClick={() => setExpandedPlans((current) => ({ ...current, [p.id]: !(current[p.id] ?? true) }))}>
-                          {(expandedPlans[p.id] ?? true) ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                          {(expandedPlans[p.id] ?? true) ? "ย่อ" : "ขยาย"}
+                        <Button size="sm" variant="ghost" type="button" aria-expanded={expandedPlans[p.id] ?? false} onClick={() => setExpandedPlans((current) => ({ ...current, [p.id]: !(current[p.id] ?? false) }))}>
+                          {(expandedPlans[p.id] ?? false) ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                          {(expandedPlans[p.id] ?? false) ? "ย่อ" : "ขยาย"}
                         </Button>
                         <Button size="sm" variant="outline" onClick={() => setPreviewBill({ id: p.id, billNo: p.bill_no })}>Preview Bill</Button>
                         <Button size="sm" variant="outline" onClick={() => setPenaltyPlan(p)}>แก้ค่าปรับหัวบิล</Button>
@@ -239,7 +239,7 @@ export function BillPlans() {
                         </>}
                       </div>
                     </CardHeader>
-                    {(expandedPlans[p.id] ?? true) && <CardContent className="p-0">
+                    {(expandedPlans[p.id] ?? false) && <CardContent className="p-0">
                       <DataTable data={p.installments} columns={instCols} rowKey={(i) => i.id} initialSort={{ key: "no", dir: "asc" }} maxHeight="none" empty="ไม่มีงวด" />
                     </CardContent>}
                   </Card>

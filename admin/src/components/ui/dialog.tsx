@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -29,7 +30,7 @@ export function Dialog({
   }, [open, onClose]);
 
   if (!open) return null;
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-3 sm:items-center sm:p-4"
       onClick={onClose}
@@ -48,7 +49,8 @@ export function Dialog({
         </div>
         <div className="min-h-0 overflow-y-auto p-4">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

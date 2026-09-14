@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, Download, Eye, Pencil, Plus, SlidersHorizontal, Upload, X } from "lucide-react";
+import { Check, Download, Eye, Link2, Pencil, Plus, SlidersHorizontal, Upload, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut, statusTh } from "@/lib/ui";
@@ -116,7 +116,9 @@ export function Customers() {
     { key: "phone", header: "เบอร์", cell: (c) => editing === c.id
       ? <Input defaultValue={c.phone ?? ""} className="h-8 w-28" id={`ph-${c.id}`} />
       : <span className="fig">{c.phone}</span> },
-    { key: "line", header: "LINE", sortValue: (c) => (c.line_user_id ? 1 : 0), cell: (c) => c.line_user_id ? <Check className="h-4 w-4 text-primary" /> : <span className="text-muted-foreground">—</span> },
+    { key: "line", header: "LINE", sortValue: (c) => (c.line_user_id ? 1 : 0), cell: (c) => c.line_user_id
+      ? <Badge variant="success" className="gap-1"><Check className="h-3 w-3" />เชื่อมแล้ว</Badge>
+      : <Badge variant="outline" className="text-muted-foreground">ยังไม่เชื่อมต่อ</Badge> },
     { key: "status", header: "สถานะ", sortValue: (c) => c.status, cell: (c) => editing === c.id
       ? <Select defaultValue={c.status} className="h-8 w-28" id={`st-${c.id}`}>{["active", "blocked", "closed"].map((x) => <option key={x} value={x}>{statusTh(x)}</option>)}</Select>
       : <Badge variant={c.status === "active" ? "success" : c.status === "blocked" ? "destructive" : "secondary"}>{statusTh(c.status)}</Badge> },
@@ -137,6 +139,10 @@ export function Customers() {
     <>
       <Card className="overflow-hidden">
         <CardContent className="space-y-4 p-4 md:p-5">
+          <div>
+            <h2 className="font-head text-lg font-semibold">รายชื่อลูกค้า</h2>
+            <p className="mt-1 text-sm text-muted-foreground">ค้นหา แก้ไข และดูข้อมูลลูกค้าได้จากที่เดียว</p>
+          </div>
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
             <form className="relative min-w-0 flex-1" onSubmit={(e) => { e.preventDefault(); setPage(1); setQ(search); }}>
               <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหารหัส ชื่อ หรือเบอร์โทร" className="h-11 pr-10" aria-label="ค้นหาลูกค้า" />
@@ -150,16 +156,19 @@ export function Customers() {
             </div>
           </div>
 
-          <div className="flex overflow-x-auto rounded-xl border border-border p-1">
-            {tabs.map((item) => <button key={item.id} type="button" onClick={() => { setStatusFilter(item.id); setPage(1); setSelected(new Set()); }} className={`min-w-[135px] flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${statusFilter === item.id ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>{item.label} <span className="ml-1 text-xs opacity-70">({item.count})</span></button>)}
-          </div>
+          <section aria-label="สรุปลูกค้า" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {tabs.map((item) => <button key={item.id} type="button" aria-pressed={statusFilter === item.id} onClick={() => { setStatusFilter(item.id); setPage(1); setSelected(new Set()); }} className={`rounded-xl border px-3 py-3 text-left transition-colors ${statusFilter === item.id ? "border-primary bg-primary/10 text-primary shadow-sm" : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>
+              <span className="block text-xs font-medium">{item.label}</span>
+              <span className="mt-1 block text-xl font-semibold leading-none">{item.count}</span>
+            </button>)}
+          </section>
 
           {filtersOpen && <div className="grid grid-cols-1 gap-3 rounded-xl bg-secondary/60 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"><Field label="สถานะ"><Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}><option value="all">ทุกสถานะ</option><option value="active">ใช้งานอยู่</option><option value="blocked">บล็อก</option><option value="closed">ปิดบัญชี</option></Select></Field><Button type="button" variant="ghost" className="h-[42px]" onClick={() => { setStatusFilter("all"); setPage(1); }}>ล้างตัวกรอง</Button></div>}
 
           <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span>แสดง {rows.length} จาก {total} ลูกค้า</span>{selected.size > 0 && <button type="button" className="font-semibold text-primary hover:underline" onClick={() => setSelected(new Set())}>เลือกอยู่ {selected.size} รายการ · ล้างการเลือก</button>}</div>
         </CardContent>
         <div className="border-t border-border">
-          <DataTable data={rows} columns={columns} rowKey={(c) => c.id} initialSort={{ key: "code", dir: "asc" }} empty="ยังไม่มีลูกค้า" loading={list.isLoading} />
+          <DataTable data={rows} columns={columns} rowKey={(c) => c.id} initialSort={{ key: "code", dir: "asc" }} empty={<span className="flex flex-col items-center gap-2 py-8 text-center"><span className="text-sm text-muted-foreground">{q || statusFilter !== "all" ? "ไม่พบลูกค้าที่ตรงกับเงื่อนไข" : "ยังไม่มีลูกค้า"}</span>{!q && statusFilter === "all" && <Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />เพิ่มลูกค้า</Button>}</span>} loading={list.isLoading} />
           {pages > 1 && <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3 text-sm"><Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</Button><span>{page} / {pages}</span><Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage(page + 1)}>ถัดไป</Button></div>}
         </div>
       </Card>
@@ -185,13 +194,18 @@ export function Customers() {
         </form>
       </Dialog>
 
-      <Card>
-        <CardHeader><CardTitle>ผูก LINE user id</CardTitle></CardHeader>
+      <Card className="border-primary/20 bg-primary/[0.02]">
+        <CardHeader className="pb-2">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Link2 className="h-4 w-4" /></div>
+            <div><CardTitle>เชื่อมต่อลูกค้ากับ LINE</CardTitle><p className="mt-1 text-sm text-muted-foreground">ผูก LINE User ID เพื่อให้ระบบส่งข้อความถึงลูกค้าได้ถูกคน</p></div>
+          </div>
+        </CardHeader>
         <CardContent>
           <form className="grid grid-cols-1 items-end gap-3 sm:grid-cols-3" onSubmit={(e) => link.mutate(formObj(e))}>
             <Field label="รหัสลูกค้า"><Input name="customer_code" placeholder="เช่น C001" required /></Field>
             <Field label="LINE User ID"><Input name="line_user_id" placeholder="Uxxxxxxxx" required /></Field>
-            <Button type="submit">ผูก LINE</Button>
+            <Button type="submit"><Link2 className="h-4 w-4" />ผูก LINE</Button>
           </form>
         </CardContent>
       </Card>

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, FileImage, FileText, Save, Upload, X } from "lucide-react";
+import { ExternalLink, FileImage, FileText, History, MessageSquare, Receipt, Save, Upload, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { apiGet, apiRaw, apiSend, apiSendForm } from "@/lib/api";
 import { useMut, statusBadge, statusTh } from "@/lib/ui";
@@ -85,15 +85,27 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/40 p-0" onClick={onClose}>
-      <div className="min-h-full w-full max-w-none space-y-4 bg-card p-3 sm:p-4" onClick={(e) => e.stopPropagation()}>
-        <Card>
-          <CardHeader className="flex-row items-start gap-2">
-            <div className="min-w-0">
-              <CardTitle className="break-words">{data?.customer?.display_name || data?.customer?.customer_code || "ลูกค้า"}</CardTitle>
+      <div className="min-h-full w-full max-w-7xl space-y-4 bg-background p-3 sm:p-4" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 -mx-3 -mt-3 border-b border-border bg-background/95 px-3 pb-3 pt-3 backdrop-blur sm:-mx-4 sm:-mt-4 sm:px-4 sm:pt-4">
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-muted-foreground">ข้อมูลลูกค้า</p>
+              <h1 className="break-words font-head text-xl font-semibold">{data?.customer?.display_name || data?.customer?.customer_code || "ลูกค้า"}</h1>
               {data?.customer && <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span className="fig">{data.customer.customer_code}</span><Badge variant={data.customer.status === "active" ? "success" : "secondary"}>{statusTh(data.customer.status)}</Badge></div>}
             </div>
-            <Button size="icon" variant="ghost" className="ml-auto" onClick={onClose}><X className="h-4 w-4" /></Button>
-          </CardHeader>
+            <Button size="icon" variant="ghost" className="shrink-0" onClick={onClose} aria-label="ปิดรายละเอียดลูกค้า"><X className="h-4 w-4" /></Button>
+          </div>
+          <nav aria-label="ส่วนข้อมูลลูกค้า" className="mt-3 flex gap-1 overflow-x-auto text-sm">
+            <a href="#customer-profile" className="inline-flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-muted-foreground hover:bg-secondary hover:text-foreground">ข้อมูลลูกค้า</a>
+            <a href="#customer-documents" className="inline-flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><FileText className="h-3.5 w-3.5" />เอกสาร</a>
+            <a href="#customer-bills" className="inline-flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><Receipt className="h-3.5 w-3.5" />บิล</a>
+            <a href="#customer-payments" className="inline-flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><History className="h-3.5 w-3.5" />การชำระ</a>
+            <a href="#customer-messages" className="inline-flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><MessageSquare className="h-3.5 w-3.5" />ข้อความ LINE</a>
+          </nav>
+        </div>
+
+        <Card id="customer-profile">
+          <CardHeader><CardTitle>ข้อมูลลูกค้า</CardTitle></CardHeader>
           {data?.customer && <CardContent className="pt-0"><form className="space-y-4" onSubmit={saveProfile}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="ชื่อ-นามสกุล"><Input name="display_name" defaultValue={data.customer.display_name ?? ""} /></Field>
@@ -109,8 +121,8 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
           </form></CardContent>}
         </Card>
 
-        <Card>
-          <CardHeader><CardTitle className="text-base">เอกสารและรูปหลักฐาน</CardTitle></CardHeader>
+        <Card id="customer-documents">
+          <CardHeader className="flex-row justify-between"><div><CardTitle className="text-base">เอกสารและรูปหลักฐาน</CardTitle><p className="mt-1 text-sm text-muted-foreground">เก็บเอกสารสำคัญของลูกค้าไว้ในที่เดียว</p></div><Badge variant="secondary">{data?.documents?.length ?? 0} ไฟล์</Badge></CardHeader>
           <CardContent className="space-y-4">
             <form className="grid grid-cols-1 gap-3 rounded-xl border border-dashed border-primary/40 bg-primary/[0.03] p-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.5fr_auto] lg:items-end" onSubmit={uploadDocument}>
               <Field label="ประเภทเอกสาร"><Select name="document_type" defaultValue="other"><option value="profile_photo">รูปโปรไฟล์</option><option value="identity">บัตรประชาชน / ยืนยันตัวตน</option><option value="address">เอกสารที่อยู่</option><option value="contract">สัญญา / ข้อตกลง</option><option value="payment_evidence">หลักฐานการชำระเงิน</option><option value="other">เอกสารอื่นๆ</option></Select></Field>
@@ -135,8 +147,8 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader><CardTitle className="text-base">บิล</CardTitle></CardHeader>
+        <Card id="customer-bills">
+          <CardHeader className="flex-row justify-between"><CardTitle className="text-base">บิล</CardTitle><Badge variant="secondary">{data?.bill_plans?.length ?? 0} รายการ</Badge></CardHeader>
           <CardContent className="space-y-2">
             {(data?.bill_plans ?? []).map((p: any) => (
               <div key={p.id}>
@@ -148,15 +160,15 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader><CardTitle className="text-base">ประวัติชำระ</CardTitle></CardHeader>
+        <Card id="customer-payments">
+          <CardHeader className="flex-row justify-between"><CardTitle className="text-base">ประวัติชำระ</CardTitle><Badge variant="secondary">{data?.payments?.length ?? 0} รายการ</Badge></CardHeader>
           <CardContent className="p-0">
             <DataTable data={data?.payments ?? []} columns={payCols} rowKey={(p) => p.id} initialSort={{ key: "paid", dir: "desc" }} maxHeight="none" empty="ยังไม่มีการชำระ" />
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader><CardTitle className="text-base">ข้อความ LINE</CardTitle></CardHeader>
+        <Card id="customer-messages">
+          <CardHeader className="flex-row justify-between"><div><CardTitle className="text-base">ข้อความ LINE</CardTitle><p className="mt-1 text-sm text-muted-foreground">ตรวจสอบประวัติการส่งข้อความและส่งซ้ำเมื่อจำเป็น</p></div><Badge variant="secondary">{data?.message_logs?.length ?? 0} รายการ</Badge></CardHeader>
           <CardContent className="p-0">
             <DataTable data={data?.message_logs ?? []} columns={msgCols} rowKey={(m) => m.id} initialSort={{ key: "sent", dir: "desc" }} maxHeight="none" empty="ยังไม่มีข้อความ" />
           </CardContent>

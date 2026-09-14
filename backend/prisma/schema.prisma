@@ -135,6 +135,7 @@ model Customer {
   email        String?
   address      String?
   contactNote  String?   @map("contact_note")
+  customerType String    @default("customer") @map("customer_type") // unclassified | customer | general
   status       String    @default("active")
   consentAt    DateTime? @map("consent_at")
 
@@ -153,6 +154,7 @@ model Customer {
   // line_user_id unique within an OA (provider-scoped userId).
   @@unique([lineOaId, lineUserId])
   @@index([orgId])
+  @@index([orgId, customerType])
   @@map("customers")
 }
 

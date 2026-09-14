@@ -95,6 +95,7 @@ async function ensureAutoCustomer(oa: Oa, lineUserId: string, displayName: strin
           lineUserId,
           customerCode,
           displayName: name,
+          customerType: "unclassified",
         },
       });
       await prisma.paymentSubmission.updateMany({

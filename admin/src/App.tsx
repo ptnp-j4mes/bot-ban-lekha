@@ -154,11 +154,12 @@ function Shell() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  const navigate = (id: string, replace = false) => {
+  const navigate = (id: string, replace = false, search = "") => {
     const path = menuPath(id);
-    if (window.location.pathname === path) return;
-    if (replace) window.history.replaceState(null, "", path);
-    else window.history.pushState(null, "", path);
+    const url = `${path}${search}`;
+    if (`${window.location.pathname}${window.location.search}` === url) return;
+    if (replace) window.history.replaceState(null, "", url);
+    else window.history.pushState(null, "", url);
     setPathname(path);
   };
 
@@ -189,10 +190,17 @@ function Shell() {
     enabled: opEnabled,
     refetchInterval: 30000,
   });
+  const unclassifiedCustomers = useQuery({
+    queryKey: ["customer-unclassified-nav"],
+    queryFn: () => apiGet("/api/customers?customer_type=unclassified&limit=1&page=1"),
+    enabled: opEnabled,
+    refetchInterval: 30000,
+  });
   // Shared cache keys with Dashboard — no extra fetch.
   const dueToday = useQuery({ queryKey: ["due-today"], queryFn: () => apiGet("/api/installments/due-today"), enabled: opEnabled, refetchInterval: 60000 });
   const overdue = useQuery({ queryKey: ["overdue"], queryFn: () => apiGet("/api/installments/overdue"), enabled: opEnabled, refetchInterval: 60000 });
   const pendingCount = pending.data?.total ?? 0;
+  const unclassifiedCount = unclassifiedCustomers.data?.total ?? 0;
 
   // Toast when new slips arrive (pending count goes up).
   const prevPending = useRef<number | null>(null);
@@ -204,8 +212,18 @@ function Shell() {
     prevPending.current = pendingCount;
   }, [pendingCount, opEnabled]);
 
+  const prevUnclassified = useRef<number | null>(null);
+  useEffect(() => {
+    if (!opEnabled) { prevUnclassified.current = null; return; }
+    if (prevUnclassified.current != null && unclassifiedCount > prevUnclassified.current) {
+      toast.info(`มีผู้ติดต่อใหม่จาก LINE ${unclassifiedCount - prevUnclassified.current} รายการ — เปิดเมนูลูกค้าเพื่อจัดประเภท`);
+    }
+    prevUnclassified.current = unclassifiedCount;
+  }, [unclassifiedCount, opEnabled]);
+
   const notifs: Notif[] = [
     { id: "subs", label: "สลิปรอตรวจสอบ", count: pendingCount, tone: "warn", onClick: () => navigate("subs") },
+    { id: "new-customers", label: "ผู้ติดต่อใหม่รอจัดประเภท", count: unclassifiedCount, tone: "warn", onClick: () => navigate("customers", false, "?customer_type=unclassified") },
     { id: "due", label: "ครบกำหนดวันนี้", count: dueToday.data?.length ?? 0, tone: "info", onClick: () => navigate("dashboard") },
     { id: "overdue", label: "ค้างชำระ", count: overdue.data?.length ?? 0, tone: "danger", onClick: () => navigate("dashboard") },
   ];

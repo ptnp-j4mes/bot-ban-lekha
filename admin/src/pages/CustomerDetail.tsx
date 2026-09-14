@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, FileImage, FileText, History, MessageSquare, Receipt, Save, Upload, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { apiGet, apiRaw, apiSend, apiSendForm } from "@/lib/api";
-import { useMut, statusBadge, statusTh } from "@/lib/ui";
+import { customerTypeTh, useMut, statusBadge, statusTh } from "@/lib/ui";
 import { baht, thDate } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ const formatBytes = (size: number) => {
 export function CustomerDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const d = useQuery({ queryKey: ["customer-detail", id], queryFn: () => apiGet(`/api/customers/${id}/detail`) });
   const resend = useMut((mid: string) => apiSend(`/api/messages/${mid}/resend`, "POST"), { success: "ส่งซ้ำแล้ว", invalidate: ["customer-detail"] });
-  const update = useMut((body: Record<string, unknown>) => apiSend(`/api/customers/${id}`, "PATCH", body), { success: "บันทึกข้อมูลลูกค้าแล้ว", invalidate: ["customer-detail", "customers"] });
+  const update = useMut((body: Record<string, unknown>) => apiSend(`/api/customers/${id}`, "PATCH", body), { success: "บันทึกข้อมูลลูกค้าแล้ว", invalidate: ["customer-detail", "customers", "customer-unclassified-nav"] });
   const upload = useMut((body: FormData) => apiSendForm(`/api/customers/${id}/documents`, "POST", body), { success: "เพิ่มเอกสารแล้ว", invalidate: ["customer-detail"] });
   const data = d.data;
 
@@ -91,7 +91,7 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-muted-foreground">ข้อมูลลูกค้า</p>
               <h1 className="break-words font-head text-xl font-semibold">{data?.customer?.display_name || data?.customer?.customer_code || "ลูกค้า"}</h1>
-              {data?.customer && <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span className="fig">{data.customer.customer_code}</span><Badge variant={data.customer.status === "active" ? "success" : "secondary"}>{statusTh(data.customer.status)}</Badge></div>}
+              {data?.customer && <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span className="fig">{data.customer.customer_code}</span><Badge variant={data.customer.status === "active" ? "success" : "secondary"}>{statusTh(data.customer.status)}</Badge><Badge variant={data.customer.customer_type === "unclassified" ? "warning" : data.customer.customer_type === "customer" ? "success" : "secondary"}>{customerTypeTh(data.customer.customer_type ?? "customer")}</Badge></div>}
             </div>
             <Button size="icon" variant="ghost" className="shrink-0" onClick={onClose} aria-label="ปิดรายละเอียดลูกค้า"><X className="h-4 w-4" /></Button>
           </div>
@@ -113,6 +113,7 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
               <Field label="อีเมล"><Input name="email" type="email" defaultValue={data.customer.email ?? ""} /></Field>
               <Field label="Facebook"><Input name="facebook_url" placeholder="ชื่อบัญชีหรือ URL Facebook" defaultValue={data.customer.facebook_url ?? ""} /></Field>
               <Field label="LINE"><Input value={data.customer.line_user_id ? "เชื่อมต่อแล้ว" : "ยังไม่เชื่อมต่อ"} readOnly className="bg-muted" /></Field>
+              <Field label="ประเภทผู้ติดต่อ"><Select name="customer_type" defaultValue={data.customer.customer_type ?? "customer"}><option value="unclassified">รอจัดประเภท</option><option value="customer">ลูกค้า</option><option value="general">คนทั่วไป</option></Select></Field>
               <Field label="สถานะ"><Select name="status" defaultValue={data.customer.status}>{["active", "blocked", "closed"].map((status) => <option key={status} value={status}>{statusTh(status)}</option>)}</Select></Field>
             </div>
             <Field label="ที่อยู่"><textarea name="address" defaultValue={data.customer.address ?? ""} rows={2} className="w-full rounded-lg border border-border bg-card px-3.5 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-[3px] focus:ring-primary/10" /></Field>

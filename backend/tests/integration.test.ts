@@ -327,6 +327,53 @@ test("webhook accepts the exact signed body and rejects missing or invalid signa
   expect((await request(sign(`${body}x`))).status).toBe(401);
 });
 
+test("new LINE contacts start unclassified, stay unique, and can be classified", async () => {
+  const org = await mkOrg("new-contact");
+  const oa = await mkOa(org.id);
+  const member = await mkMember(org.id, "user");
+  await prisma.customer.create({ data: { orgId: org.id, lineOaId: oa.id, customerCode: `OLD${rnd()}`, status: "active" } });
+  const lineUserId = `Unew${rnd()}`;
+  const event = (messageId: string) => ({
+    events: [{ type: "message", source: { userId: lineUserId }, message: { type: "text", id: messageId, text: "สวัสดี" } }],
+  });
+
+  expect((await webhook(oa.id, event(`m${rnd()}`))).status).toBe(200);
+  const created = await prisma.customer.findFirst({ where: { orgId: org.id, lineOaId: oa.id, lineUserId } });
+  expect((created as any)?.customerType).toBe("unclassified");
+
+  const pending = await app.handle(new Request("http://localhost/api/customers?customer_type=unclassified&limit=10", { headers: hdr(member.token, org.id) }));
+  expect(pending.status).toBe(200);
+  const pendingData = (await pending.json()).data;
+  expect(pendingData.total).toBe(1);
+  expect(pendingData.items[0].customer_type).toBe("unclassified");
+
+  expect((await webhook(oa.id, event(`m${rnd()}`))).status).toBe(200);
+  expect(await prisma.customer.count({ where: { orgId: org.id, lineOaId: oa.id, lineUserId } })).toBe(1);
+
+  const patch = await app.handle(new Request(`http://localhost/api/customers/${created!.id}`, {
+    method: "PATCH",
+    headers: { ...hdr(member.token, org.id), "content-type": "application/json" },
+    body: JSON.stringify({ customer_type: "customer" }),
+  }));
+  expect(patch.status).toBe(200);
+  expect((await patch.json()).data.customer_type).toBe("customer");
+
+  const empty = await app.handle(new Request("http://localhost/api/customers?customer_type=unclassified&limit=10", { headers: hdr(member.token, org.id) }));
+  expect((await empty.json()).data.total).toBe(0);
+});
+
+test("customer type rejects unsupported values", async () => {
+  const org = await mkOrg("customer-type-validation");
+  const member = await mkMember(org.id, "user");
+  const customer = await prisma.customer.create({ data: { orgId: org.id, customerCode: `TYPE${rnd()}`, status: "active" } });
+  const response = await app.handle(new Request(`http://localhost/api/customers/${customer.id}`, {
+    method: "PATCH",
+    headers: { ...hdr(member.token, org.id), "content-type": "application/json" },
+    body: JSON.stringify({ customer_type: "vendor" }),
+  }));
+  expect(response.status).toBe(400);
+});
+
 test("disabled organizations revoke member, LIFF, webhook, and job access", async () => {
   const org = await mkOrg("disabled");
   const oa = await mkOa(org.id);

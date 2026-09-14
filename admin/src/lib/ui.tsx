@@ -47,6 +47,13 @@ export const STATUS_TH: Record<string, string> = {
 };
 export const statusTh = (s: string) => STATUS_TH[s] ?? s;
 
+export const CUSTOMER_TYPE_TH: Record<string, string> = {
+  unclassified: "รอจัดประเภท",
+  customer: "ลูกค้า",
+  general: "คนทั่วไป",
+};
+export const customerTypeTh = (s: string) => CUSTOMER_TYPE_TH[s] ?? s;
+
 export const matchBadge = (s: string) => (
   <Badge variant={s === "auto_matched" || s === "admin_matched" ? "success" : s === "rejected" ? "destructive" : "warning"}>
     {statusTh(s)}

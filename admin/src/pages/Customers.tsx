@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Check, Download, Eye, Link2, Pencil, Plus, SlidersHorizontal, Upload, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { apiGet, apiSend } from "@/lib/api";
-import { useMut, statusTh } from "@/lib/ui";
+import { customerTypeTh, useMut, statusTh } from "@/lib/ui";
 import { CustomerDetail } from "./CustomerDetail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,11 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { Dialog } from "@/components/ui/dialog";
 
 const LIMIT = 20;
+const CUSTOMER_TYPE_OPTIONS = [
+  { value: "unclassified", label: "รอจัดประเภท" },
+  { value: "customer", label: "ลูกค้า" },
+  { value: "general", label: "คนทั่วไป" },
+];
 const formObj = (e: React.FormEvent<HTMLFormElement>) => {
   e.preventDefault();
   return Object.fromEntries(new FormData(e.currentTarget).entries()) as Record<string, string>;
@@ -26,10 +31,12 @@ export function Customers() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
+  const initialType = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("customer_type") : null;
+  const [customerTypeFilter, setCustomerTypeFilter] = useState(CUSTOMER_TYPE_OPTIONS.some((x) => x.value === initialType) ? initialType! : "all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const list = useQuery({ queryKey: ["customers", q, page, statusFilter], queryFn: () => apiGet(`/api/customers?limit=${LIMIT}&page=${page}&search=${encodeURIComponent(q)}${statusFilter === "all" ? "" : `&status=${statusFilter}`}`) });
+  const list = useQuery({ queryKey: ["customers", q, page, statusFilter, customerTypeFilter], queryFn: () => apiGet(`/api/customers?limit=${LIMIT}&page=${page}&search=${encodeURIComponent(q)}${statusFilter === "all" ? "" : `&status=${statusFilter}`}${customerTypeFilter === "all" ? "" : `&customer_type=${customerTypeFilter}`}`) });
   const counts = useQuery<{ all: number; active: number; blocked: number; closed: number }>({
     queryKey: ["customer-counts"],
     queryFn: async () => {
@@ -44,7 +51,7 @@ export function Customers() {
   const oas = useQuery({ queryKey: ["line-oa"], queryFn: () => apiGet("/api/line-oa-accounts") });
   const create = useMut((b: any) => apiSend("/api/customers", "POST", b), { success: "เพิ่มลูกค้าแล้ว", invalidate: ["customers"] });
   const link = useMut((b: any) => apiSend("/api/customers/link-line", "POST", b), { success: "ผูก LINE แล้ว", invalidate: ["customers"] });
-  const update = useMut((b: { id: string; data: any }) => apiSend(`/api/customers/${b.id}`, "PATCH", b.data), { success: "บันทึกแล้ว", invalidate: ["customers"] });
+  const update = useMut((b: { id: string; data: any }) => apiSend(`/api/customers/${b.id}`, "PATCH", b.data), { success: "บันทึกแล้ว", invalidate: ["customers", "customer-unclassified-nav"] });
   const bulk = useMut((rows: any[]) => apiSend("/api/customers/bulk", "POST", { rows }), { success: "นำเข้าแล้ว", invalidate: ["customers"] });
 
   const importCsv = (file: File) => {
@@ -68,8 +75,8 @@ export function Customers() {
   const pages = Math.max(1, Math.ceil(total / LIMIT));
 
   const exportCsv = () => {
-    const header = ["รหัสลูกค้า", "ชื่อ", "เบอร์โทร", "LINE", "สถานะ"];
-    const body = rows.map((c: any) => [c.customer_code, c.display_name, c.phone, c.line_user_id ? "เชื่อมแล้ว" : "ยังไม่เชื่อม", statusTh(c.status)]);
+    const header = ["รหัสลูกค้า", "ชื่อ", "ประเภทผู้ติดต่อ", "เบอร์โทร", "LINE", "สถานะ"];
+    const body = rows.map((c: any) => [c.customer_code, c.display_name, customerTypeTh(c.customer_type), c.phone, c.line_user_id ? "เชื่อมแล้ว" : "ยังไม่เชื่อม", statusTh(c.status)]);
     const csv = [header, ...body].map((row) => row.map((value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
@@ -97,7 +104,8 @@ export function Customers() {
     const dn = (document.getElementById(`dn-${id}`) as HTMLInputElement).value;
     const ph = (document.getElementById(`ph-${id}`) as HTMLInputElement).value;
     const st = (document.getElementById(`st-${id}`) as HTMLSelectElement).value;
-    update.mutate({ id, data: { display_name: dn, phone: ph, status: st } });
+    const ct = (document.getElementById(`ct-${id}`) as HTMLSelectElement).value;
+    update.mutate({ id, data: { display_name: dn, phone: ph, status: st, customer_type: ct } });
     setEditing(null);
   };
 
@@ -113,6 +121,9 @@ export function Customers() {
     { key: "name", header: "ชื่อ", sortValue: (c) => c.display_name ?? "", cell: (c) => editing === c.id
       ? <Input defaultValue={c.display_name ?? ""} className="h-8 w-32" id={`dn-${c.id}`} />
       : c.display_name },
+    { key: "type", header: "ประเภท", sortValue: (c) => c.customer_type ?? "", cell: (c) => editing === c.id
+      ? <Select defaultValue={c.customer_type ?? "customer"} className="h-8 w-32" id={`ct-${c.id}`}>{CUSTOMER_TYPE_OPTIONS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}</Select>
+      : <Badge variant={c.customer_type === "unclassified" ? "warning" : c.customer_type === "customer" ? "success" : "secondary"}>{customerTypeTh(c.customer_type ?? "customer")}</Badge> },
     { key: "phone", header: "เบอร์", cell: (c) => editing === c.id
       ? <Input defaultValue={c.phone ?? ""} className="h-8 w-28" id={`ph-${c.id}`} />
       : <span className="fig">{c.phone}</span> },
@@ -149,7 +160,7 @@ export function Customers() {
               {search && <button type="button" onClick={() => { setSearch(""); setQ(""); setPage(1); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="ล้างคำค้น"><X className="h-4 w-4" /></button>}
             </form>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" className="h-11" onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal className="h-4 w-4" /> ตัวกรอง{statusFilter !== "all" && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] text-primary-foreground">1</span>}</Button>
+              <Button type="button" variant="outline" className="h-11" onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal className="h-4 w-4" /> ตัวกรอง{(statusFilter !== "all" || customerTypeFilter !== "all") && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] text-primary-foreground">1</span>}</Button>
               <Button type="button" variant="outline" className="h-11" onClick={exportCsv} disabled={!rows.length}><Download className="h-4 w-4" /> Export</Button>
               <label className="cursor-pointer"><input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && importCsv(e.target.files[0])} /><span className="inline-flex h-11 items-center gap-2 rounded-lg border border-primary bg-transparent px-4 text-sm font-semibold text-primary hover:bg-primary/10"><Upload className="h-4 w-4" /> นำเข้า CSV</span></label>
               <Button type="button" className="h-11" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> เพิ่มลูกค้า</Button>
@@ -163,12 +174,12 @@ export function Customers() {
             </button>)}
           </section>
 
-          {filtersOpen && <div className="grid grid-cols-1 gap-3 rounded-xl bg-secondary/60 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"><Field label="สถานะ"><Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}><option value="all">ทุกสถานะ</option><option value="active">ใช้งานอยู่</option><option value="blocked">บล็อก</option><option value="closed">ปิดบัญชี</option></Select></Field><Button type="button" variant="ghost" className="h-[42px]" onClick={() => { setStatusFilter("all"); setPage(1); }}>ล้างตัวกรอง</Button></div>}
+          {filtersOpen && <div className="grid grid-cols-1 gap-3 rounded-xl bg-secondary/60 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end"><Field label="สถานะ"><Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}><option value="all">ทุกสถานะ</option><option value="active">ใช้งานอยู่</option><option value="blocked">บล็อก</option><option value="closed">ปิดบัญชี</option></Select></Field><Field label="ประเภทผู้ติดต่อ"><Select value={customerTypeFilter} onChange={(e) => { setCustomerTypeFilter(e.target.value); setPage(1); }}><option value="all">ทุกประเภท</option>{CUSTOMER_TYPE_OPTIONS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}</Select></Field><Button type="button" variant="ghost" className="h-[42px]" onClick={() => { setStatusFilter("all"); setCustomerTypeFilter("all"); setPage(1); }}>ล้างตัวกรอง</Button></div>}
 
           <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span>แสดง {rows.length} จาก {total} ลูกค้า</span>{selected.size > 0 && <button type="button" className="font-semibold text-primary hover:underline" onClick={() => setSelected(new Set())}>เลือกอยู่ {selected.size} รายการ · ล้างการเลือก</button>}</div>
         </CardContent>
         <div className="border-t border-border">
-          <DataTable data={rows} columns={columns} rowKey={(c) => c.id} initialSort={{ key: "code", dir: "asc" }} empty={<span className="flex flex-col items-center gap-2 py-8 text-center"><span className="text-sm text-muted-foreground">{q || statusFilter !== "all" ? "ไม่พบลูกค้าที่ตรงกับเงื่อนไข" : "ยังไม่มีลูกค้า"}</span>{!q && statusFilter === "all" && <Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />เพิ่มลูกค้า</Button>}</span>} loading={list.isLoading} />
+          <DataTable data={rows} columns={columns} rowKey={(c) => c.id} initialSort={{ key: "code", dir: "asc" }} empty={<span className="flex flex-col items-center gap-2 py-8 text-center"><span className="text-sm text-muted-foreground">{q || statusFilter !== "all" || customerTypeFilter !== "all" ? "ไม่พบลูกค้าที่ตรงกับเงื่อนไข" : "ยังไม่มีลูกค้า"}</span>{!q && statusFilter === "all" && customerTypeFilter === "all" && <Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />เพิ่มลูกค้า</Button>}</span>} loading={list.isLoading} />
           {pages > 1 && <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3 text-sm"><Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</Button><span>{page} / {pages}</span><Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage(page + 1)}>ถัดไป</Button></div>}
         </div>
       </Card>
@@ -178,6 +189,7 @@ export function Customers() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="รหัสลูกค้า"><Input name="customer_code" placeholder="เช่น C001" autoFocus required /></Field>
             <Field label="ชื่อ"><Input name="display_name" /></Field>
+            <Field label="ประเภทผู้ติดต่อ"><Select name="customer_type" defaultValue="customer"><option value="customer">ลูกค้า</option><option value="general">คนทั่วไป</option></Select></Field>
             <Field label="เบอร์โทร"><Input name="phone" /></Field>
             <Field label="อีเมล"><Input name="email" type="email" /></Field>
             <Field label="Facebook"><Input name="facebook_url" placeholder="ชื่อบัญชีหรือ URL Facebook" /></Field>

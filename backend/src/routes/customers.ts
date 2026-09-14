@@ -5,6 +5,7 @@ import { authorize } from "../lib/auth";
 import { audit } from "../services/audit";
 import { readStoredFile, storeCustomerDocument } from "../services/storage";
 
+const customerType = t.Union([t.Literal("unclassified"), t.Literal("customer"), t.Literal("general")]);
 const customerBody = t.Object({
   customer_code: t.String({ minLength: 1 }),
   display_name: t.Optional(t.String()),
@@ -14,6 +15,24 @@ const customerBody = t.Object({
   email: t.Optional(t.String()),
   address: t.Optional(t.String()),
   contact_note: t.Optional(t.String()),
+  customer_type: t.Optional(customerType),
+});
+const customerUpdateBody = t.Object({
+  display_name: t.Optional(t.String()),
+  phone: t.Optional(t.String()),
+  facebook_url: t.Optional(t.String()),
+  email: t.Optional(t.String()),
+  address: t.Optional(t.String()),
+  contact_note: t.Optional(t.String()),
+  customer_type: t.Optional(customerType),
+  status: t.Optional(t.String()),
+});
+const customerQuery = t.Object({
+  page: t.Optional(t.String()),
+  limit: t.Optional(t.String()),
+  search: t.Optional(t.String()),
+  status: t.Optional(t.String()),
+  customer_type: t.Optional(customerType),
 });
 
 const MAX_CUSTOMER_DOCUMENT_BYTES = 10 * 1024 * 1024;
@@ -39,7 +58,7 @@ export const customerRoutes = new Elysia({ prefix: "/api" })
   .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
 
   .post("/customers", async ({ body, ctx }: any) => {
-    const { customer_code, display_name, phone, line_oa_id, facebook_url, email, address, contact_note } = body ?? {};
+    const { customer_code, display_name, phone, line_oa_id, facebook_url, email, address, contact_note, customer_type } = body ?? {};
     if (!customer_code) throw new ApiError("VALIDATION_ERROR", "customer_code is required");
     if (line_oa_id) {
       const oa = await prisma.lineOaAccount.findFirst({ where: { id: line_oa_id, orgId: ctx.orgId } });
@@ -57,6 +76,7 @@ export const customerRoutes = new Elysia({ prefix: "/api" })
         email,
         address,
         contactNote: contact_note,
+        customerType: customer_type ?? "customer",
       },
     });
     await audit(prisma, { action: "create_customer", entityType: "customer", entityId: c.id, orgId: ctx.orgId, actorId: ctx.userId, newValue: c });
@@ -68,6 +88,7 @@ export const customerRoutes = new Elysia({ prefix: "/api" })
     const limit = Math.min(100, Number(query.limit ?? 20));
     const where: any = { orgId: ctx.orgId };
     if (query.status) where.status = query.status;
+    if (query.customer_type) where.customerType = query.customer_type;
     if (query.search)
       where.OR = [
         { customerCode: { contains: query.search, mode: "insensitive" } },
@@ -79,7 +100,7 @@ export const customerRoutes = new Elysia({ prefix: "/api" })
       prisma.customer.count({ where }),
     ]);
     return ok({ items, total, page, limit });
-  })
+  }, { query: customerQuery })
 
   .get("/customers/:id", async ({ params, ctx }: any) => {
     const c = await prisma.customer.findFirst({ where: { id: params.id, orgId: ctx.orgId } });
@@ -98,13 +119,14 @@ export const customerRoutes = new Elysia({ prefix: "/api" })
       ["email", "email"],
       ["address", "address"],
       ["contact_note", "contactNote"],
+      ["customer_type", "customerType"],
       ["status", "status"],
     ] as const)
       if (body?.[k] !== undefined) data[col] = body[k];
     const c = await prisma.customer.update({ where: { id: params.id }, data });
     await audit(prisma, { action: "update_customer", entityType: "customer", entityId: c.id, orgId: ctx.orgId, actorId: ctx.userId, oldValue: old, newValue: c });
     return ok(c);
-  })
+  }, { body: customerUpdateBody })
 
   .post("/customers/link-line", async ({ body, ctx }: any) => {
     const { customer_code, line_user_id } = body ?? {};

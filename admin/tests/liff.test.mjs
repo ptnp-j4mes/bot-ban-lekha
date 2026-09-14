@@ -17,6 +17,16 @@ async function loadModule(name) {
 }
 const model = await loadModule('model');
 const session = await loadModule('session');
+
+test('LIFF exposes the opening-bill document tab and its uploaded image', async () => {
+  assert.deepEqual(model.TABS.find((tab) => tab.id === 'document'), {
+    id: 'document', label: 'เอกสารเปิดบิล',
+  });
+  assert.equal(model.OPEN_BILL_DOCUMENT_PATH, '/open-bill-document.png');
+  const image = await readFile(new URL('../public/open-bill-document.png', import.meta.url)).catch(() => null);
+  assert.ok(image?.byteLength > 0, 'opening-bill document image must be uploaded');
+});
+
 const installment = (values = {}) => ({
   id: 'i1', installment_no: 1, due_date: '2026-09-15',
   amount_due: 1000, amount_paid: 0, status: 'pending',

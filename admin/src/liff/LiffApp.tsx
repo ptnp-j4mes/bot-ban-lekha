@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowLeft, CircleAlert, Crown, MessageCircle, RefreshCw, ShieldCheck } from "lucide-react";
 import { clearLiffToken, liffGet, liffPost, setLiffToken } from "./api";
-import { TABS, unpaidInstallments, type Balance, type CustomerData, type Installment, type PaymentHistory, type Tab } from "./model";
+import { OPEN_BILL_DOCUMENT_PATH, TABS, unpaidInstallments, type Balance, type CustomerData, type Installment, type PaymentHistory, type Tab } from "./model";
 import { LiffSessionError, loadCustomerData, type CustomerApi, type LiffSdk, type Session, type SessionProblem } from "./session";
 import { BalanceHero, EmptyState, InstallmentCard, LoadingState, NextDueCard, PaymentHistoryItem } from "./components";
 import "./styles/liff.css";
@@ -75,7 +75,7 @@ export function LiffApp() {
   };
   const data = state.stage === "ready" ? state.data : null;
   const unpaid = data ? unpaidInstallments(data.installments) : [];
-  const rows = tab === "unpaid" ? unpaid : data?.installments ?? [];
+  const rows = tab === "unpaid" ? unpaid : tab === "document" ? [] : data?.installments ?? [];
   const count = tab === "history" ? data?.payments.length ?? 0 : rows.length;
   const name = data?.customer.display_name?.trim() || data?.customer.customer_code || "ลูกค้า";
   const problem = state.stage !== "ready" && state.stage !== "loading" ? problems[state.stage] : null;
@@ -98,13 +98,19 @@ export function LiffApp() {
               {TABS.map((entry) => <button key={entry.id} type="button" id={`liff-tab-${entry.id}`} role="tab" aria-controls="liff-panel" aria-selected={tab === entry.id} tabIndex={tab === entry.id ? 0 : -1} onClick={() => selectTab(entry.id)} onKeyDown={onTabKeyDown}>{entry.label}</button>)}
             </div>
             <div id="liff-panel" role="tabpanel" aria-labelledby={`liff-tab-${tab}`} tabIndex={0}>
-              <div className="liff-list-heading"><h2>{tab === "history" ? "ประวัติการชำระ" : tab === "all" ? "รายการงวดทั้งหมด" : "รายการที่ยังไม่ชำระ"}</h2><span>{count} รายการ</span></div>
-              {tab === "unpaid" && count > 0 && <p className="liff-list-note">เรียงตามวันครบกำหนด · รวมงวดที่ยังไม่ถึงกำหนด</p>}
-              {tab === "history" && <p className="liff-list-note">แสดงเฉพาะรายการที่ได้รับการอนุมัติแล้ว</p>}
-              {count === 0 ? <EmptyState title={tab === "history" ? "ยังไม่มีประวัติการชำระ" : tab === "unpaid" ? "ไม่มีรายการที่ยังไม่ชำระ" : "ยังไม่มีรายการงวด"} description={tab === "history" ? "รายการจะแสดงที่นี่หลังตรวจสอบและอนุมัติสลิปแล้วค่ะ" : "หากมีข้อสงสัย สามารถสอบถามแอดมินในแชท LINE ได้เลยค่ะ"} /> : <div className="liff-list">
-                {tab === "history" ? data.payments.slice(0, limit).map((item) => <PaymentHistoryItem key={item.id} item={item} />) : rows.slice(0, limit).map((item) => <InstallmentCard key={item.id} item={item} />)}
-              </div>}
-              {count > limit && <button className="liff-button liff-button--outline liff-load-more" type="button" onClick={() => setLimit((value) => value + PAGE_SIZE)}>แสดงเพิ่มอีก {Math.min(PAGE_SIZE, count - limit)} รายการ</button>}
+              {tab === "document" ? <section className="liff-document" aria-label="เอกสารเปิดบิล">
+                <div className="liff-list-heading"><h2>เอกสารเปิดบิล</h2></div>
+                <p className="liff-list-note">รายการเอกสารที่ใช้ประกอบการเปิดบิลค่ะ</p>
+                <img className="liff-document-image" src={OPEN_BILL_DOCUMENT_PATH} alt="เอกสารเปิดบิลและรายการเอกสารที่ต้องเตรียม" />
+              </section> : <>
+                <div className="liff-list-heading"><h2>{tab === "history" ? "ประวัติการชำระ" : tab === "all" ? "รายการงวดทั้งหมด" : "รายการที่ยังไม่ชำระ"}</h2><span>{count} รายการ</span></div>
+                {tab === "unpaid" && count > 0 && <p className="liff-list-note">เรียงตามวันครบกำหนด · รวมงวดที่ยังไม่ถึงกำหนด</p>}
+                {tab === "history" && <p className="liff-list-note">แสดงเฉพาะรายการที่ได้รับการอนุมัติแล้ว</p>}
+                {count === 0 ? <EmptyState title={tab === "history" ? "ยังไม่มีประวัติการชำระ" : tab === "unpaid" ? "ไม่มีรายการที่ยังไม่ชำระ" : "ยังไม่มีรายการงวด"} description={tab === "history" ? "รายการจะแสดงที่นี่หลังตรวจสอบและอนุมัติสลิปแล้วค่ะ" : "หากมีข้อสงสัย สามารถสอบถามแอดมินในแชท LINE ได้เลยค่ะ"} /> : <div className="liff-list">
+                  {tab === "history" ? data.payments.slice(0, limit).map((item) => <PaymentHistoryItem key={item.id} item={item} />) : rows.slice(0, limit).map((item) => <InstallmentCard key={item.id} item={item} />)}
+                </div>}
+                {count > limit && <button className="liff-button liff-button--outline liff-load-more" type="button" onClick={() => setLimit((value) => value + PAGE_SIZE)}>แสดงเพิ่มอีก {Math.min(PAGE_SIZE, count - limit)} รายการ</button>}
+              </>}
             </div>
           </section>
           <p className="liff-privacy"><ShieldCheck size={15} aria-hidden="true" />แสดงเฉพาะข้อมูลที่ผูกกับบัญชี LINE ของคุณ</p>

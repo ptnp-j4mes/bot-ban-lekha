@@ -13,12 +13,14 @@ export type PaymentHistory = {
 export type CustomerData = {
   customer: Customer; balance: Balance; installments: Installment[]; payments: PaymentHistory[];
 };
-export type Tab = "unpaid" | "all" | "history";
+export type Tab = "unpaid" | "all" | "history" | "document";
 export const TABS: { id: Tab; label: string }[] = [
   { id: "unpaid", label: "ยอดค้าง" },
   { id: "all", label: "งวดทั้งหมด" },
   { id: "history", label: "ประวัติ" },
+  { id: "document", label: "เอกสารเปิดบิล" },
 ];
+export const OPEN_BILL_DOCUMENT_PATH = "/open-bill-document.png";
 
 const money = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const thaiDate = new Intl.DateTimeFormat("th-TH", {

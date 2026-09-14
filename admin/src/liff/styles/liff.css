@@ -53,8 +53,8 @@
 .liff-app .liff-next-copy > span { display: block; font-size: 11px; }
 .liff-app .liff-next-copy strong { display: block; color: var(--liff-ink); font-size: 16px; font-weight: 600; }
 .liff-app .liff-records { margin-top: 27px; }
-.liff-app .liff-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 5px; border-radius: 16px; background: #f5e9ef; scroll-margin-top: 16px; }
-.liff-app .liff-tabs button { min-height: 44px; background: transparent; border: none; color: #7c5266; border-radius: 12px; font-weight: 500; font-size: 13px; }
+.liff-app .liff-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 5px; border-radius: 16px; background: #f5e9ef; scroll-margin-top: 16px; }
+.liff-app .liff-tabs button { min-height: 44px; background: transparent; border: none; color: #7c5266; border-radius: 12px; font-weight: 500; font-size: 12px; line-height: 1.25; }
 .liff-app .liff-tabs button[aria-selected="true"] { background: white; color: #ad1852; font-weight: 700; box-shadow: 0 2px 7px #6e254512; }
 .liff-app .liff-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 23px 1px 8px; }
 .liff-app .liff-list-heading h2 { font-size: 16px; font-weight: 600; }
@@ -95,6 +95,9 @@
 .liff-app .liff-button--outline { color: var(--liff-pink); border-color: #eac2d4; background: white; }
 .liff-app .liff-button--outline:hover { background: #ffedf5; }
 .liff-app .liff-load-more { margin-top: 16px; }
+.liff-app .liff-document { overflow: hidden; padding: 0 12px 12px; border: 1px solid var(--liff-line); border-radius: 20px; background: white; }
+.liff-app .liff-document .liff-list-heading { padding-left: 1px; padding-right: 1px; }
+.liff-app .liff-document-image { display: block; width: 100%; height: auto; border-radius: 12px; }
 .liff-app .liff-privacy { display: flex; align-items: center; justify-content: center; gap: 6px; text-align: center; font-size: 10px; color: var(--liff-muted); margin-top: 24px; }
 .liff-app .liff-privacy svg { flex-shrink: 0; }
 .liff-app .liff-dock { position: sticky; bottom: 0; background: #fffffffa; border-top: 1px solid var(--liff-line); z-index: 5; box-shadow: 0 -5px 20px #49283505; }

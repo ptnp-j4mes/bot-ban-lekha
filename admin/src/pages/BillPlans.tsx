@@ -27,6 +27,7 @@ export function BillPlans() {
   const [payInst, setPayInst] = useState<any>(null);
   const [editInst, setEditInst] = useState<any>(null);
   const [previewBill, setPreviewBill] = useState<{ id: string; billNo: number; title?: string } | null>(null);
+  const [autoPreview, setAutoPreview] = useState<{ billNo: number; text: string } | null>(null);
   const [penaltyPlan, setPenaltyPlan] = useState<any>(null);
 
   const plans = useQuery({ queryKey: ["bill-plans", viewCust], queryFn: () => viewCust ? apiGet(`/api/customers/${viewCust}/bill-plans`) : apiGet("/api/bill-plans") });
@@ -55,6 +56,7 @@ export function BillPlans() {
   });
   const create = useMut((b: any) => apiSend("/api/bill-plans", "POST", b), { success: "สร้างบิลแล้ว", invalidate: ["bill-plans"] });
   const createCustom = useMut((b: any) => apiSend("/api/bill-plans/custom-dates", "POST", b), { success: "สร้างบิลแล้ว", invalidate: ["bill-plans"] });
+  const previewAutoBill = useMut((b: any) => apiSend("/api/bill-plans/preview", "POST", b));
   const cancel = useMut((id: string) => apiSend(`/api/bill-plans/${id}/cancel`, "PATCH"), { success: "ยกเลิกบิลแล้ว", invalidate: ["bill-plans"] });
   const cancelBill = async (id: string) => {
     if (await confirm({ title: "ยืนยันยกเลิกบิล", message: "ยกเลิกบิลนี้? งวดที่ยังไม่จ่ายจะถูกยกเลิก", confirmLabel: "ยกเลิกบิล", destructive: true })) cancel.mutate(id);
@@ -102,17 +104,24 @@ export function BillPlans() {
     </Select>
   );
 
-  const submitInterval = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
+  const intervalPayload = (fd: FormData) => {
     const num = (k: string) => Number(fd.get(k));
-    create.mutate({
+    return {
       customer_id: fd.get("customer_id"), bill_no: num("bill_no"), principal_amount: num("principal_amount"),
       installment_amount: num("installment_amount"), cycle_type: "interval_days", cycle_days: num("cycle_days"),
       total_installments: num("total_installments"), start_date: fd.get("start_date"),
       bill_penalty_amount: num("bill_penalty_amount"), installment_penalty_amount: num("installment_penalty_amount"),
       bank_account_id: fd.get("bank_account_id") || undefined, note: fd.get("note") || undefined,
-    }, { onSuccess: () => { setViewCust(""); setCreateOpen(false); } });
+    };
+  };
+  const previewInterval = (form: HTMLFormElement) => {
+    previewAutoBill.mutate(intervalPayload(new FormData(form)), {
+      onSuccess: (result: any) => setAutoPreview({ billNo: result.bill_no, text: result.text }),
+    });
+  };
+  const submitInterval = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    create.mutate(intervalPayload(new FormData(e.currentTarget)), { onSuccess: () => { setViewCust(""); setCreateOpen(false); } });
   };
   const submitCustom = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -149,7 +158,12 @@ export function BillPlans() {
               <Field label="ค่าปรับหัวบิลรวม"><Input name="bill_penalty_amount" type="number" min="0" step="0.01" placeholder="เช่น 500" /></Field>
               <Field label="ค่าปรับทุกงวด (default)"><Input name="installment_penalty_amount" type="number" min="0" step="0.01" placeholder="เช่น 500" /></Field>
               <Field label="หมายเหตุ" className="sm:col-span-2 lg:col-span-3"><Input name="note" /></Field>
-              <Button type="submit" disabled={create.isPending}>สร้างบิล</Button>
+              <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-3">
+                <Button type="submit" disabled={create.isPending}>สร้างบิล</Button>
+                <Button type="button" variant="outline" disabled={previewAutoBill.isPending} onClick={(e) => { if (e.currentTarget.form) previewInterval(e.currentTarget.form); }}>
+                  {previewAutoBill.isPending ? "กำลัง Preview…" : "Preview Auto bill"}
+                </Button>
+              </div>
             </form>
           ) : (
             <form className="space-y-2" onSubmit={submitCustom}>
@@ -300,6 +314,13 @@ export function BillPlans() {
           <Input name="bill_penalty_amount" type="number" min="0" step="0.01" defaultValue={penaltyPlan?.penalty_amount ?? 0} autoFocus />
           <Button size="sm" type="submit" className="w-full" disabled={editPlanPenalty.isPending}>บันทึกค่าปรับ</Button>
         </form>
+      </Dialog>
+
+      <Dialog open={!!autoPreview} onClose={() => setAutoPreview(null)} title={`Preview Auto bill ${autoPreview?.billNo ?? ""}`} className="max-w-xl">
+        <p className="mb-3 text-xs text-muted-foreground">ตัวอย่างบิลจากข้อมูล Auto bill ที่กรอกไว้ ยังไม่มีการสร้างข้อมูลในระบบ</p>
+        <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-background px-4 py-3 font-sans text-[15px] leading-7 text-foreground">
+          {autoPreview?.text}
+        </pre>
       </Dialog>
 
       {/* Preview is the exact text sent by the bill renderer. */}

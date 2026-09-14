@@ -4,8 +4,9 @@ import { ok, ApiError } from "../lib/response";
 import { authorize } from "../lib/auth";
 import { audit } from "../services/audit";
 import { generateInstallments, MAX_INSTALLMENTS, resolveBankAccount, renderPlanBill } from "../services/bill";
-import { sendAndLog } from "../services/messages";
+import { renderGroupedBillText, sendAndLog } from "../services/messages";
 import { dateOnly } from "../lib/date";
+import { getSystemSettings } from "../services/systemSettings";
 
 const include = { installments: { orderBy: { installmentNo: "asc" as const } }, bankAccount: true };
 const listInclude = { ...include, customer: true };
@@ -129,6 +130,61 @@ export const billPlanRoutes = new Elysia({ prefix: "/api/bill-plans" })
     });
     return ok(plan);
   }, { body: customDatesBody })
+
+  // Preview an interval bill without creating the plan or installment rows.
+  .post("/preview", async ({ body, ctx }: any) => {
+    const b = body ?? {};
+    if (!b.customer_id) throw new ApiError("VALIDATION_ERROR", "customer_id is required");
+    if (!b.start_date) throw new ApiError("VALIDATION_ERROR", "start_date is required");
+    if (b.cycle_type === "custom_dates")
+      throw new ApiError("VALIDATION_ERROR", "use POST /api/bill-plans/custom-dates for custom dates");
+    if (!(b.cycle_days > 0)) throw new ApiError("VALIDATION_ERROR", "cycle_days must be > 0");
+
+    const customer = await prisma.customer.findFirst({ where: { id: b.customer_id, orgId: ctx.orgId }, include: { organization: true } });
+    if (!customer) throw new ApiError("NOT_FOUND", "Customer not found");
+
+    const rows = generateInstallments(dateOnly(b.start_date), b.cycle_days, b.total_installments, b.installment_amount)
+      .map((row) => ({ ...row, penaltyAmount: b.installment_penalty_amount ?? 0 }));
+    const bank = await resolveBankAccount(prisma, ctx.orgId, b.bank_account_id);
+    const activePlans = await prisma.billPlan.findMany({
+      where: { orgId: ctx.orgId, customerId: b.customer_id, status: "active" },
+      include: { installments: { orderBy: { installmentNo: "asc" } }, bankAccount: true },
+      orderBy: { billNo: "asc" },
+    });
+    const draft = {
+      principal: b.principal_amount,
+      installmentAmount: b.installment_amount,
+      cycleDays: b.cycle_days,
+      totalInstallments: b.total_installments,
+      billPenaltyAmount: b.bill_penalty_amount ?? 0,
+      installments: rows.map((row) => ({ dueDate: row.dueDate, amountDue: row.amountDue, status: "pending", penaltyAmount: row.penaltyAmount })),
+      bank: { accountNo: bank.accountNo, bankName: bank.bankName, accountName: bank.accountName },
+      note: b.note,
+    };
+    const previewPlans = [
+      ...activePlans.map((plan) => ({
+        billNo: plan.billNo,
+        plan: {
+          principal: Number(plan.principalAmount),
+          installmentAmount: Number(plan.installmentAmount),
+          cycleDays: plan.cycleDays,
+          totalInstallments: plan.totalInstallments,
+          billPenaltyAmount: Number(plan.penaltyAmount),
+          installments: plan.installments.map((i) => ({ dueDate: i.dueDate, amountDue: Number(i.amountDue), status: i.status, penaltyAmount: Number(i.penaltyAmount) })),
+          bank: plan.bankAccount ? { accountNo: plan.bankAccount.accountNo, bankName: plan.bankAccount.bankName, accountName: plan.bankAccount.accountName } : null,
+          note: plan.note,
+        },
+      })),
+      { billNo: b.bill_no, plan: draft },
+    ].sort((a, b) => a.billNo - b.billNo);
+    const footer = customer.organization.billFooter || (await getSystemSettings()).defaultBillFooter;
+    const text = renderGroupedBillText({
+      billNo: b.bill_no,
+      plans: previewPlans.map((entry) => entry.plan),
+      footer,
+    });
+    return ok({ bill_no: b.bill_no, text });
+  }, { body: intervalBody })
 
   // Preview uses the exact same renderer as the bill sent to LINE.
   .get("/:id/preview", async ({ params, ctx }: any) => {

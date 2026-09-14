@@ -787,6 +787,39 @@ test("settings: auto match mode defaults on and can be toggled", async () => {
   }
 });
 
+test("bill plan preview renders an auto bill without creating it", async () => {
+  const org = await mkOrg("bill-preview");
+  await prisma.organization.update({ where: { id: org.id }, data: { billFooter: "preview footer" } });
+  const member = await mkMember(org.id, "user");
+  const customer = await prisma.customer.create({ data: { orgId: org.id, customerCode: `PRE${rnd()}` } });
+  await prisma.bankAccount.create({ data: { orgId: org.id, accountName: "preview", accountNo: `PRE${rnd()}`, bankName: "bank", isDefault: true, isActive: true } });
+  const before = await prisma.billPlan.count({ where: { orgId: org.id } });
+
+  const response = await app.handle(new Request("http://localhost/api/bill-plans/preview", {
+    method: "POST",
+    headers: { ...hdr(member.token, org.id), "content-type": "application/json" },
+    body: JSON.stringify({
+      customer_id: customer.id,
+      bill_no: 16,
+      principal_amount: 8850,
+      installment_amount: 500,
+      cycle_days: 10,
+      total_installments: 3,
+      start_date: "2026-05-18",
+      note: "ยอด 8850 ส่ง500ราย10วัน",
+    }),
+  }));
+
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(result.data.bill_no).toBe(16);
+  expect(result.data.text).toContain("บิล 1️⃣6️⃣");
+  expect(result.data.text).toContain("ยอด 8850 ส่ง500ราย10วัน");
+  expect(result.data.text).toContain("28💸 500");
+  expect(result.data.text).toContain("preview footer");
+  expect(await prisma.billPlan.count({ where: { orgId: org.id } })).toBe(before);
+});
+
 test("bill plan API rejects excessive installments before creating rows", async () => {
   const org = await mkOrg();
   const member = await mkMember(org.id, "user");

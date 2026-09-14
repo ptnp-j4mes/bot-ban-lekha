@@ -17,6 +17,7 @@ async function loadModule(name) {
 }
 const model = await loadModule('model');
 const session = await loadModule('session');
+const liffApp = await readFile(new URL('../src/liff/LiffApp.tsx', import.meta.url), 'utf8');
 
 test('LIFF open-bill deep link selects the document tab', () => {
   assert.equal(typeof session.readInitialTab, 'function');
@@ -150,8 +151,13 @@ test('unlinked account never loads financial data', async () => {
   const f = fixture(); let reads = 0;
   f.api.createSession = async () => { throw { code: 'NOT_FOUND' }; };
   f.api.getBalance = async () => { reads++; return f.data.balance; };
-  await assert.rejects(session.loadCustomerData(f.options), { kind: 'not_linked' });
+  await assert.rejects(session.loadCustomerData(f.options), { kind: 'pending_registration' });
   assert.equal(reads, 0);
+});
+
+test('LIFF shows the pending registration state for non-customers', () => {
+  assert.match(liffApp, /pending_registration/);
+  assert.match(liffApp, /title: "รอลงทะเบียน"/);
 });
 test('null ID token does not request a server session', async () => {
   assert.equal(typeof session.loadCustomerData, 'function');

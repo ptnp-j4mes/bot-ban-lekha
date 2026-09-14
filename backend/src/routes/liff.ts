@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { prisma } from "../lib/prisma";
 import { ok, ApiError } from "../lib/response";
-import { authorizeLiff, signLiffSession } from "../lib/auth";
+import { authorizeLiff, liffRegistrationRequiredMessage, signLiffSession } from "../lib/auth";
 import { verifyLineIdToken } from "../lib/line";
 import { customerBalance } from "./line";
 import { env } from "../env";
@@ -21,9 +21,8 @@ export const liffRoutes = new Elysia({ prefix: "/api/liff" })
       const profile = await verifyLineIdToken(id_token, env.lineLiffChannelId);
       if (!profile) throw new ApiError("UNAUTHORIZED", "Invalid LINE ID token");
 
-      const customer = await prisma.customer.findFirst({ where: { lineOaId: oa.id, lineUserId: profile.sub } });
-      if (!customer || customer.status !== "active")
-        throw new ApiError("NOT_FOUND", "บัญชี LINE นี้ยังไม่ได้ผูกกับข้อมูลลูกค้า กรุณาติดต่อแอดมิน");
+      const customer = await prisma.customer.findFirst({ where: { lineOaId: oa.id, lineUserId: profile.sub, customerType: "customer", status: "active" } });
+      if (!customer) throw new ApiError("NOT_FOUND", liffRegistrationRequiredMessage);
 
       const token = signLiffSession({ customerId: customer.id, orgId: customer.orgId, lineOaId: oa.id, lineUserId: profile.sub });
       return ok({

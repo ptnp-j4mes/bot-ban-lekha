@@ -71,6 +71,7 @@ export function requireJob(headers: Headers) {
 // Customer self-service (LIFF) session: one linked customer, nothing else. Short-lived and
 // distinct from the admin JWT (`typ: "liff"`) so the two token kinds can never be confused.
 export type LiffContext = { customerId: string; orgId: string; lineOaId: string; lineUserId: string };
+export const liffRegistrationRequiredMessage = "บัญชี LINE นี้ยังรอลงทะเบียนเป็นลูกค้า กรุณาติดต่อแอดมิน";
 
 export function signLiffSession(ctx: LiffContext): string {
   return signJwt({ sub: ctx.customerId, typ: "liff", orgId: ctx.orgId, lineOaId: ctx.lineOaId, lineUserId: ctx.lineUserId }, env.jwtSecret, 12 * 3600);
@@ -89,8 +90,8 @@ export async function authorizeLiff(headers: Headers): Promise<LiffContext> {
   }
   if (payload.typ !== "liff") throw new ApiError("UNAUTHORIZED", "Invalid session");
   const customer = await prisma.customer.findFirst({
-    where: { id: payload.sub, orgId: payload.orgId, lineUserId: payload.lineUserId, organization: { isActive: true } },
+    where: { id: payload.sub, orgId: payload.orgId, lineUserId: payload.lineUserId, customerType: "customer", status: "active", organization: { isActive: true } },
   });
-  if (!customer || customer.status !== "active") throw new ApiError("UNAUTHORIZED", "Customer not found");
+  if (!customer) throw new ApiError("NOT_FOUND", liffRegistrationRequiredMessage);
   return { customerId: customer.id, orgId: customer.orgId, lineOaId: payload.lineOaId, lineUserId: payload.lineUserId };
 }

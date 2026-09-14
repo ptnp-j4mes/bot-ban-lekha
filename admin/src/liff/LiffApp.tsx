@@ -20,7 +20,7 @@ type State = { stage: "loading" } | { stage: "ready"; data: CustomerData } | { s
 const problems: Record<Problem, { title: string; description: string }> = {
   not_configured: { title: "ลิงก์นี้ยังไม่พร้อมใช้งาน", description: "กรุณาเปิดจากเมนูใน LINE อีกครั้ง หากยังเปิดไม่ได้ กรุณาติดต่อแอดมินเพื่อตรวจสอบการตั้งค่า LIFF ค่ะ" },
   sdk_unavailable: { title: "เชื่อมต่อ LINE ไม่สำเร็จ", description: "กรุณาตรวจสอบอินเทอร์เน็ต แล้วปิดหน้านี้และเปิดใหม่จากเมนูใน LINE ค่ะ" },
-  not_linked: { title: "ยังไม่พบข้อมูลลูกค้าของคุณ", description: "บัญชี LINE นี้ยังไม่ได้ผูกกับข้อมูลลูกค้า หรือบัญชียังไม่พร้อมใช้งาน กรุณาติดต่อแอดมินค่ะ" },
+  pending_registration: { title: "รอลงทะเบียน", description: "บัญชี LINE นี้ยังไม่ได้ลงทะเบียนเป็นลูกค้า กรุณาติดต่อแอดมินเพื่อเปิดใช้งานค่ะ" },
   unauthorized: { title: "กรุณายืนยันตัวตนอีกครั้ง", description: "การเชื่อมต่อหมดอายุหรือยังไม่ได้รับสิทธิ์ กรุณาลองใหม่ หรือเปิดหน้านี้จากเมนูใน LINE อีกครั้งค่ะ" },
   error: { title: "โหลดข้อมูลไม่สำเร็จ", description: "กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองอีกครั้ง ระบบยังไม่ได้เปลี่ยนแปลงข้อมูลการชำระเงินของคุณค่ะ" },
 };
@@ -46,7 +46,8 @@ export function LiffApp() {
         clearLiffToken();
         const failure = error as { status?: number; code?: string };
         const stage = error instanceof LiffSessionError ? error.kind
-          : failure?.status === 401 || failure?.code === "UNAUTHORIZED" ? "unauthorized" : "error";
+          : failure?.status === 404 || failure?.code === "NOT_FOUND" ? "pending_registration"
+            : failure?.status === 401 || failure?.code === "UNAUTHORIZED" ? "unauthorized" : "error";
         setState({ stage });
       });
     return () => controller.abort();

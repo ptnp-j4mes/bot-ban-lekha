@@ -56,6 +56,41 @@ test("liff: session exchange requires a linked customer, never leaks who else ex
   }
 });
 
+test("liff: only customer-type contacts can start a session", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const cases = ["unclassified", "general"] as const;
+  const lineUsers = Object.fromEntries(cases.map((customerType) => [customerType, `U${customerType}${rnd()}`]));
+  for (const customerType of cases) {
+    await prisma.customer.create({
+      data: {
+        orgId: org.id,
+        lineOaId: oa.id,
+        lineUserId: lineUsers[customerType],
+        customerCode: `${customerType}-${rnd()}`,
+        status: "active",
+        customerType,
+      },
+    });
+  }
+  const origFetch = globalThis.fetch;
+  try {
+    for (const customerType of cases) {
+      globalThis.fetch = (async () => new Response(JSON.stringify({ sub: lineUsers[customerType], aud: env.lineLiffChannelId }), { status: 200 })) as any;
+      const res = await app.handle(new Request("http://localhost/api/liff/session", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id_token: "fake", oa_id: oa.id }),
+      }));
+      expect(res.status).toBe(404);
+      const body = await res.json();
+      expect(body.error.code).toBe("NOT_FOUND");
+      expect(body.error.message).toBe("บัญชี LINE นี้ยังรอลงทะเบียนเป็นลูกค้า กรุณาติดต่อแอดมิน");
+    }
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
 test("liff: session exchange happy path returns a working session token, scoped to the right customer", async () => {
   const org = await mkOrg();
   const oa = await mkOa(org.id);
@@ -107,7 +142,7 @@ test("liff: customer isolation — a session only ever sees its own balance/inst
   // A forged/mismatched token (customer id from A, org id from B) must not be accepted.
   const forged = signLiffSession({ customerId: a.customer.id, orgId: orgB.id, lineOaId: oaB.id, lineUserId: a.customer.lineUserId! });
   const forgedRes = await app.handle(new Request("http://localhost/api/liff/me/balance", { headers: liffHdr(forged) }));
-  expect(forgedRes.status).toBe(401);
+  expect(forgedRes.status).toBe(404);
 });
 
 test("liff: only approved payments show in history", async () => {
@@ -135,5 +170,22 @@ test("liff: unlinking/deactivating a customer immediately invalidates their sess
 
   await prisma.customer.update({ where: { id: customer.id }, data: { status: "inactive" } });
   const after = await app.handle(new Request("http://localhost/api/liff/me/balance", { headers: liffHdr(token) }));
-  expect(after.status).toBe(401);
+  expect(after.status).toBe(404);
+});
+
+test("liff: changing a customer type revokes an existing session", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const { customer } = await makeLinkedCustomer(org.id, oa.id, `Utypechange${rnd()}`);
+  const token = liffToken(customer.id, org.id, oa.id, customer.lineUserId!);
+
+  const before = await app.handle(new Request("http://localhost/api/liff/me/balance", { headers: liffHdr(token) }));
+  expect(before.status).toBe(200);
+
+  await prisma.customer.update({ where: { id: customer.id }, data: { customerType: "general" } });
+  const after = await app.handle(new Request("http://localhost/api/liff/me/balance", { headers: liffHdr(token) }));
+  expect(after.status).toBe(404);
+  const body = await after.json();
+  expect(body.error.code).toBe("NOT_FOUND");
+  expect(body.error.message).toBe("บัญชี LINE นี้ยังรอลงทะเบียนเป็นลูกค้า กรุณาติดต่อแอดมิน");
 });

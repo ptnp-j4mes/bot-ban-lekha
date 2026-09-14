@@ -9,7 +9,7 @@ export interface LiffSdk {
   closeWindow(): void;
 }
 export type Session = { token: string; customer: Customer };
-export type SessionProblem = "not_configured" | "sdk_unavailable" | "not_linked" | "unauthorized";
+export type SessionProblem = "not_configured" | "sdk_unavailable" | "pending_registration" | "unauthorized";
 export class LiffSessionError extends Error {
   kind: SessionProblem;
   constructor(kind: SessionProblem) { super(kind); this.name = "LiffSessionError"; this.kind = kind; }
@@ -64,7 +64,7 @@ export async function loadCustomerData({ sdk, liffId, getSearch, api, signal }: 
   let session: Session;
   try { session = await api.createSession(idToken, oaId, signal); }
   catch (error) {
-    if ((error as { code?: string })?.code === "NOT_FOUND") throw new LiffSessionError("not_linked");
+    if ((error as { code?: string })?.code === "NOT_FOUND") throw new LiffSessionError("pending_registration");
     throw error;
   }
   signal.throwIfAborted();

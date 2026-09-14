@@ -3,9 +3,11 @@ import { prisma } from "../lib/prisma";
 import { env } from "../env";
 import { ok, ApiError } from "../lib/response";
 import { authorizePlatform } from "../lib/auth";
+import { captureError } from "../lib/logger";
 import { audit } from "../services/audit";
+import { purgeSlipImage } from "../services/retention";
 import { getSystemSettings, updateSystemSettings } from "../services/systemSettings";
-import { getGoogleDriveStatus, getR2StorageUsage, getS3StorageStatus, getStorageConfigStatus, listGoogleDriveFolder } from "../services/storage";
+import { deleteSlipFile, getGoogleDriveStatus, getR2StorageUsage, getS3StorageStatus, getStorageConfigStatus, listGoogleDriveFolder, moveSlipFile, readStoredFile, storedSlipChatId } from "../services/storage";
 
 // Super-admin only: manage users (username/password) and the org each user operates in.
 // A user belongs to exactly one org (membership). Roles are collapsed — a member = full access.
@@ -54,6 +56,20 @@ async function setUserOrg(userId: string, opts: { org_id?: string; org_name?: st
   await prisma.membership.deleteMany({ where: { adminUserId: userId } });
   await prisma.membership.create({ data: { orgId, adminUserId: userId, role: "user" } });
 }
+
+const fileChatId = (sub: any) => storedSlipChatId(sub.imageUrl ?? "") ?? sub.lineGroupId ?? sub.lineUserId ?? null;
+const fileView = (sub: any) => ({
+  id: sub.id,
+  org_id: sub.orgId,
+  organization: sub.organization ? { id: sub.organization.id, name: sub.organization.name } : null,
+  chat_id: fileChatId(sub),
+  source_chat_id: sub.lineGroupId ?? sub.lineUserId ?? null,
+  line_user_id: sub.lineUserId,
+  line_group_id: sub.lineGroupId,
+  line_message_id: sub.lineMessageId,
+  original_file_name: sub.originalFileName,
+  created_at: sub.createdAt,
+});
 
 export const platformRoutes = new Elysia({ prefix: "/api/platform" })
   .resolve(async ({ headers }: any) => ({ ctx: await authorizePlatform(headers) }))
@@ -178,6 +194,106 @@ export const platformRoutes = new Elysia({ prefix: "/api/platform" })
   .get("/storage/status", async () => ok(await getS3StorageStatus()))
   .post("/storage/test", async () => ok(await getS3StorageStatus()))
   .get("/storage/usage", async () => ok(await getR2StorageUsage()))
+
+  .get("/files", async ({ query }: any) => {
+    const page = Math.max(1, Number.parseInt(query.page ?? "1", 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(query.limit ?? "20", 10) || 20));
+    const search = String(query.search ?? "").trim();
+    const chatId = String(query.chat_id ?? "").trim();
+    const orgId = String(query.org_id ?? "").trim();
+    const filters: any[] = [{ imageUrl: { not: null } }];
+    if (orgId) filters.push({ orgId });
+    if (chatId) {
+      filters.push({ OR: [
+        { imageUrl: { contains: `/slip/${encodeURIComponent(chatId)}/` } },
+        { lineUserId: chatId },
+        { lineGroupId: chatId },
+      ] });
+    }
+    if (search) filters.push({ OR: [
+      { originalFileName: { contains: search, mode: "insensitive" } },
+      { lineUserId: { contains: search, mode: "insensitive" } },
+      { lineGroupId: { contains: search, mode: "insensitive" } },
+      { lineMessageId: { contains: search, mode: "insensitive" } },
+      { orgId: { contains: search, mode: "insensitive" } },
+      { imageUrl: { contains: search, mode: "insensitive" } },
+    ] });
+    const where = { AND: filters };
+    const [items, total] = await Promise.all([
+      prisma.paymentSubmission.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+        include: { organization: { select: { id: true, name: true } } },
+      }),
+      prisma.paymentSubmission.count({ where }),
+    ]);
+    return ok({ items: items.map(fileView), total, page, limit });
+  }, { query: t.Object({ page: t.Optional(t.String()), limit: t.Optional(t.String()), search: t.Optional(t.String()), chat_id: t.Optional(t.String()), org_id: t.Optional(t.String()) }) })
+
+  .get("/files/:id/content", async ({ params }: any) => {
+    const sub = await prisma.paymentSubmission.findFirst({ where: { id: params.id, imageUrl: { not: null } }, select: { imageUrl: true } });
+    if (!sub?.imageUrl) throw new ApiError("NOT_FOUND", "ไม่พบไฟล์");
+    try {
+      return await readStoredFile(sub.imageUrl);
+    } catch {
+      throw new ApiError("NOT_FOUND", "ไม่สามารถอ่านไฟล์จาก Storage ได้");
+    }
+  })
+
+  .post("/files/:id/move", async ({ params, body, ctx }: any) => {
+    const targetChatId = String(body?.target_chat_id ?? "").trim();
+    if (!targetChatId) throw new ApiError("VALIDATION_ERROR", "target_chat_id is required");
+    const sub = await prisma.paymentSubmission.findFirst({
+      where: { id: params.id, imageUrl: { not: null } },
+      include: { organization: { select: { id: true, name: true } } },
+    });
+    if (!sub?.imageUrl) throw new ApiError("NOT_FOUND", "ไม่พบไฟล์");
+    if (!sub.orgId) throw new ApiError("VALIDATION_ERROR", "ไฟล์ไม่มีองค์กรต้นทาง");
+
+    const oldReference = sub.imageUrl;
+    const sourceChatId = fileChatId(sub);
+    if (sourceChatId === targetChatId) return ok({ ...fileView(sub), moved: false, cleanup: "same_folder" });
+
+    let newReference: string;
+    try {
+      newReference = await moveSlipFile(sub.orgId, oldReference, sub.id, targetChatId, sub.originalFileName);
+    } catch {
+      throw new ApiError("VALIDATION_ERROR", "ย้ายไฟล์ไม่สำเร็จ");
+    }
+
+    const updated = await prisma.paymentSubmission.updateMany({
+      where: { id: sub.id, orgId: sub.orgId, imageUrl: oldReference },
+      data: { imageUrl: newReference, imagePurgedAt: null },
+    });
+    if (updated.count !== 1) {
+      try { await deleteSlipFile(newReference); } catch (error) { captureError(error, { scope: "move_slip_rollback", submissionId: sub.id }); }
+      throw new ApiError("VALIDATION_ERROR", "ไฟล์ถูกเปลี่ยนแปลง กรุณาลองใหม่");
+    }
+
+    let cleanup: string = "skipped";
+    try { cleanup = await deleteSlipFile(oldReference); } catch (error) { captureError(error, { scope: "move_slip_cleanup", submissionId: sub.id }); }
+    await audit(prisma, {
+      action: "move_slip_file",
+      entityType: "payment_submission",
+      entityId: sub.id,
+      orgId: sub.orgId,
+      actorId: ctx.userId,
+      oldValue: { chat_id: sourceChatId },
+      newValue: { chat_id: targetChatId, cleanup },
+    });
+    return ok({ ...fileView({ ...sub, imageUrl: newReference }), moved: true, cleanup });
+  }, { body: t.Object({ target_chat_id: t.String({ minLength: 1, maxLength: 200 }) }) })
+
+  .delete("/files/:id", async ({ params, ctx }: any) => {
+    const sub = await prisma.paymentSubmission.findFirst({ where: { id: params.id, imageUrl: { not: null } }, select: { id: true, orgId: true } });
+    if (!sub) throw new ApiError("NOT_FOUND", "ไม่พบไฟล์");
+    const result = await purgeSlipImage(sub.id);
+    if (!result.purged) throw new ApiError("VALIDATION_ERROR", "ลบไฟล์ไม่สำเร็จ");
+    await audit(prisma, { action: "delete_file", entityType: "payment_submission", entityId: sub.id, orgId: sub.orgId, actorId: ctx.userId, newValue: result });
+    return ok(result);
+  })
 
   // Read-only system status / health (no secrets — only whether things are configured).
   .get("/system-info", async () => {

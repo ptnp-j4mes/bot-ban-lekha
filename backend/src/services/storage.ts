@@ -8,7 +8,7 @@ import { prisma } from "../lib/prisma";
 // Slip storage gateway. One driver, swappable at runtime by the super admin:
 //   local  — disk (default, dev)
 //   gdrive — Google Drive (service account), files under <org folder>/slip/<line user folder>/
-//   s3     — AWS S3 or any S3-compatible endpoint
+//   s3     — AWS S3 or any S3-compatible endpoint; keys are <org>/slip/<chat>/<submission>.
 // The managed org folder is tagged with orgId in Drive appProperties so duplicate names stay isolated.
 export type StorageDriverName = "local" | "gdrive" | "s3";
 
@@ -17,7 +17,18 @@ export interface StorageDriver {
 }
 
 const safeFolderName = (name: string, fallback: string) => (name.replace(/[\\/]/g, "-").trim().slice(0, 120) || fallback);
-const slipKey = (orgId: string, submissionId: string, ext: string) => `${orgId}/slip/${submissionId}.${ext}`;
+const slipKey = (orgId: string, chatId: string | null | undefined, submissionId: string, ext: string) =>
+  `${orgId}/slip/${encodeURIComponent(chatId?.trim() || "unknown-chat")}/${submissionId}.${ext}`;
+
+export function storedSlipChatId(reference: string): string | null {
+  const parts = reference.split(/[?#]/, 1)[0].split("/").filter(Boolean);
+  const slipIndex = parts.lastIndexOf("slip");
+  if (slipIndex < 0 || slipIndex + 2 >= parts.length) return null;
+  try { return decodeURIComponent(parts[slipIndex + 1]); } catch { return parts[slipIndex + 1]; }
+}
+
+const slipExtension = (value: string) => value.match(/\.([a-z0-9]{1,10})(?:[?#]|$)/i)?.[1]?.toLowerCase() ?? "jpg";
+const slipContentType = (ext: string) => ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
 
 // ---------- local ----------
 const localDriver: StorageDriver = {
@@ -676,21 +687,43 @@ async function resolvePrivateDriver(): Promise<StorageDriver> {
 
 export async function storeSlip(
   orgId: string,
-  lineOaId: string | null,
+  chatId: string | null | undefined,
   submissionId: string,
   data: Buffer,
   ext = "jpg",
   sender?: { userId?: string | null; userName?: string | null },
 ): Promise<string> {
   const driver = await resolveDriver();
-  const ct = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+  const ct = slipContentType(ext);
   const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true, gdriveFolderId: true } });
-  return driver.put(slipKey(orgId, submissionId, ext), data, ct, {
+  return driver.put(slipKey(orgId, chatId, submissionId, ext), data, ct, {
     orgId,
     orgName: org?.name ?? orgId,
     orgFolderId: org?.gdriveFolderId ?? undefined,
     userId: sender?.userId ?? undefined,
     userName: sender?.userName ?? undefined,
+  });
+}
+
+export async function moveSlipFile(
+  orgId: string,
+  reference: string,
+  submissionId: string,
+  targetChatId: string,
+  originalFileName?: string | null,
+): Promise<string> {
+  const source = await readStoredFile(reference);
+  if (!source.ok) throw new Error("Stored file is unavailable");
+  const data = Buffer.from(await source.arrayBuffer());
+  const ext = slipExtension(originalFileName || reference);
+  const driver = await resolveDriver();
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true, gdriveFolderId: true } });
+  return driver.put(slipKey(orgId, targetChatId, submissionId, ext), data, source.headers.get("content-type") ?? slipContentType(ext), {
+    orgId,
+    orgName: org?.name ?? orgId,
+    orgFolderId: org?.gdriveFolderId ?? undefined,
+    userId: targetChatId,
+    userName: targetChatId,
   });
 }
 

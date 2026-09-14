@@ -306,7 +306,7 @@ async function handleImage(ev: any, oa: Oa, context: InboundContext) {
       ocrStatus: "processing",
     },
   });
-  const imageUrl = await storeSlip(oa.orgId, oa.id, sub.id, buffer, ext, {
+  const imageUrl = await storeSlip(oa.orgId, groupId ?? lineUserId, sub.id, buffer, ext, {
     userId: lineUserId,
     userName: senderName,
   });

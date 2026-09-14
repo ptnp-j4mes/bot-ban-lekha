@@ -3,7 +3,7 @@ import { prisma } from "../src/lib/prisma";
 import { bangkokToday } from "../src/lib/date";
 import { processSubmission, approveSubmission, matchInstallment, rejectSubmission } from "../src/services/payment";
 import { effectiveRetentionDays, purgeSlipImage, purgeExpiredSlips } from "../src/services/retention";
-import { deleteSlipFile, readStoredFile, storeCustomerDocument } from "../src/services/storage";
+import { deleteSlipFile, readStoredFile, storeCustomerDocument, storeSlip } from "../src/services/storage";
 import { app } from "../src/app";
 import { env } from "../src/env";
 import { signJwt } from "../src/lib/jwt";
@@ -172,6 +172,26 @@ test("reject sets statuses + logs", async () => {
   expect(await prisma.messageLog.count({ where: { paymentSubmissionId: sub.id, messageType: "payment_rejected" } })).toBe(1);
 });
 
+test("marking a submission as not a slip moves it out of the pending slip queue", async () => {
+  const org = await mkOrg();
+  const member = await mkMember(org.id, "user");
+  const { customer, inst } = await makePlan(org.id);
+  const sub = await prisma.paymentSubmission.create({ data: { orgId: org.id, customerId: customer.id, docType: "slip", matchedInstallmentId: inst.id, matchStatus: "auto_matched" } });
+
+  const res = await app.handle(new Request(`http://localhost/api/admin/payment-submissions/${sub.id}/not-slip`, {
+    method: "POST",
+    headers: hdr(member.token, org.id),
+  }));
+
+  expect(res.status).toBe(200);
+  const updated = await prisma.paymentSubmission.findUnique({ where: { id: sub.id } });
+  expect(updated?.docType).toBe("unknown");
+  expect(updated?.matchStatus).toBe("rejected");
+  expect(updated?.reviewStatus).toBe("rejected");
+  expect(updated?.matchReason).toBe("รูปไม่ใช่สลิป");
+  expect(updated?.matchedInstallmentId).toBeNull();
+});
+
 // ---------- RBAC within an org ----------
 test("member has full access in own org (read + write)", async () => {
   const org = await mkOrg();
@@ -228,6 +248,7 @@ test("webhook per-OA sets org + customer; unknown OA 404", async () => {
   const sub = await prisma.paymentSubmission.findFirst({ where: { lineOaId: oa.id }, orderBy: { createdAt: "desc" } });
   expect(sub!.orgId).toBe(org.id);
   expect(sub!.customerId).toBe(customer.id);
+  expect(sub!.imageUrl).toContain(`${org.id}/slip/${customer.lineUserId}/`);
 
   expect((await webhook("00000000-0000-0000-0000-000000000000", imageEvent("Ux", "mx"))).status).toBe(404);
 });
@@ -336,6 +357,7 @@ test("group slip: webhook stores group id (no customer); matched org-wide then a
   const sub0 = await prisma.paymentSubmission.findFirst({ where: { lineGroupId: gid } });
   expect(sub0!.lineGroupId).toBe(gid);
   expect(sub0!.customerId).toBeNull();
+  expect(sub0!.imageUrl).toContain(`${org.id}/slip/${gid}/`);
 
   const sub = await prisma.paymentSubmission.create({
     data: { orgId: org.id, lineOaId: oa.id, lineGroupId: gid, parsedAmount: 490, parsedTransferDate: today, parsedReferenceNo: `G${rnd()}`, ocrStatus: "success" },
@@ -1397,6 +1419,134 @@ test("bulk-approve: cross-org submissions are rejected as failures, not silently
   expect(data.approved).toHaveLength(0);
   expect(data.failed).toHaveLength(1);
   expect((await prisma.billInstallment.findUnique({ where: { id: inst.id } }))!.status).not.toBe("paid");
+});
+
+test("platform file manager: lists, previews, moves, and deletes a stored slip", async () => {
+  const token = await mkPlatformAdmin();
+  const org = await mkOrg("file-manager");
+  const sub = await prisma.paymentSubmission.create({
+    data: { orgId: org.id, lineUserId: "Uold", originalFileName: "receipt.jpg" },
+  });
+  const oldKey = `${org.id}/slip/Uold/${sub.id}.jpg`;
+  const newKey = `${org.id}/slip/Unew/${sub.id}.jpg`;
+  const oldReference = `s3://public-slips/${oldKey}`;
+  await prisma.paymentSubmission.update({ where: { id: sub.id }, data: { imageUrl: oldReference } });
+
+  const previous = {
+    driver: env.storageDriver,
+    bucket: env.s3Bucket,
+    privateBucket: env.s3PrivateBucket,
+    region: env.s3Region,
+    key: env.s3AccessKeyId,
+    secret: env.s3SecretAccessKey,
+    endpoint: env.s3Endpoint,
+    publicBaseUrl: env.s3PublicBaseUrl,
+    prefix: env.s3Prefix,
+    fetch: globalThis.fetch,
+  };
+  const previousSettings = await getSystemSettings();
+  await updateSystemSettings({ storageDriver: "s3" });
+  Object.assign(env, {
+    storageDriver: "s3",
+    s3Bucket: "public-slips",
+    s3PrivateBucket: "private-docs",
+    s3Region: "auto",
+    s3AccessKeyId: "key",
+    s3SecretAccessKey: "secret",
+    s3Endpoint: "https://storage.example.test",
+    s3PublicBaseUrl: "",
+    s3Prefix: "",
+  });
+  const objects = new Map([[oldKey, Buffer.from("image")] ]);
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    const key = decodeURIComponent(url.pathname.replace(/^\/public-slips\//, ""));
+    const method = init?.method ?? "GET";
+    if (method === "GET") {
+      const body = objects.get(key);
+      return body ? new Response(body, { status: 200, headers: { "content-type": "image/jpeg" } }) : new Response(null, { status: 404 });
+    }
+    if (method === "PUT") {
+      objects.set(key, Buffer.from(init?.body as any));
+      return new Response(null, { status: 200 });
+    }
+    if (method === "DELETE") return new Response(null, { status: objects.delete(key) ? 204 : 404 });
+    return new Response(null, { status: 405 });
+  }) as unknown as typeof fetch;
+
+  const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  try {
+    const listed = await app.handle(new Request("http://localhost/api/platform/files?chat_id=Uold", { headers }));
+    expect(listed.status).toBe(200);
+    expect((await listed.json()).data.items[0].chat_id).toBe("Uold");
+
+    const moved = await app.handle(new Request(`http://localhost/api/platform/files/${sub.id}/move`, {
+      method: "POST", headers, body: JSON.stringify({ target_chat_id: "Unew" }),
+    }));
+    expect(moved.status).toBe(200);
+    expect((await moved.json()).data.chat_id).toBe("Unew");
+    expect(objects.has(oldKey)).toBe(false);
+    expect(objects.has(newKey)).toBe(true);
+    expect((await prisma.paymentSubmission.findUnique({ where: { id: sub.id } }))?.imageUrl).toBe(`s3://public-slips/${newKey}`);
+    expect((await prisma.auditLog.findFirst({ where: { action: "move_slip_file", entityId: sub.id } }))?.action).toBe("move_slip_file");
+
+    const content = await app.handle(new Request(`http://localhost/api/platform/files/${sub.id}/content`, { headers }));
+    expect(content.status).toBe(200);
+    expect(await content.text()).toBe("image");
+
+    const deleted = await app.handle(new Request(`http://localhost/api/platform/files/${sub.id}`, { method: "DELETE", headers }));
+    expect(deleted.status).toBe(200);
+    expect((await prisma.paymentSubmission.findUnique({ where: { id: sub.id } }))?.imageUrl).toBeNull();
+    expect(objects.has(newKey)).toBe(false);
+  } finally {
+    await updateSystemSettings({ storageDriver: previousSettings.storageDriver });
+    Object.assign(env, previous);
+    globalThis.fetch = previous.fetch;
+  }
+});
+
+test("storeSlip: places an S3 object under the LINE chat ID", async () => {
+  const previous = {
+    driver: env.storageDriver,
+    bucket: env.s3Bucket,
+    privateBucket: env.s3PrivateBucket,
+    region: env.s3Region,
+    key: env.s3AccessKeyId,
+    secret: env.s3SecretAccessKey,
+    endpoint: env.s3Endpoint,
+    publicBaseUrl: env.s3PublicBaseUrl,
+    prefix: env.s3Prefix,
+    fetch: globalThis.fetch,
+  };
+  const previousSettings = await getSystemSettings();
+  await updateSystemSettings({ storageDriver: "s3" });
+  Object.assign(env, {
+    storageDriver: "s3",
+    s3Bucket: "public-slips",
+    s3PrivateBucket: "private-docs",
+    s3Region: "auto",
+    s3AccessKeyId: "key",
+    s3SecretAccessKey: "secret",
+    s3Endpoint: "https://storage.example.test",
+    s3PublicBaseUrl: "",
+    s3Prefix: "",
+  });
+  let requestUrl = "";
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    requestUrl = String(input);
+    expect(init?.method).toBe("PUT");
+    return new Response(null, { status: 200 });
+  }) as unknown as typeof fetch;
+
+  try {
+    const stored = await storeSlip("org-id", "chat-123", "submission-456", Buffer.from("x"), "jpg");
+    expect(requestUrl).toContain("/public-slips/org-id/slip/chat-123/submission-456.jpg");
+    expect(stored).toBe("s3://public-slips/org-id/slip/chat-123/submission-456.jpg");
+  } finally {
+    await updateSystemSettings({ storageDriver: previousSettings.storageDriver });
+    Object.assign(env, previous);
+    globalThis.fetch = previous.fetch;
+  }
 });
 
 test("private document storage fails closed and remote retention uses configured buckets", async () => {

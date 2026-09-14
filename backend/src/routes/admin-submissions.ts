@@ -121,6 +121,10 @@ export const adminSubmissionRoutes = new Elysia({ prefix: "/api/admin/payment-su
     return ok({ payment: r.payment, bill_text: r.billText });
   })
 
+  .post("/:id/not-slip", async ({ params, ctx }: any) => {
+    return ok(await rejectSubmission(params.id, "รูปไม่ใช่สลิป", ctx.userId, ctx.orgId, "unknown"));
+  })
+
   .post("/:id/reject", async ({ params, body, ctx }: any) => {
     if (!body?.reason) throw new ApiError("VALIDATION_ERROR", "reason is required");
     return ok(await rejectSubmission(params.id, body.reason, ctx.userId, ctx.orgId));

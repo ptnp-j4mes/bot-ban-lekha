@@ -2,7 +2,7 @@ import { createContext, useEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { LayoutDashboard, Users as UsersIcon, Landmark, FileText, Receipt, Menu, LogOut, MessageSquare, Reply, ArrowLeft, Settings as SettingsIcon, HardDrive, BarChart3, History, UserCheck, Users2, Sun, Moon, MessagesSquare } from "lucide-react";
+import { LayoutDashboard, Users as UsersIcon, Landmark, FileText, Receipt, Menu, LogOut, MessageSquare, Reply, ArrowLeft, Settings as SettingsIcon, HardDrive, FolderOpen, BarChart3, History, UserCheck, Users2, Sun, Moon, MessagesSquare } from "lucide-react";
 import { apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,7 @@ import { Groups } from "@/pages/Groups";
 import { Users } from "@/pages/Users";
 import { PlatformSettings } from "@/pages/PlatformSettings";
 import { StorageSettings } from "@/pages/StorageSettings";
+import { FileManager } from "@/components/FileManager";
 import { Login } from "@/pages/Login";
 import { NotificationBell, type Notif } from "@/components/NotificationBell";
 import { ConfirmProvider } from "@/components/ui/confirm";
@@ -236,6 +237,7 @@ function Shell() {
       { id: "users", label: "ผู้ใช้ & องค์กร", icon: UsersIcon, el: <Users /> },
       { id: "system", label: "ตั้งค่าระบบ", icon: SettingsIcon, el: <PlatformSettings /> },
       { id: "storage", label: "File Storage", icon: HardDrive, el: <StorageSettings /> },
+      { id: "files", label: "จัดการไฟล์ตามแชท", icon: FolderOpen, el: <FileManager /> },
     ];
     const pActive = PLATFORM.find((p) => p.id === ptab) ?? PLATFORM[0];
     const platformGroups = [

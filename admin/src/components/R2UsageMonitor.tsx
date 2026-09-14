@@ -27,6 +27,7 @@ type UsageData = {
   alert_level: "ok" | "warning" | "critical";
   backup_recommended: boolean;
   history: UsagePoint[];
+  history_available: boolean;
   missing?: string[];
   fetched_at?: string | null;
   error?: string;
@@ -110,6 +111,7 @@ export function R2UsageMonitor() {
       </CardHeader>
       <CardContent className="space-y-4">
         {!data && usage.isLoading && <p className="text-sm text-muted-foreground">กำลังอ่าน Metrics จาก R2…</p>}
+        {usage.isError && <div className="rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger-text"><AlertTriangle className="mr-2 inline-block h-4 w-4" />โหลดข้อมูล R2 ไม่สำเร็จ ตรวจสอบ backend และสิทธิ์การเข้าใช้งาน</div>}
         {data && !data.configured && (
           <div className="rounded-xl bg-warning-soft px-4 py-3 text-sm text-warning-text">
             <div className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" />ยังไม่ได้ตั้งค่า R2 Metrics</div>
@@ -122,6 +124,12 @@ export function R2UsageMonitor() {
         )}
         {data?.connected && (
           <>
+            {!data.history_available && (
+              <div className="rounded-xl bg-secondary/60 px-4 py-3 text-sm text-muted-foreground">
+                <div className="font-semibold text-foreground">กำลังแสดงยอดปัจจุบันจากรายการไฟล์ใน R2</div>
+                <p className="mt-1">หากต้องการข้อมูลย้อนหลัง ให้ตั้งค่า CLOUDFLARE_API_TOKEN ฝั่ง server เพิ่มเติม</p>
+              </div>
+            )}
             {data.backup_recommended && (
               <div className={`rounded-xl px-4 py-3 text-sm ${data.alert_level === "critical" ? "bg-danger-soft text-danger-text" : "bg-warning-soft text-warning-text"}`}>
                 <div className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" />แจ้งเตือน BK ข้อมูล</div>
@@ -135,7 +143,7 @@ export function R2UsageMonitor() {
               <div className="rounded-xl bg-secondary/60 p-3"><div className="text-xs text-muted-foreground">จำนวนไฟล์</div><div className="mt-1 text-xl font-semibold">{data.object_count.toLocaleString("th-TH")}</div><div className="text-xs text-muted-foreground">Bucket: {data.bucket ?? "—"}</div></div>
             </div>
             <div>
-              <div className="mb-2 flex items-center justify-between text-sm font-medium"><span>การใช้พื้นที่ย้อนหลัง {data.metrics_days} วัน</span><span className="text-muted-foreground">เตือนที่ {data.threshold_percent}%</span></div>
+              <div className="mb-2 flex items-center justify-between text-sm font-medium"><span>{data.history_available ? `การใช้พื้นที่ย้อนหลัง ${data.metrics_days} วัน` : "การใช้พื้นที่ปัจจุบัน"}</span><span className="text-muted-foreground">เตือนที่ {data.threshold_percent}%</span></div>
               <UsageChart data={data} />
             </div>
             {data.fetched_at && <p className="text-right text-[11px] text-muted-foreground">อัปเดตล่าสุด {new Date(data.fetched_at).toLocaleString("th-TH")}</p>}

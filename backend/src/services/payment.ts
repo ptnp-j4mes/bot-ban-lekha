@@ -107,7 +107,15 @@ export async function processSubmission(submissionId: string) {
   const config = await getOrgMessageConfig(sub.orgId);
   const templates = config.templates;
   const templateKey = isCash ? "cash_bill_received" : effective.status === "auto_matched" ? "payment_received" : "needs_admin_match";
-  const text = isCash ? renderCashBillReceived(templates) : effective.status === "auto_matched" ? renderPaymentReceived(templates) : renderNeedsAdminMatch(templates);
+  const responseDetails = {
+    senderName: sub.senderName,
+    amount: sub.parsedAmount == null ? null : Number(sub.parsedAmount),
+  };
+  const text = isCash
+    ? renderCashBillReceived(templates, responseDetails)
+    : effective.status === "auto_matched"
+      ? renderPaymentReceived(templates, responseDetails)
+      : renderNeedsAdminMatch(templates, responseDetails);
   const messageType = isCash ? "cash_bill_received" : effective.status === "auto_matched" ? "payment_received" : "payment_need_admin";
   const oa = await oaForSubmission(prisma, sub.lineOaId);
   await sendAndLog(prisma, {
@@ -275,15 +283,26 @@ export async function recordManualPayment(installmentId: string, amount: number,
   });
 }
 
-export async function rejectSubmission(submissionId: string, reason: string, actorId: string, orgId: string) {
+export async function rejectSubmission(submissionId: string, reason: string, actorId: string, orgId: string, docType?: string) {
   const sub = await prisma.paymentSubmission.findFirst({ where: { id: submissionId, orgId } });
   if (!sub) throw new ApiError("NOT_FOUND", "Submission not found");
+  const markNotSlip = docType === "unknown";
+  if (markNotSlip && sub.reviewStatus !== "pending_review") throw new ApiError("VALIDATION_ERROR", "Only pending submissions can be marked as not a slip");
   const config = await getOrgMessageConfig(orgId);
   const templates = config.templates;
   return prisma.$transaction(async (tx) => {
     const u = await tx.paymentSubmission.update({
       where: { id: submissionId },
-      data: { reviewStatus: "rejected", matchStatus: "rejected", reviewedBy: actorId, reviewedAt: new Date() },
+      data: {
+        reviewStatus: "rejected",
+        matchStatus: "rejected",
+        matchReason: reason,
+        docType: docType ?? undefined,
+        matchedInstallmentId: markNotSlip ? null : undefined,
+        matchConfidence: markNotSlip ? null : undefined,
+        reviewedBy: actorId,
+        reviewedAt: new Date(),
+      },
     });
     const oa = await oaForSubmission(tx, sub.lineOaId);
     await sendAndLog(tx, {

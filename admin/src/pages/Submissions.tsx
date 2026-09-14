@@ -17,6 +17,7 @@ import { submissionImageSource } from "@/lib/submission-image";
 const MATCH = ["unmatched", "auto_matched", "needs_admin_match", "admin_matched", "rejected"];
 const REVIEW = ["pending_review", "approved", "rejected"];
 const OCR = ["processing", "success", "failed"];
+const docTypeLabel = (type: string | null | undefined) => type === "cash" ? "บิลเงินสด" : type === "slip" ? "สลิป" : type === "unknown" ? "ไม่ใช่สลิป" : "ยังไม่จำแนก";
 
 // Local/S3 references need auth; public storage URLs can render directly.
 function SlipImage({ id, imageUrl }: { id: string; imageUrl: string }) {
@@ -149,6 +150,9 @@ export function Submissions() {
     apiSend(`/api/admin/payment-submissions/${b.id}/reject`, "POST", { reason: b.reason }), {
     success: "ปฏิเสธแล้ว", invalidate: inv,
   });
+  const notSlip = useMut((id: string) => apiSend(`/api/admin/payment-submissions/${id}/not-slip`, "POST"), {
+    success: "ย้ายออกจากเมนูสลิปแล้ว", invalidate: inv,
+  });
 
   const approveOne = async (id: string, message: string) => {
     if (await confirm({ title: "ยืนยันอนุมัติสลิป", message, confirmLabel: "อนุมัติ", destructive: false })) approve.mutate(id);
@@ -162,6 +166,11 @@ export function Submissions() {
     const reason = await prompt({ title: "เหตุผลที่ปฏิเสธ", message: "กรุณาระบุเหตุผลก่อนปฏิเสธสลิป", placeholder: "เหตุผลที่ปฏิเสธ", confirmLabel: "ปฏิเสธ" });
     if (reason?.trim()) reject.mutate({ id, reason: reason.trim() });
   };
+  const markNotSlip = async (id: string) => {
+    if (await confirm({ title: "ย้ายออกจากเมนูสลิป", message: "ยืนยันว่ารูปนี้ไม่ใช่สลิป? รายการจะถูกปฏิเสธและย้ายออกจากคิวรอตรวจสอบ", confirmLabel: "ย้ายออก", destructive: true })) {
+      notSlip.mutate(id, { onSuccess: () => setSelId(null) });
+    }
+  };
 
   const s = detail.data?.submission;
   const cands: any[] = detail.data?.candidate_installments ?? [];
@@ -169,7 +178,7 @@ export function Submissions() {
   const allSel = displayItems.length > 0 && displayItems.every((it) => sel.has(it.id));
   const exportCsv = () => {
     const header = ["ลูกค้า", "ประเภท", "ยอด", "วันโอน", "จับคู่", "ตรวจสอบ"];
-    const body = displayItems.map((it) => [custLabel(it), it.doc_type === "cash" ? "บิลเงินสด" : "สลิป", it.parsed_amount, it.parsed_transfer_date, statusTh(it.match_status), statusTh(it.review_status)]);
+    const body = displayItems.map((it) => [custLabel(it), docTypeLabel(it.doc_type), it.parsed_amount, it.parsed_transfer_date, statusTh(it.match_status), statusTh(it.review_status)]);
     const csv = [header, ...body].map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
@@ -194,7 +203,7 @@ export function Submissions() {
         {it.line_group_id && it.sender_name && <span className="ml-1 text-xs text-muted-foreground">ส่งโดย {it.sender_name}</span>}
       </span>
     ) },
-    { key: "type", header: "ประเภท", sortValue: (it) => it.doc_type ?? "", cell: (it) => it.doc_type === "cash" ? <Badge variant="warning">บิลเงินสด</Badge> : it.doc_type === "slip" ? <Badge variant="secondary">สลิป</Badge> : <span className="text-muted-foreground">—</span> },
+    { key: "type", header: "ประเภท", sortValue: (it) => it.doc_type ?? "", cell: (it) => it.doc_type === "cash" ? <Badge variant="warning">บิลเงินสด</Badge> : it.doc_type === "slip" ? <Badge variant="secondary">สลิป</Badge> : it.doc_type === "unknown" ? <Badge variant="destructive">ไม่ใช่สลิป</Badge> : <span className="text-muted-foreground">ยังไม่จำแนก</span> },
     { key: "amt", header: "ยอด", align: "right", sortValue: (it) => Number(it.parsed_amount) || 0, cell: (it) => <span className="fig">{baht(it.parsed_amount)}</span> },
     { key: "date", header: "วันโอน", sortValue: (it) => it.parsed_transfer_date ?? "", cell: (it) => <span className="fig">{thDate(it.parsed_transfer_date)}</span> },
     { key: "match", header: "จับคู่", sortValue: (it) => it.match_status, cell: (it) => matchBadge(it.match_status) },
@@ -235,7 +244,7 @@ export function Submissions() {
           {filtersOpen && <div className="grid grid-cols-1 gap-3 rounded-xl bg-secondary/60 p-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
             <Field label="สถานะจับคู่"><Select value={matchDraft} onChange={(e) => setMatchDraft(e.target.value)}><option value="">ทั้งหมด</option>{MATCH.map((m) => <option key={m} value={m}>{statusTh(m)}</option>)}</Select></Field>
             <Field label="สถานะตรวจสอบ"><Select value={reviewDraft} onChange={(e) => setReviewDraft(e.target.value)}><option value="">ทั้งหมด</option>{REVIEW.map((m) => <option key={m} value={m}>{statusTh(m)}</option>)}</Select></Field>
-            <Field label="ประเภท"><Select value={docTypeDraft} onChange={(e) => setDocTypeDraft(e.target.value)}><option value="">ทั้งหมด</option><option value="slip">สลิป</option><option value="cash">บิลเงินสด</option></Select></Field>
+            <Field label="ประเภท"><Select value={docTypeDraft} onChange={(e) => setDocTypeDraft(e.target.value)}><option value="">ทั้งหมด</option><option value="slip">สลิป</option><option value="cash">บิลเงินสด</option><option value="unknown">ไม่ใช่สลิป</option></Select></Field>
             <Field label="สถานะ OCR"><Select value={ocrDraft} onChange={(e) => setOcrDraft(e.target.value)}><option value="">ทั้งหมด</option>{OCR.map((m) => <option key={m} value={m}>{statusTh(m)}</option>)}</Select></Field>
             <Field label="ตั้งแต่วันที่"><Input type="date" value={fromDraft} onChange={(e) => setFromDraft(e.target.value)} /></Field>
             <Field label="ถึงวันที่"><Input type="date" value={toDraft} onChange={(e) => setToDraft(e.target.value)} /></Field>
@@ -261,7 +270,7 @@ export function Submissions() {
               <span className="text-muted-foreground">รหัสลูกค้า</span><span className="fig">{s.customer?.customer_code || "—"}</span>
               <span className="text-muted-foreground">LINE user ID</span><span className="fig break-all">{s.line_user_id || "—"}</span>
               {s.line_group_id && <><span className="text-muted-foreground">กลุ่ม LINE</span><span className="fig break-all">{s.line_group_id}</span></>}
-              <span className="text-muted-foreground">ประเภท</span><span>{s.doc_type === "cash" ? <Badge variant="warning">บิลเงินสด</Badge> : s.doc_type === "slip" ? <Badge variant="secondary">สลิป</Badge> : "—"}</span>
+              <span className="text-muted-foreground">ประเภท</span><span>{s.doc_type === "cash" ? <Badge variant="warning">บิลเงินสด</Badge> : s.doc_type === "slip" ? <Badge variant="secondary">สลิป</Badge> : s.doc_type === "unknown" ? <Badge variant="destructive">ไม่ใช่สลิป</Badge> : "ยังไม่จำแนก"}</span>
               <span className="text-muted-foreground">ยอด (OCR)</span><span className="fig">{baht(s.parsed_amount)}</span>
               <span className="text-muted-foreground">วันโอน</span><span className="fig">{thDate(s.parsed_transfer_date)}</span>
               <span className="text-muted-foreground">เลขอ้างอิง</span><span>{s.parsed_reference_no ?? "—"}</span>
@@ -282,6 +291,7 @@ export function Submissions() {
                 </Select>
                 <Button size="sm" disabled={!instId} onClick={() => doMatch.mutate({ id: s.id, inst: instId })}>ผูกงวด</Button>
                 <Button size="sm" variant="success" onClick={() => void approveOne(s.id, "ยืนยันอนุมัติ? จะสร้าง payment + ส่ง LINE")}>อนุมัติ ✅</Button>
+                {s.review_status === "pending_review" && s.doc_type !== "cash" && <Button size="sm" variant="outline" onClick={() => void markNotSlip(s.id)} disabled={notSlip.isPending}>ไม่ใช่สลิป / ย้ายออก</Button>}
                 <Button size="sm" variant="destructive" onClick={() => void rejectOne(s.id)}>ปฏิเสธ</Button>
               </div>
             ) : (

@@ -1,3 +1,4 @@
+import { Alert } from 'react-native';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BanksScreen } from '../src/screens/BanksScreen';
@@ -60,6 +61,20 @@ test('existing admin data screens keep their Thai headers and empty states', asy
   await renderWithQuery(<SubmissionsScreen />);
   expect(screen.getByText('สลิป / อนุมัติ (0)')).toBeTruthy();
   expect(await screen.findByText('ไม่มีสลิปรอตรวจ')).toBeTruthy();
+  await cleanup();
+});
+
+test('mobile submissions can move a non-slip image out of the pending slip menu', async () => {
+  const mockApi = jest.requireMock('../src/api').api as { get: jest.Mock; post: jest.Mock };
+  mockApi.get.mockResolvedValueOnce({ items: [{ id: 'submission-1', doc_type: 'unknown', review_status: 'pending_review', match_status: 'needs_admin_match', ocr_status: 'success' }], total: 1 });
+  mockApi.post.mockClear();
+  const alert = jest.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons) => buttons?.[1]?.onPress?.());
+
+  await renderWithQuery(<SubmissionsScreen />);
+  fireEvent.press(await screen.findByText('ไม่ใช่สลิป / ย้ายออก'));
+
+  await waitFor(() => expect(mockApi.post).toHaveBeenCalledWith('/api/admin/payment-submissions/submission-1/not-slip'));
+  alert.mockRestore();
   await cleanup();
 });
 

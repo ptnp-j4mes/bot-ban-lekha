@@ -173,11 +173,23 @@ export function renderGroupedBillText(args: { billNo: number; plans: BillRenderA
   );
 }
 
-export const renderPaymentReceived = (templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) => templates.payment_received;
+export type PaymentResponseDetails = { senderName?: string | null; amount?: number | null };
 
-export const renderCashBillReceived = (templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) => templates.cash_bill_received;
+const withPaymentDetails = (template: string, details?: PaymentResponseDetails) => {
+  if (!details) return template;
+  const sender = details.senderName?.trim() || "ไม่ระบุ";
+  const amount = details.amount != null && Number.isFinite(details.amount) ? `${fmtAmount(details.amount)} บาท` : "อ่านไม่ได้";
+  return `${template}\n\n👤 ผู้โอน: ${sender}\n💰 ยอดเงิน: ${amount}`;
+};
 
-export const renderNeedsAdminMatch = (templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) => templates.needs_admin_match;
+export const renderPaymentReceived = (templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES, details?: PaymentResponseDetails) =>
+  withPaymentDetails(templates.payment_received, details);
+
+export const renderCashBillReceived = (templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES, details?: PaymentResponseDetails) =>
+  withPaymentDetails(templates.cash_bill_received, details);
+
+export const renderNeedsAdminMatch = (templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES, details?: PaymentResponseDetails) =>
+  withPaymentDetails(templates.needs_admin_match, details);
 
 // Approval reply = "รับยอดค่ะ✅" header followed by the latest full bill (with ✅ on paid rows).
 export const renderPaymentApproved = (billText: string, templates: MessageTemplates = DEFAULT_MESSAGE_TEMPLATES) => fill(templates.payment_approved, { bill_text: billText });

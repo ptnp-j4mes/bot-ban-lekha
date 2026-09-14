@@ -1,10 +1,19 @@
 import { test, expect } from "bun:test";
 import { generateInstallments, MAX_INSTALLMENTS } from "../src/services/bill";
 import { toEmojiNumber } from "../src/lib/emoji-number";
-import { renderBillStatusLines, renderDailyReminder, renderBillText, renderGroupedBillText, renderCustomerBills } from "../src/services/messages";
+import {
+  renderBillStatusLines,
+  renderDailyReminder,
+  renderBillText,
+  renderGroupedBillText,
+  renderCustomerBills,
+  renderPaymentReceived,
+  renderCashBillReceived,
+  renderNeedsAdminMatch,
+} from "../src/services/messages";
 import { scoreInstallment, decideMatch } from "../src/services/matching";
 import { getOcrService, mapGeminiResult, detectImageMime } from "../src/services/ocr";
-import { deleteSlipFile } from "../src/services/storage";
+import { deleteSlipFile, parseS3ListPage } from "../src/services/storage";
 import { bangkokDayEndExclusive, bangkokDayStart, dateOnly, toISODate } from "../src/lib/date";
 import { verifySignature } from "../src/lib/line";
 import { signJwt, verifyJwt } from "../src/lib/jwt";
@@ -12,6 +21,19 @@ import { createHmac } from "node:crypto";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { env } from "../src/env";
+
+test("parseS3ListPage: sums object sizes and returns the next page token", () => {
+  const page = parseS3ListPage(`
+    <ListBucketResult>
+      <IsTruncated>true</IsTruncated>
+      <NextContinuationToken>cursor&amp;2</NextContinuationToken>
+      <Contents><Key>one.jpg</Key><Size>1024</Size></Contents>
+      <Contents><Key>two.jpg</Key><Size>2048</Size></Contents>
+    </ListBucketResult>
+  `);
+
+  expect(page).toEqual({ usedBytes: 3072, objectCount: 2, nextToken: "cursor&2" });
+});
 
 test("jwt: roundtrip, tamper, wrong-secret, expiry", () => {
   const secret = "test-secret";
@@ -154,6 +176,17 @@ test("renderGroupedBillText: open plans share one bill header, bank, and footer"
 
 test("renderCustomerBills: uses the organization template around generated bill text", () => {
   expect(renderCustomerBills("บิล 1️⃣", { customer_bills: "📋 รายการค้างจ่าย\n\n{bill_text}" } as any)).toBe("📋 รายการค้างจ่าย\n\nบิล 1️⃣");
+});
+
+test("payment responses include sender name and OCR amount", () => {
+  const templates = { payment_received: "ได้รับสลิปแล้ว", cash_bill_received: "รับบิลแล้ว", needs_admin_match: "รอตรวจสอบ" } as any;
+  const details = { senderName: "คุณสมชาย", amount: 1250 };
+
+  for (const render of [renderPaymentReceived, renderCashBillReceived, renderNeedsAdminMatch]) {
+    const text = render(templates, details);
+    expect(text).toContain("👤 ผู้โอน: คุณสมชาย");
+    expect(text).toContain("💰 ยอดเงิน: 1,250 บาท");
+  }
 });
 
 test("renderBillText: renders per-installment and bill-header penalties separately", () => {

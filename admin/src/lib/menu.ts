@@ -34,6 +34,7 @@ export const PLATFORM_MENU_PATHS = {
   users: "/platform/users",
   system: "/platform/settings",
   storage: "/platform/storage",
+  files: "/platform/files",
 } as const;
 
 export type MenuId = keyof typeof MENU_PATHS;

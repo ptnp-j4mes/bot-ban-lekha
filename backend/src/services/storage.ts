@@ -284,13 +284,102 @@ function r2MetricNumber(value: unknown) {
   return Number.isFinite(number) && number >= 0 ? number : 0;
 }
 
+function decodeXml(value: string) {
+  return value.replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (entity, code: string) => {
+    if (code === "amp") return "&";
+    if (code === "lt") return "<";
+    if (code === "gt") return ">";
+    if (code === "quot") return '"';
+    if (code === "apos") return "'";
+    const number = code.toLowerCase().startsWith("#x") ? Number.parseInt(code.slice(2), 16) : Number.parseInt(code.slice(1), 10);
+    return Number.isSafeInteger(number) && number >= 0 ? String.fromCodePoint(number) : entity;
+  });
+}
+
+export function parseS3ListPage(xml: string) {
+  let usedBytes = 0;
+  let objectCount = 0;
+  for (const match of xml.matchAll(/<Contents\b[^>]*>([\s\S]*?)<\/Contents>/gi)) {
+    const size = Number(match[1].match(/<Size\b[^>]*>\s*(\d+)\s*<\/Size>/i)?.[1] ?? 0);
+    usedBytes += Number.isFinite(size) ? size : 0;
+    objectCount++;
+  }
+  const isTruncated = /<IsTruncated\b[^>]*>\s*true\s*<\/IsTruncated>/i.test(xml);
+  const nextToken = isTruncated
+    ? decodeXml(xml.match(/<NextContinuationToken\b[^>]*>([\s\S]*?)<\/NextContinuationToken>/i)?.[1]?.trim() ?? "") || null
+    : null;
+  return { usedBytes, objectCount, nextToken };
+}
+
+async function getS3BucketUsage(config: S3Config) {
+  // ponytail: fallback scans the bucket; Cloudflare Metrics remains the scalable history path.
+  let usedBytes = 0;
+  let objectCount = 0;
+  let continuationToken: string | null = null;
+  const seenTokens = new Set<string>();
+
+  while (true) {
+    const query = new URLSearchParams({ "list-type": "2", "max-keys": "1000" });
+    if (continuationToken) {
+      if (seenTokens.has(continuationToken)) throw new Error("S3 list pagination repeated a continuation token");
+      seenTokens.add(continuationToken);
+      query.set("continuation-token", continuationToken);
+    }
+    const response = await s3Request(config, "GET", "", undefined, undefined, true, query);
+    const page = parseS3ListPage(await response.text());
+    usedBytes += page.usedBytes;
+    objectCount += page.objectCount;
+    if (!page.nextToken) return { usedBytes, objectCount };
+    continuationToken = page.nextToken;
+  }
+}
+
+function withUsage(
+  base: { quota_bytes: number; threshold_percent: number },
+  usedBytes: number,
+  objectCount: number,
+  history: R2UsagePoint[],
+  historyAvailable: boolean,
+) {
+  const usagePercent = base.quota_bytes > 0 ? (usedBytes / base.quota_bytes) * 100 : 0;
+  const alertLevel = usagePercent >= 100 ? "critical" : usagePercent >= base.threshold_percent ? "warning" : "ok";
+  return {
+    ...base,
+    connected: true,
+    used_bytes: usedBytes,
+    used_gb: usedBytes / 1_000_000_000,
+    usage_percent: usagePercent,
+    remaining_bytes: Math.max(base.quota_bytes - usedBytes, 0),
+    object_count: objectCount,
+    alert_level: alertLevel,
+    backup_recommended: alertLevel !== "ok",
+    history,
+    history_available: historyAvailable,
+  };
+}
+
+async function getS3ListingUsage(base: { quota_bytes: number; threshold_percent: number }, config: S3Config) {
+  const current = await getS3BucketUsage(config);
+  const fetchedAt = new Date().toISOString();
+  return {
+    ...withUsage(base, current.usedBytes, current.objectCount, [{
+      date: fetchedAt,
+      used_bytes: current.usedBytes,
+      payload_bytes: current.usedBytes,
+      metadata_bytes: 0,
+      object_count: current.objectCount,
+    }], false),
+    fetched_at: fetchedAt,
+  };
+}
+
 export async function getR2StorageUsage() {
   const config = s3Config();
   const storageMissing = s3MissingConfig();
   const accountId = r2AccountId(config);
-  const missing = [...storageMissing];
-  if (!accountId) missing.push("CLOUDFLARE_ACCOUNT_ID");
-  if (!env.cloudflareApiToken.trim()) missing.push("CLOUDFLARE_API_TOKEN");
+  const metricsMissing: string[] = [];
+  if (!accountId) metricsMissing.push("CLOUDFLARE_ACCOUNT_ID");
+  if (!env.cloudflareApiToken.trim()) metricsMissing.push("CLOUDFLARE_API_TOKEN");
 
   const quotaGb = Number.isFinite(env.r2QuotaGb) && env.r2QuotaGb > 0 ? env.r2QuotaGb : 10;
   const thresholdPercent = Number.isFinite(env.r2AlertThresholdPercent) && env.r2AlertThresholdPercent > 0
@@ -298,7 +387,7 @@ export async function getR2StorageUsage() {
     : 80;
   const days = Number.isFinite(env.r2MetricsDays) && env.r2MetricsDays > 0 ? Math.min(Math.round(env.r2MetricsDays), 31) : 30;
   const base = {
-    configured: missing.length === 0,
+    configured: storageMissing.length === 0,
     connected: false,
     bucket: config?.bucket ?? (env.s3Bucket.trim() || null),
     quota_gb: quotaGb,
@@ -313,10 +402,20 @@ export async function getR2StorageUsage() {
     alert_level: "ok" as "ok" | "warning" | "critical",
     backup_recommended: false,
     history: [] as R2UsagePoint[],
-    missing,
+    history_available: false,
+    missing: storageMissing,
     fetched_at: null as string | null,
   };
-  if (missing.length || !config) return base;
+  if (storageMissing.length || !config) return base;
+
+  if (metricsMissing.length) {
+    try {
+      return await getS3ListingUsage(base, config);
+    } catch (error) {
+      logger.error({ err: error, bucket: config.bucket }, "s3 usage fallback failed");
+      return { ...base, error: "อ่านจำนวนไฟล์จาก R2 ไม่สำเร็จ ตรวจสอบสิทธิ์ access key และ bucket" };
+    }
+  }
 
   const endDate = new Date();
   const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
@@ -378,25 +477,18 @@ export async function getR2StorageUsage() {
       .sort((a: R2UsagePoint, b: R2UsagePoint) => a.date.localeCompare(b.date));
     const latest = history.at(-1) ?? base.history[0];
     const usedBytes = latest?.used_bytes ?? 0;
-    const quotaBytes = base.quota_bytes;
-    const usagePercent = quotaBytes > 0 ? (usedBytes / quotaBytes) * 100 : 0;
-    const alertLevel = usagePercent >= 100 ? "critical" : usagePercent >= thresholdPercent ? "warning" : "ok";
     return {
-      ...base,
-      connected: true,
-      used_bytes: usedBytes,
-      used_gb: usedBytes / 1_000_000_000,
-      usage_percent: usagePercent,
-      remaining_bytes: Math.max(quotaBytes - usedBytes, 0),
-      object_count: latest?.object_count ?? 0,
-      alert_level: alertLevel,
-      backup_recommended: alertLevel !== "ok",
-      history,
+      ...withUsage(base, usedBytes, latest?.object_count ?? 0, history, true),
       fetched_at: new Date().toISOString(),
     };
   } catch (error) {
     logger.error({ err: error, accountId, bucket: config.bucket }, "r2 usage metrics request failed");
-    return { ...base, error: "อ่านข้อมูลการใช้พื้นที่ R2 ไม่สำเร็จ ตรวจสอบ Cloudflare API token และสิทธิ์ R2 Storage Read" };
+    try {
+      return await getS3ListingUsage(base, config);
+    } catch (fallbackError) {
+      logger.error({ err: fallbackError, bucket: config.bucket }, "s3 usage fallback failed");
+      return { ...base, error: "อ่านข้อมูลการใช้พื้นที่ R2 ไม่สำเร็จ ตรวจสอบสิทธิ์ Cloudflare Metrics หรือ access key" };
+    }
   }
 }
 

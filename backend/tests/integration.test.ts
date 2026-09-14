@@ -113,6 +113,33 @@ test("exact OCR match stays pending and never auto-approves a payment", async ()
   expect(replies.map((reply) => reply.messageType)).not.toContain("payment_approved");
 });
 
+test("payment response includes sender name and OCR amount", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const { customer } = await makePlan(org.id, 490, oa.id);
+  const sub = await prisma.paymentSubmission.create({
+    data: {
+      orgId: org.id,
+      lineOaId: oa.id,
+      lineUserId: customer.lineUserId,
+      customerId: customer.id,
+      senderName: "คุณสมชาย",
+      parsedAmount: 490,
+      parsedTransferDate: today,
+      ocrStatus: "success",
+    },
+  });
+
+  await processSubmission(sub.id);
+
+  const reply = await prisma.messageLog.findFirst({
+    where: { paymentSubmissionId: sub.id, direction: "outbound" },
+    orderBy: { sentAt: "desc" },
+  });
+  expect(reply?.messageText).toContain("👤 ผู้โอน: คุณสมชาย");
+  expect(reply?.messageText).toContain("💰 ยอดเงิน: 490 บาท");
+});
+
 test("exact facts from an unknown document do not auto-approve", async () => {
   const org = await mkOrg();
   const oa = await mkOa(org.id);

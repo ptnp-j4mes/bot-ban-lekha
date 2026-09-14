@@ -118,6 +118,7 @@ export type PaymentSubmission = {
   review_status: string;
   match_status: string;
   ocr_status: string;
+  doc_type?: string | null;
   parsed_amount?: number | null;
   parsed_transfer_date?: string | null;
   customer?: Customer | null;

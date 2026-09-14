@@ -84,6 +84,7 @@ export async function processSubmission(submissionId: string) {
   const effective = isCash
     ? { status: "needs_admin_match" as const, installmentId: null, score: decision.score, reason: "บิลเงินสด — รอแอดมินตรวจสอบ" }
     : decision;
+  const isUnknown = sub.docType === "unknown";
 
   const updated = await prisma.paymentSubmission.update({
     where: { id: sub.id },
@@ -103,6 +104,9 @@ export async function processSubmission(submissionId: string) {
     actorType: "system",
     newValue: { matchStatus: decision.status, score: decision.score },
   });
+
+  // Unknown images stay available for admin review but must not trigger a reply.
+  if (isUnknown) return updated;
 
   const config = await getOrgMessageConfig(sub.orgId);
   const templates = config.templates;

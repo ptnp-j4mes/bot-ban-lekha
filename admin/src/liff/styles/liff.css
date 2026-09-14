@@ -95,7 +95,7 @@
 .liff-app .liff-button--outline { color: var(--liff-pink); border-color: #eac2d4; background: white; }
 .liff-app .liff-button--outline:hover { background: #ffedf5; }
 .liff-app .liff-load-more { margin-top: 16px; }
-.liff-app .liff-document { overflow: hidden; padding: 0 12px 12px; border: 1px solid var(--liff-line); border-radius: 20px; background: white; }
+.liff-app .liff-document { overflow: hidden; margin-top: 27px; padding: 0 12px 12px; border: 1px solid var(--liff-line); border-radius: 20px; background: white; }
 .liff-app .liff-document .liff-list-heading { padding-left: 1px; padding-right: 1px; }
 .liff-app .liff-document-image { display: block; width: 100%; height: auto; border-radius: 12px; }
 .liff-app .liff-privacy { display: flex; align-items: center; justify-content: center; gap: 6px; text-align: center; font-size: 10px; color: var(--liff-muted); margin-top: 24px; }

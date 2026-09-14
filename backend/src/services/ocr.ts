@@ -22,7 +22,7 @@ export interface OcrService {
 }
 
 // Mock provider: if the slip bytes are JSON (dev/test inject real fields), use them.
-// Otherwise we can't read the image -> empty result, confidence 0 (=> needs_admin_match).
+// Otherwise the mock cannot classify the image; never imply that it is a slip.
 class MockOcrProvider implements OcrService {
   async parseSlip(buffer: Buffer): Promise<OcrResult> {
     const text = buffer.toString("utf8");
@@ -41,7 +41,7 @@ class MockOcrProvider implements OcrService {
       };
     } catch {
       // A real image is not OCR text. Keeping its decoded bytes can inject NULs into PostgreSQL.
-      return { rawText: "", confidence: 0 };
+      return { rawText: "", docType: "unknown", confidence: 0 };
     }
   }
 }

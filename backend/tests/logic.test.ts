@@ -368,6 +368,7 @@ test("mapGeminiResult: removes NUL bytes before database write", () => {
 test("mock OCR: binary image does not become database text", async () => {
   const r = await getOcrService().parseSlip(Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01]));
   expect(r.rawText).toBe("");
+  expect(r.docType).toBe("unknown");
 });
 
 test("detectImageMime: real images pass, junk rejected", () => {

@@ -283,6 +283,7 @@ async function handleImage(ev: any, oa: Oa, context: InboundContext) {
 
   const dup = await prisma.paymentSubmission.findFirst({ where: { lineOaId: oa.id, imageHash } });
   if (dup) {
+    if (dup.docType === "unknown") return;
     await reply(renderDuplicateSlip(templates), "payment_received", "duplicate_slip", dup.id);
     return;
   }

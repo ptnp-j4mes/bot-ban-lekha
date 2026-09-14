@@ -168,6 +168,19 @@ test("exact facts from an unknown document do not auto-approve", async () => {
   expect(updated?.reviewStatus).toBe("pending_review");
   expect((await prisma.billInstallment.findUnique({ where: { id: inst.id } }))?.status).toBe("pending");
   expect(await prisma.payment.count({ where: { paymentSubmissionId: sub.id } })).toBe(0);
+
+  expect(await prisma.messageLog.count({ where: { paymentSubmissionId: sub.id, direction: "outbound" } })).toBe(0);
+});
+
+test("duplicate unknown images stay silent", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const { customer } = await makePlan(org.id);
+  const event = imageEvent(customer.lineUserId!, `unknown-${rnd()}`);
+
+  expect((await webhook(oa.id, event)).status).toBe(200);
+  expect((await webhook(oa.id, event)).status).toBe(200);
+  expect(await prisma.messageLog.count({ where: { lineOaId: oa.id, direction: "outbound" } })).toBe(0);
 });
 
 test("duplicate slip rejected on approve", async () => {

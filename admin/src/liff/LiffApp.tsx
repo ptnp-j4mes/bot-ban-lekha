@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowLeft, CircleAlert, Crown, MessageCircle, RefreshCw, ShieldCheck } from "lucide-react";
 import { clearLiffToken, liffGet, liffPost, setLiffToken } from "./api";
 import { OPEN_BILL_DOCUMENT_PATH, TABS, unpaidInstallments, type Balance, type CustomerData, type Installment, type PaymentHistory, type Tab } from "./model";
-import { LiffSessionError, loadCustomerData, type CustomerApi, type LiffSdk, type Session, type SessionProblem } from "./session";
+import { LiffSessionError, loadCustomerData, readInitialTab, type CustomerApi, type LiffSdk, type Session, type SessionProblem } from "./session";
 import { BalanceHero, EmptyState, InstallmentCard, LoadingState, NextDueCard, PaymentHistoryItem } from "./components";
 import "./styles/liff.css";
 
@@ -29,7 +29,7 @@ const PAGE_SIZE = 10;
 export function LiffApp() {
   const [state, setState] = useState<State>({ stage: "loading" });
   const [attempt, setAttempt] = useState(0);
-  const [tab, setTab] = useState<Tab>("unpaid");
+  const [tab, setTab] = useState<Tab>(() => readInitialTab(window.location.pathname, window.location.search));
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [showGuide, setShowGuide] = useState(false);
   const tabsRef = useRef<HTMLDivElement>(null);

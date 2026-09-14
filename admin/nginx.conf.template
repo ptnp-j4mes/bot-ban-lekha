@@ -26,6 +26,11 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
+    # LIFF deep links must use the LIFF entrypoint, not the admin SPA.
+    location ^~ /liff.html/ {
+        rewrite ^ /liff.html last;
+    }
+
     # SPA fallback: all non-file routes go to index.html.
     location / {
         try_files $uri $uri/ /index.html;

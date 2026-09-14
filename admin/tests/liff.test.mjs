@@ -18,6 +18,19 @@ async function loadModule(name) {
 const model = await loadModule('model');
 const session = await loadModule('session');
 
+test('LIFF open-bill deep link selects the document tab', () => {
+  assert.equal(typeof session.readInitialTab, 'function');
+  assert.equal(session.readInitialTab('/liff.html/open-bill', '?oa=oa-one'), 'document');
+  assert.equal(session.readInitialTab('/liff.html', '?view=open-bill&oa=oa-one'), 'document');
+  assert.equal(session.readInitialTab('/liff.html', '?oa=oa-one'), 'unpaid');
+});
+
+test('nginx serves the LIFF entrypoint for the open-bill deep link', async () => {
+  const nginx = await readFile(new URL('../nginx.conf.template', import.meta.url), 'utf8');
+  assert.match(nginx, /location \^~ \/liff\.html\//);
+  assert.match(nginx, /rewrite \^ \/liff\.html last;/);
+});
+
 test('LIFF exposes the opening-bill document tab and its uploaded image', async () => {
   assert.deepEqual(model.TABS.find((tab) => tab.id === 'document'), {
     id: 'document', label: 'เอกสารเปิดบิล',

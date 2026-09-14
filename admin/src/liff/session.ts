@@ -1,4 +1,4 @@
-import type { Balance, Customer, CustomerData, Installment, PaymentHistory } from "./model";
+import type { Balance, Customer, CustomerData, Installment, PaymentHistory, Tab } from "./model";
 
 export interface LiffSdk {
   init(config: { liffId: string }): Promise<unknown>;
@@ -14,6 +14,12 @@ export class LiffSessionError extends Error {
   kind: SessionProblem;
   constructor(kind: SessionProblem) { super(kind); this.name = "LiffSessionError"; this.kind = kind; }
 }
+
+export function readInitialTab(pathname: string, search: string): Tab {
+  const path = pathname.replace(/\/+$/, "");
+  return path === "/liff.html/open-bill" || new URLSearchParams(search).get("view") === "open-bill" ? "document" : "unpaid";
+}
+
 export interface CustomerApi {
   clearToken(): void;
   setToken(token: string): void;

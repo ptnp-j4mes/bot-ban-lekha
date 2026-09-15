@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { createPortal } from "react-dom";
 import { ExternalLink, FileImage, FileText, History, MessageSquare, Receipt, Save, Upload, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { apiGet, apiRaw, apiSend, apiSendForm } from "@/lib/api";
@@ -83,9 +84,10 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
     { key: "act", header: "", stop: true, cell: (m) => m.status === "failed" && <Button size="sm" variant="outline" onClick={() => resend.mutate(m.id)}>ส่งซ้ำ</Button> },
   ];
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/40 p-0" onClick={onClose}>
-      <div className="min-h-full w-full max-w-7xl space-y-4 bg-background p-3 sm:p-4" onClick={(e) => e.stopPropagation()}>
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 px-3 sm:px-4" onClick={onClose}>
+      <div className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-7xl flex-col overflow-hidden rounded-md border border-border bg-background shadow-xl sm:max-h-[calc(100dvh-4rem)]">
+        <div className="min-h-0 space-y-4 overflow-y-auto p-3 sm:p-4" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 -mx-3 -mt-3 border-b border-border bg-background/95 px-3 pb-3 pt-3 backdrop-blur sm:-mx-4 sm:-mt-4 sm:px-4 sm:pt-4">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
@@ -174,7 +176,9 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
             <DataTable data={data?.message_logs ?? []} columns={msgCols} rowKey={(m) => m.id} initialSort={{ key: "sent", dir: "desc" }} maxHeight="none" empty="ยังไม่มีข้อความ" />
           </CardContent>
         </Card>
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

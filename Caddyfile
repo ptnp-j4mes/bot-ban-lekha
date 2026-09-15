@@ -1,3 +1,11 @@
-baan-lekha.com, www.baan-lekha.com {
+www.baan-lekha.com {
+    redir https://bill.baan-lekha.com{uri} temporary
+}
+
+bill.baan-lekha.com {
     reverse_proxy admin:5173
+}
+
+baan-lekha.com {
+    redir https://www.baan-lekha.com{uri} permanent
 }

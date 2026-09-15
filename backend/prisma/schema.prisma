@@ -63,6 +63,7 @@ model Membership {
   orgId       String @map("org_id")
   adminUserId String @map("admin_user_id")
   role        String @default("viewer") // viewer | admin | owner
+  permissions Json?
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   adminUser    AdminUser    @relation(fields: [adminUserId], references: [id], onDelete: Cascade)

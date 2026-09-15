@@ -1,4 +1,5 @@
-FROM oven/bun:1-alpine AS builder
+FROM node:22-slim AS builder
+COPY --from=oven/bun:1.4.0-slim /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
 
 COPY package.json bun.lock ./

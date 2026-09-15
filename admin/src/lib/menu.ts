@@ -14,6 +14,13 @@ export const MENU = [
   { id: "message-settings", label: "ข้อความตอบกลับ LINE" },
 ];
 
+export const ADMIN_PERMISSIONS = [
+  "dashboard", "customers", "banks", "plans", "submissions", "senders", "groups",
+  "reports", "oa", "chat", "logs", "settings", "message-settings",
+] as const;
+export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number];
+export const menuPermission = (id: string): AdminPermission => (id === "subs" ? "submissions" : id as AdminPermission);
+
 export const MENU_PATHS = {
   dashboard: "/dashboard",
   customers: "/customers",

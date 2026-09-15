@@ -40,7 +40,7 @@ const customDatesBody = t.Object({
 });
 
 export const billPlanRoutes = new Elysia({ prefix: "/api/bill-plans" })
-  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
+  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method, request.url) }))
 
   .get("/", async ({ ctx }: any) => {
     const plans = await prisma.billPlan.findMany({ where: { orgId: ctx.orgId }, include: listInclude, orderBy: { billNo: "asc" } });

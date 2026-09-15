@@ -8,7 +8,7 @@ export const Table = ({ className, maxHeight, ...props }: React.HTMLAttributes<H
   </div>
 );
 export const THead = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => (
-  <thead className={cn("sticky top-0 z-10 border-b border-foreground/15 bg-card", className)} {...props} />
+  <thead className={cn("sticky top-0 z-0 border-b border-foreground/15 bg-card", className)} {...props} />
 );
 export const TBody = (props: React.HTMLAttributes<HTMLTableSectionElement>) => (
   <tbody className="[&_tr:last-child]:border-0" {...props} />

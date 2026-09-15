@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp, Download, Plus, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { CalendarClock, CalendarDays, ChevronDown, ChevronUp, Download, Eye, Pencil, Plus, Search, Send, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { apiGet, apiSend } from "@/lib/api";
 import { useMut, statusBadge, statusTh } from "@/lib/ui";
 import { baht, thDate } from "@/lib/format";
@@ -38,16 +38,16 @@ export function BillPlans() {
     return matchesNumber && matchesStatus;
   });
   const groupedPlans = [
-    { status: "active", label: "Active" },
-    { status: "completed", label: "Completed" },
-    { status: "cancelled", label: "Cancelled" },
+    { status: "active", label: "กำลังใช้งาน" },
+    { status: "completed", label: "เสร็จสิ้น" },
+    { status: "cancelled", label: "ยกเลิกแล้ว" },
   ].map((group) => ({ ...group, plans: filteredPlans.filter((p: any) => p.status === group.status) }))
     .filter((group) => group.plans.length > 0);
   const planTabs = [
     { id: "", label: "บิลทั้งหมด", count: allPlans.length },
-    { id: "active", label: "Active", count: allPlans.filter((p) => p.status === "active").length },
-    { id: "completed", label: "Completed", count: allPlans.filter((p) => p.status === "completed").length },
-    { id: "cancelled", label: "Cancelled", count: allPlans.filter((p) => p.status === "cancelled").length },
+    { id: "active", label: "กำลังใช้งาน", count: allPlans.filter((p) => p.status === "active").length },
+    { id: "completed", label: "เสร็จสิ้น", count: allPlans.filter((p) => p.status === "completed").length },
+    { id: "cancelled", label: "ยกเลิกแล้ว", count: allPlans.filter((p) => p.status === "cancelled").length },
   ];
   const preview = useQuery({
     queryKey: ["bill-preview", previewBill?.id],
@@ -99,7 +99,7 @@ export function BillPlans() {
   const custOptions = (custs.data?.items ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.customer_code} {c.display_name || ""}</option>);
   const bankSelect = (
     <Select name="bank_account_id" defaultValue="">
-      <option value="">(default)</option>
+      <option value="">บัญชีหลัก (ค่าเริ่มต้น)</option>
       {(banks.data ?? []).filter((b: any) => b.is_active).map((b: any) => <option key={b.id} value={b.id}>{b.bank_name} {b.account_no}</option>)}
     </Select>
   );
@@ -136,65 +136,89 @@ export function BillPlans() {
 
   return (
     <>
-      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} title="สร้างบิล" className="max-w-5xl">
+      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} title="สร้างบิลใหม่" className="max-w-5xl">
         <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background/40 p-2">
-            <p className="text-sm text-muted-foreground">เลือกวิธีสร้างบิล แล้วกรอกข้อมูลให้ครบ</p>
-            <div className="flex flex-wrap gap-1">
-              <Button size="sm" type="button" variant={mode === "interval" ? "default" : "outline"} onClick={() => setMode("interval")}>ทุก X วัน</Button>
-              <Button size="sm" type="button" variant={mode === "custom" ? "default" : "outline"} onClick={() => setMode("custom")}>กำหนดวันเอง</Button>
+          <div className="flex flex-col gap-3 rounded-xl border border-border bg-background/40 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold">เลือกวิธีตั้งงวด</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">เลือกรอบชำระอัตโนมัติ หรือระบุวันครบกำหนดทีละงวด</p>
+            </div>
+            <div className="flex flex-wrap gap-1" role="group" aria-label="วิธีตั้งงวด">
+              <Button size="sm" type="button" variant={mode === "interval" ? "default" : "outline"} aria-pressed={mode === "interval"} onClick={() => setMode("interval")}><CalendarClock className="h-3.5 w-3.5" />ทุก X วัน</Button>
+              <Button size="sm" type="button" variant={mode === "custom" ? "default" : "outline"} aria-pressed={mode === "custom"} onClick={() => setMode("custom")}><CalendarDays className="h-3.5 w-3.5" />กำหนดวันเอง</Button>
             </div>
           </div>
           {mode === "interval" ? (
             <form className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-3" onSubmit={submitInterval}>
               <Field label="ลูกค้า"><Select name="customer_id" required defaultValue=""><option value="" disabled>— เลือกลูกค้า —</option>{custOptions}</Select></Field>
-              <Field label="Bill No."><Input name="bill_no" type="number" required /></Field>
-              <Field label="เงินต้น"><Input name="principal_amount" type="number" required /></Field>
-              <Field label="ส่งงวดละ"><Input name="installment_amount" type="number" required /></Field>
-              <Field label="ทุกกี่วัน"><Input name="cycle_days" type="number" required /></Field>
-              <Field label="จำนวนงวด"><Input name="total_installments" type="number" required /></Field>
+              <Field label="เลขที่บิล"><Input name="bill_no" type="number" min="1" placeholder="เช่น 1001" required /></Field>
+              <Field label="เงินต้น (บาท)"><Input name="principal_amount" type="number" min="0.01" step="0.01" placeholder="เช่น 12000" required /></Field>
+              <Field label="ยอดต่องวด (บาท)"><Input name="installment_amount" type="number" min="0.01" step="0.01" placeholder="เช่น 1000" required /></Field>
+              <Field label="รอบชำระ (วัน)"><Input name="cycle_days" type="number" min="1" placeholder="เช่น 7" required /></Field>
+              <Field label="จำนวนงวด"><Input name="total_installments" type="number" min="1" placeholder="เช่น 12" required /></Field>
               <Field label="วันเริ่ม"><Input name="start_date" type="date" required /></Field>
               <Field label="บัญชีรับโอน">{bankSelect}</Field>
               <Field label="ค่าปรับหัวบิลรวม"><Input name="bill_penalty_amount" type="number" min="0" step="0.01" placeholder="เช่น 500" /></Field>
-              <Field label="ค่าปรับทุกงวด (default)"><Input name="installment_penalty_amount" type="number" min="0" step="0.01" placeholder="เช่น 500" /></Field>
-              <Field label="หมายเหตุ" className="sm:col-span-2 lg:col-span-3"><Input name="note" /></Field>
-              <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-3">
-                <Button type="submit" disabled={create.isPending}>สร้างบิล</Button>
+              <Field label="ค่าปรับต่องวด (ค่าเริ่มต้น)"><Input name="installment_penalty_amount" type="number" min="0" step="0.01" placeholder="เช่น 500" /></Field>
+              <Field label="หมายเหตุ" className="sm:col-span-2 lg:col-span-3"><Input name="note" placeholder="เช่น นัดชำระทุกวันจันทร์" /></Field>
+              <div className="flex flex-wrap gap-2 border-t border-border pt-3 sm:col-span-2 lg:col-span-3 sm:justify-end">
                 <Button type="button" variant="outline" disabled={previewAutoBill.isPending} onClick={(e) => { if (e.currentTarget.form) previewInterval(e.currentTarget.form); }}>
-                  {previewAutoBill.isPending ? "กำลัง Preview…" : "Preview Auto bill"}
+                  {previewAutoBill.isPending ? "กำลังสร้างตัวอย่าง…" : "ดูตัวอย่างบิล"}
                 </Button>
+                <Button type="submit" disabled={create.isPending}>สร้างบิล</Button>
               </div>
             </form>
           ) : (
-            <form className="space-y-2" onSubmit={submitCustom}>
+            <form className="space-y-4" onSubmit={submitCustom}>
               <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="ลูกค้า"><Select name="customer_id" required defaultValue=""><option value="" disabled>— เลือกลูกค้า —</option>{custOptions}</Select></Field>
-                <Field label="Bill No."><Input name="bill_no" type="number" required /></Field>
-                <Field label="เงินต้น"><Input name="principal_amount" type="number" required /></Field>
+                <Field label="เลขที่บิล"><Input name="bill_no" type="number" min="1" placeholder="เช่น 1001" required /></Field>
+                <Field label="เงินต้น (บาท)"><Input name="principal_amount" type="number" min="0.01" step="0.01" placeholder="เช่น 12000" required /></Field>
                 <Field label="บัญชีรับโอน">{bankSelect}</Field>
                 <Field label="ค่าปรับหัวบิลรวม"><Input name="bill_penalty_amount" type="number" min="0" step="0.01" placeholder="เช่น 500" /></Field>
-                <Field label="หมายเหตุ" className="sm:col-span-2 lg:col-span-4"><Input name="note" /></Field>
+                <Field label="หมายเหตุ" className="sm:col-span-2 lg:col-span-4"><Input name="note" placeholder="เช่น นัดชำระทุกวันจันทร์" /></Field>
               </div>
-              <div className="space-y-1">
-                <div className="text-sm text-muted-foreground">งวด (วันครบกำหนด + ยอด)</div>
+              <div className="space-y-3 rounded-xl border border-border bg-background/40 p-3">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold">กำหนดงวดชำระ</p>
+                    <p className="text-xs text-muted-foreground">ระบุวันครบกำหนด ยอดงวด และค่าปรับของแต่ละงวด</p>
+                  </div>
+                  <span className="text-xs font-medium text-muted-foreground">{rows.length} งวด</span>
+                </div>
+                <div className="hidden grid-cols-[1.5rem_minmax(0,1fr)_8rem_7rem_auto] gap-2 px-1 text-xs font-medium text-muted-foreground sm:grid">
+                  <span>งวด</span><span>วันครบกำหนด</span><span>ยอด (บาท)</span><span>ค่าปรับ (บาท)</span><span />
+                </div>
                 {rows.map((r, i) => (
-                  <div key={i} className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[1.5rem_minmax(0,1fr)_8rem_7rem_auto]">
+                  <div key={i} className="grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-2 rounded-lg border border-border/70 bg-card p-2 sm:grid-cols-[1.5rem_minmax(0,1fr)_8rem_7rem_auto] sm:border-0 sm:bg-transparent sm:p-0">
                     <span className="w-6 text-sm text-muted-foreground">{i + 1}</span>
-                    <Input type="date" value={r.due_date} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, due_date: e.target.value } : x))} className="min-w-0" />
-                    <Input type="number" placeholder="ยอด" value={r.amount_due} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, amount_due: e.target.value } : x))} className="col-start-2 row-start-2 w-full sm:col-start-auto sm:row-start-auto sm:w-full" />
-                    <Input type="number" min="0" step="0.01" placeholder="ค่าปรับ" value={r.penalty_amount} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, penalty_amount: e.target.value } : x))} className="col-start-2 row-start-3 w-full sm:col-start-auto sm:row-start-auto sm:w-full" />
-                    {rows.length > 1 && <Button size="icon" variant="ghost" type="button" className="col-start-3 row-start-3 sm:col-start-auto sm:row-start-auto" onClick={() => setRows(rows.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" /></Button>}
+                    <Input type="date" aria-label={`วันครบกำหนด งวดที่ ${i + 1}`} value={r.due_date} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, due_date: e.target.value } : x))} className="min-w-0" />
+                    <Input type="number" min="0.01" step="0.01" placeholder="ยอด (บาท)" aria-label={`ยอดงวดที่ ${i + 1}`} value={r.amount_due} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, amount_due: e.target.value } : x))} className="col-start-2 row-start-2 w-full sm:col-start-auto sm:row-start-auto sm:w-full" />
+                    <Input type="number" min="0" step="0.01" placeholder="ค่าปรับ" aria-label={`ค่าปรับงวดที่ ${i + 1}`} value={r.penalty_amount} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, penalty_amount: e.target.value } : x))} className="col-start-2 row-start-3 w-full sm:col-start-auto sm:row-start-auto sm:w-full" />
+                    {rows.length > 1 && <Button size="icon" variant="ghost" type="button" className="col-start-2 row-start-4 justify-self-start sm:col-start-auto sm:row-start-auto" aria-label={`ลบงวดที่ ${i + 1}`} title={`ลบงวดที่ ${i + 1}`} onClick={() => setRows(rows.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" /></Button>}
                   </div>
                 ))}
-                <Button size="sm" variant="outline" type="button" onClick={() => setRows([...rows, { due_date: "", amount_due: "", penalty_amount: "" }])}><Plus className="h-3 w-3 mr-1" /> เพิ่มงวด</Button>
+                <div className="flex items-center justify-between gap-2">
+                  <Button size="sm" variant="outline" type="button" onClick={() => setRows([...rows, { due_date: "", amount_due: "", penalty_amount: "" }])}><Plus className="mr-1 h-3 w-3" /> เพิ่มงวด</Button>
+                  <span className="text-xs text-muted-foreground">เพิ่มได้หลายงวดตามจริง</span>
+                </div>
               </div>
-              <Button size="sm" type="submit" disabled={createCustom.isPending}>สร้างบิล</Button>
+              <div className="flex justify-end border-t border-border pt-3">
+                <Button type="submit" disabled={createCustom.isPending}>สร้างบิล</Button>
+              </div>
             </form>
           )}
         </div>
       </Dialog>
 
       <Card className="overflow-hidden">
+        <CardHeader className="items-start border-b border-border/60 bg-background/40 sm:items-center">
+          <div className="min-w-0">
+            <CardTitle className="text-lg">รายการบิล</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">ดูสถานะงวด รับชำระ และส่งบิลให้ลูกค้าได้จากที่เดียว</p>
+          </div>
+          <span className="ml-auto shrink-0 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">{allPlans.length} บิล</span>
+        </CardHeader>
         <CardContent className="space-y-4 p-4 md:p-5">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
             <div className="relative min-w-0 flex-1">
@@ -203,24 +227,25 @@ export function BillPlans() {
               {billFilter && <button type="button" onClick={() => setBillFilter("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="ล้างคำค้น"><X className="h-4 w-4" /></button>}
             </div>
             <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" className="h-11" onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal className="h-4 w-4" /> ตัวกรอง{(viewCust || billFilter || billStatus) && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] text-primary-foreground">{Number(!!viewCust) + Number(!!billFilter) + Number(!!billStatus)}</span>}</Button>
-              <Button type="button" variant="outline" className="h-11" onClick={exportCsv} disabled={!filteredPlans.length}><Download className="h-4 w-4" /> Export</Button>
-              <Button type="button" className="h-11" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> สร้างบิล</Button>
+              <Button type="button" variant="outline" className="h-11" aria-expanded={filtersOpen} aria-controls="plans-filters" onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal className="h-4 w-4" /> ตัวกรอง{(viewCust || billFilter || billStatus) && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] text-primary-foreground">{Number(!!viewCust) + Number(!!billFilter) + Number(!!billStatus)}</span>}</Button>
+              <Button type="button" variant="outline" className="h-11" onClick={exportCsv} disabled={!filteredPlans.length}><Download className="h-4 w-4" /> ดาวน์โหลด CSV</Button>
+              <Button type="button" className="h-11" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> สร้างบิลใหม่</Button>
             </div>
           </div>
 
-          <div className="flex overflow-x-auto rounded-xl border border-border p-1">
-            {planTabs.map((item) => <button key={item.id || "all"} type="button" onClick={() => setBillStatus(item.id)} className={`min-w-[135px] flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${billStatus === item.id ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>{item.label} <span className="ml-1 text-xs opacity-70">({item.count})</span></button>)}
+          <div role="tablist" aria-label="กรองตามสถานะบิล" className="flex overflow-x-auto rounded-xl border border-border p-1">
+            {planTabs.map((item) => <button key={item.id || "all"} type="button" role="tab" aria-selected={billStatus === item.id} aria-controls="plans-list" onClick={() => setBillStatus(item.id)} className={`min-w-[135px] flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${billStatus === item.id ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>{item.label} <span className="ml-1 text-xs opacity-70">({item.count})</span></button>)}
           </div>
 
-          {filtersOpen && <div className="grid grid-cols-1 gap-3 rounded-xl bg-secondary/60 p-3 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-end"><Field label="ลูกค้า"><Select value={viewCust} onChange={(e) => { setViewCust(e.target.value); setBillFilter(""); setBillStatus(""); }}><option value="">ทั้งหมด</option>{custOptions}</Select></Field><Field label="สถานะบิล"><Select value={billStatus} onChange={(e) => setBillStatus(e.target.value)}><option value="">ทุกสถานะ</option><option value="active">ใช้งาน</option><option value="completed">เสร็จสิ้น</option><option value="cancelled">ยกเลิก</option></Select></Field><Button type="button" variant="ghost" className="h-[42px]" onClick={() => { setViewCust(""); setBillFilter(""); setBillStatus(""); }}>ล้างตัวกรอง</Button></div>}
+          {filtersOpen && <div id="plans-filters" className="grid grid-cols-1 gap-3 rounded-xl bg-secondary/60 p-3 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-end"><Field label="ลูกค้า"><Select value={viewCust} onChange={(e) => { setViewCust(e.target.value); setBillFilter(""); setBillStatus(""); }}><option value="">ลูกค้าทั้งหมด</option>{custOptions}</Select></Field><Field label="สถานะบิล"><Select value={billStatus} onChange={(e) => setBillStatus(e.target.value)}><option value="">ทุกสถานะ</option><option value="active">กำลังใช้งาน</option><option value="completed">เสร็จสิ้น</option><option value="cancelled">ยกเลิกแล้ว</option></Select></Field><Button type="button" variant="ghost" className="h-[42px]" onClick={() => { setViewCust(""); setBillFilter(""); setBillStatus(""); }}>ล้างตัวกรอง</Button></div>}
 
-          <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span>{`แสดง ${filteredPlans.length} จาก ${allPlans.length} บิล`}</span>{(viewCust || billFilter || billStatus) && <button type="button" className="font-semibold text-primary hover:underline" onClick={() => { setViewCust(""); setBillFilter(""); setBillStatus(""); }}>ล้างตัวกรอง</button>}</div>
+          <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span aria-live="polite">{`แสดง ${filteredPlans.length} จาก ${allPlans.length} บิล`}</span>{(viewCust || billFilter || billStatus) && <button type="button" className="font-semibold text-primary hover:underline" onClick={() => { setViewCust(""); setBillFilter(""); setBillStatus(""); }}>ล้างตัวกรอง</button>}</div>
         </CardContent>
-        <div className="border-t border-border p-4 md:p-5">
+        <div id="plans-list" className="border-t border-border p-4 md:p-5">
+          {plans.isLoading && <p className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">กำลังโหลดบิล…</p>}
           {groupedPlans.map((group) => (
             <Card key={group.status} className="mb-4 overflow-hidden last:mb-0">
-              <CardHeader className="border-b border-border bg-muted/30 py-3">
+              <CardHeader className="border-b border-border bg-muted/30 py-3 sm:flex-row sm:items-center">
                 <div className="min-w-0">
                   <CardTitle>บิล {group.label}</CardTitle>
                   <p className="mt-1 text-xs text-muted-foreground">{group.plans.length} บิลในกลุ่มนี้</p>
@@ -229,26 +254,28 @@ export function BillPlans() {
                   size="sm"
                   variant="outline"
                   className="ml-0 sm:ml-auto"
-                  onClick={() => setPreviewBill({ id: group.plans[0].id, billNo: group.plans[0].bill_no, title: "Preview รวม — บิล Active" })}
-                >Preview รวม</Button>}
+                  onClick={() => setPreviewBill({ id: group.plans[0].id, billNo: group.plans[0].bill_no, title: "ดูตัวอย่างรวม, บิลกำลังใช้งาน" })}
+                ><Eye className="h-3.5 w-3.5" />ดูตัวอย่างรวม</Button>}
               </CardHeader>
               <CardContent className="space-y-3 p-3">
                 {group.plans.map((p: any) => (
                     <Card key={p.id}>
-                    <CardHeader className="py-2 flex-row items-center gap-2">
-                      <CardTitle className="text-base">บิล {p.bill_no}</CardTitle>
-                      {p.customer && <span className="text-xs text-muted-foreground">{p.customer.display_name || p.customer.customer_code}</span>}
-                      {statusBadge(p.status)}
-                      {Number(p.penalty_amount ?? 0) > 0 && <span className="text-xs text-danger-text">ค่าปรับหัวบิล {baht(p.penalty_amount)}</span>}
-                      <div className="ml-0 flex w-full flex-wrap gap-1 sm:ml-auto sm:w-auto">
+                    <CardHeader className="flex-col items-stretch gap-3 py-3 sm:flex-row sm:items-center">
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                        <CardTitle className="text-base">บิล {p.bill_no}</CardTitle>
+                        {p.customer && <span className="text-xs text-muted-foreground">{p.customer.display_name || p.customer.customer_code}</span>}
+                        {statusBadge(p.status)}
+                        {Number(p.penalty_amount ?? 0) > 0 && <span className="text-xs text-danger-text">ค่าปรับหัวบิล {baht(p.penalty_amount)}</span>}
+                      </div>
+                      <div className="ml-0 flex w-full flex-wrap gap-1.5 sm:ml-auto sm:w-auto sm:justify-end">
                         <Button size="sm" variant="ghost" type="button" aria-expanded={expandedPlans[p.id] ?? false} onClick={() => setExpandedPlans((current) => ({ ...current, [p.id]: !(current[p.id] ?? false) }))}>
                           {(expandedPlans[p.id] ?? false) ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                          {(expandedPlans[p.id] ?? false) ? "ย่อ" : "ขยาย"}
+                          {(expandedPlans[p.id] ?? false) ? "ซ่อนงวด" : "ดูงวด"}
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => setPreviewBill({ id: p.id, billNo: p.bill_no })}>Preview Bill</Button>
-                        <Button size="sm" variant="outline" onClick={() => setPenaltyPlan(p)}>แก้ค่าปรับหัวบิล</Button>
+                        <Button size="sm" variant="outline" onClick={() => setPreviewBill({ id: p.id, billNo: p.bill_no })}><Eye className="h-3.5 w-3.5" />ดูตัวอย่าง</Button>
+                        <Button size="sm" variant="outline" onClick={() => setPenaltyPlan(p)}><Pencil className="h-3.5 w-3.5" />แก้ค่าปรับ</Button>
                         {p.status === "active" && <>
-                          <Button size="sm" variant="outline" onClick={() => sendBill.mutate(p.id)}>ส่งบิล</Button>
+                          <Button size="sm" onClick={() => sendBill.mutate(p.id)}><Send className="h-3.5 w-3.5" />ส่งให้ลูกค้า</Button>
                           <Button size="sm" variant="destructive" onClick={() => void cancelBill(p.id)}>ยกเลิกบิล</Button>
                         </>}
                       </div>
@@ -261,73 +288,64 @@ export function BillPlans() {
               </CardContent>
             </Card>
           ))}
-          {!plans.isLoading && filteredPlans.length === 0 && <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">ไม่พบบิลตามตัวกรอง</p>}
+          {!plans.isLoading && filteredPlans.length === 0 && <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center"><p className="text-sm text-muted-foreground">{allPlans.length ? "ไม่พบบิลตามตัวกรอง" : "ยังไม่มีบิล"}</p>{allPlans.length > 0 && <Button size="sm" variant="outline" className="mt-3" onClick={() => { setViewCust(""); setBillFilter(""); setBillStatus(""); }}>ล้างตัวกรอง</Button>}</div>}
         </div>
       </Card>
 
       {/* รับชำระเงิน (เงินสด/นอกสลิป) */}
-      <Dialog open={!!payInst} onClose={() => setPayInst(null)} title={`รับชำระ — งวด ${payInst?.installment_no ?? ""}`} className="max-w-sm">
-        <form onSubmit={(e) => { e.preventDefault(); const amt = Number((e.currentTarget.elements.namedItem("amount") as HTMLInputElement).value); pay.mutate({ id: payInst.id, amount: amt }, { onSuccess: () => setPayInst(null) }); }}>
-          <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">ยอดที่รับ (บาท)</label>
-          <Input name="amount" type="number" step="0.01" min="0.01" defaultValue={remaining(payInst)} className="mt-1" autoFocus required />
-          <p className="mt-2 text-xs text-muted-foreground">คงเหลือของงวดนี้: {remaining(payInst).toLocaleString("th-TH")} บาท · ลูกค้าที่ผูก LINE จะได้รับใบยืนยันอัตโนมัติ</p>
-          <Button size="sm" type="submit" className="mt-3 w-full" disabled={pay.isPending}>บันทึกรับชำระ</Button>
+      <Dialog open={!!payInst} onClose={() => setPayInst(null)} title={`รับชำระ, งวดที่ ${payInst?.installment_no ?? ""}`} className="max-w-sm">
+        <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); const amt = Number((e.currentTarget.elements.namedItem("amount") as HTMLInputElement).value); pay.mutate({ id: payInst.id, amount: amt }, { onSuccess: () => setPayInst(null) }); }}>
+          <div className="rounded-xl bg-secondary/60 p-3">
+            <p className="text-xs text-muted-foreground">ยอดคงเหลือของงวดนี้</p>
+            <p className="fig mt-1 text-lg font-semibold">{remaining(payInst).toLocaleString("th-TH")} บาท</p>
+          </div>
+          <Field label="ยอดที่รับ (บาท)"><Input name="amount" type="number" step="0.01" min="0.01" defaultValue={remaining(payInst)} autoFocus required /></Field>
+          <p className="text-xs text-muted-foreground">เมื่อลูกค้าผูก LINE แล้ว ระบบจะส่งใบยืนยันให้อัตโนมัติ</p>
+          <Button type="submit" className="w-full" disabled={pay.isPending}>บันทึกรับชำระ</Button>
         </form>
       </Dialog>
 
       {/* แก้ไขงวด */}
       <Dialog open={!!editInst} onClose={() => setEditInst(null)} title={`แก้ไขงวด ${editInst?.installment_no ?? ""}`} className="max-w-sm">
-        <form className="space-y-3" onSubmit={(e) => {
+        <form className="space-y-4" onSubmit={(e) => {
           e.preventDefault();
           const f = e.currentTarget.elements as any;
           editI.mutate({ id: editInst.id, data: { amount_due: Number(f.amount_due.value), due_date: f.due_date.value, status: f.status.value, penalty_amount: Number(f.penalty_amount.value || 0) } }, { onSuccess: () => setEditInst(null) });
         }}>
-          <div>
-            <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">ยอด (บาท)</label>
-            <Input name="amount_due" type="number" step="0.01" defaultValue={editInst?.amount_due} className="mt-1" />
-          </div>
-          <div>
-            <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">ครบกำหนด</label>
-            <Input name="due_date" type="date" defaultValue={editInst?.due_date} className="mt-1" />
-          </div>
-          <div>
-            <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">สถานะ</label>
-            <Select name="status" defaultValue={editInst?.status} className="mt-1">
+          <Field label="ยอดงวด (บาท)"><Input name="amount_due" type="number" min="0.01" step="0.01" defaultValue={editInst?.amount_due} required /></Field>
+          <Field label="วันครบกำหนด"><Input name="due_date" type="date" defaultValue={editInst?.due_date} required /></Field>
+          <Field label="สถานะงวด"><Select name="status" defaultValue={editInst?.status}>
               {["pending", "partial_paid", "overdue", "paid", "cancelled"].map((s) => <option key={s} value={s}>{statusTh(s)}</option>)}
-            </Select>
-          </div>
-          <div>
-            <label className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">ค่าปรับงวดนี้ (บาท)</label>
-            <Input name="penalty_amount" type="number" min="0" step="0.01" defaultValue={editInst?.penalty_amount ?? 0} className="mt-1" />
-          </div>
-          <Button size="sm" type="submit" className="w-full" disabled={editI.isPending}>บันทึก</Button>
+            </Select></Field>
+          <Field label="ค่าปรับงวดนี้ (บาท)"><Input name="penalty_amount" type="number" min="0" step="0.01" defaultValue={editInst?.penalty_amount ?? 0} /></Field>
+          <Button type="submit" className="w-full" disabled={editI.isPending}>บันทึกการแก้ไข</Button>
         </form>
       </Dialog>
 
       <Dialog open={!!penaltyPlan} onClose={() => setPenaltyPlan(null)} title={`ค่าปรับหัวบิล ${penaltyPlan?.bill_no ?? ""}`} className="max-w-sm">
-        <form className="space-y-3" onSubmit={(e) => {
+        <form className="space-y-4" onSubmit={(e) => {
           e.preventDefault();
           const amount = Number((e.currentTarget.elements.namedItem("bill_penalty_amount") as HTMLInputElement).value || 0);
           editPlanPenalty.mutate({ id: penaltyPlan.id, amount }, { onSuccess: () => setPenaltyPlan(null) });
         }}>
-          <p className="text-xs text-muted-foreground">ค่าปรับหัวบิลจะแสดงแยกจากยอดงวดหลักใน Preview และข้อความ LINE</p>
-          <Input name="bill_penalty_amount" type="number" min="0" step="0.01" defaultValue={penaltyPlan?.penalty_amount ?? 0} autoFocus />
+          <p className="rounded-xl bg-secondary/60 p-3 text-xs text-muted-foreground">ค่าปรับหัวบิลจะแสดงแยกจากยอดงวดหลักในตัวอย่างบิลและข้อความ LINE</p>
+          <Field label="ค่าปรับหัวบิล (บาท)"><Input name="bill_penalty_amount" type="number" min="0" step="0.01" defaultValue={penaltyPlan?.penalty_amount ?? 0} autoFocus /></Field>
           <Button size="sm" type="submit" className="w-full" disabled={editPlanPenalty.isPending}>บันทึกค่าปรับ</Button>
         </form>
       </Dialog>
 
-      <Dialog open={!!autoPreview} onClose={() => setAutoPreview(null)} title={`Preview Auto bill ${autoPreview?.billNo ?? ""}`} className="max-w-xl">
-        <p className="mb-3 text-xs text-muted-foreground">ตัวอย่างบิลจากข้อมูล Auto bill ที่กรอกไว้ ยังไม่มีการสร้างข้อมูลในระบบ</p>
+      <Dialog open={!!autoPreview} onClose={() => setAutoPreview(null)} title={`ดูตัวอย่างบิลอัตโนมัติ ${autoPreview?.billNo ?? ""}`} className="max-w-xl">
+        <p className="mb-3 text-xs text-muted-foreground">ตัวอย่างนี้สร้างจากข้อมูลที่กรอกไว้ และยังไม่บันทึกลงระบบ</p>
         <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-background px-4 py-3 font-sans text-[15px] leading-7 text-foreground">
           {autoPreview?.text}
         </pre>
       </Dialog>
 
       {/* Preview is the exact text sent by the bill renderer. */}
-      <Dialog open={!!previewBill} onClose={() => setPreviewBill(null)} title={previewBill?.title ?? `Preview Bill ${previewBill?.billNo ?? ""}`} className="max-w-xl">
-        <p className="mb-3 text-xs text-muted-foreground">ตัวอย่างข้อความนี้ใช้ renderer เดียวกับข้อความที่จะส่งให้ลูกค้าทาง LINE</p>
+      <Dialog open={!!previewBill} onClose={() => setPreviewBill(null)} title={previewBill?.title ?? `ดูตัวอย่างบิล ${previewBill?.billNo ?? ""}`} className="max-w-xl">
+        <p className="mb-3 text-xs text-muted-foreground">ข้อความนี้เหมือนกับข้อความที่จะส่งให้ลูกค้าทาง LINE</p>
         {preview.isLoading && <p className="text-sm text-muted-foreground">กำลังโหลดตัวอย่างบิล…</p>}
-        {preview.error && <p className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger-text">โหลด Preview ไม่สำเร็จ</p>}
+        {preview.error && <p className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger-text">โหลดตัวอย่างบิลไม่สำเร็จ</p>}
         {preview.data?.text && (
           <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-background px-4 py-3 font-sans text-[15px] leading-7 text-foreground">
             {preview.data.text}

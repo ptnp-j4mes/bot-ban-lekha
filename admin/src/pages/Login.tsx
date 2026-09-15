@@ -1,11 +1,10 @@
 import { useState } from "react";
 import { toast } from "react-toastify";
 import { Eye, EyeOff } from "lucide-react";
-import { beginLineLogin, setDevKey, setToken, clearAuth } from "@/lib/api";
+import { beginLineLogin, setDevKey, clearAuth } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-
-const BASE = import.meta.env.VITE_API_BASE ?? "";
 
 export function Login() {
   const [user, setUser] = useState("");
@@ -13,23 +12,16 @@ export function Login() {
   const [dev, setDev] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
+  const { login: passwordLogin } = useAuth();
 
   const login = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
-      const res = await fetch(`${BASE}/api/auth/login`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: user, password: pass }),
-      });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error?.message || "login failed");
-      clearAuth();
-      setToken(json.data.token);
+      await passwordLogin(user, pass);
       window.location.reload();
     } catch (err: any) {
-      toast.error(err.message);
+      if (err?.code !== "PENDING_APPROVAL") toast.error(err.message);
     } finally {
       setBusy(false);
     }

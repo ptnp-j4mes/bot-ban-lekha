@@ -7,7 +7,7 @@ import { Banknote, CalendarDays, ChevronDown, ChevronRight, FileText, History, L
 import { Header, Screen } from '../../../../shared/src/ui';
 import { formatBaht, formatDate, todayIso } from '../../../../shared/src/format';
 import { font, useColors } from '../../../../shared/src/theme';
-import type { DashboardChartData, DashboardSummary } from '../../../../shared/src/types';
+import type { AdminPermission, DashboardChartData, DashboardSummary } from '../../../../shared/src/types';
 import { api } from '../api';
 import { useAdminAuth } from '../auth';
 import type { AdminStackParamList } from '../navigation';
@@ -123,22 +123,31 @@ export function DashboardScreen() {
   const isWide = width >= 800;
   const navigation = useNavigation<NativeStackNavigationProp<AdminStackParamList>>();
   const { me, orgId, orgName } = useAdminAuth();
+  const can = (permission: AdminPermission) => me?.permissions.includes(permission) ?? false;
   const queryScope = me?.user_id || orgId ? [me?.user_id ?? null, orgId ?? null] as const : [] as const;
   const currentIso = todayIso();
   const [todayYear, todayMonth] = currentIso.split('-').map(Number);
   const [chartPeriod, setChartPeriod] = useState<'month' | 'year'>('month');
   const [chartYear, setChartYear] = useState(todayYear);
   const [chartMonth, setChartMonth] = useState(todayMonth);
-  const summary = useQuery({ queryKey: ['mobile-summary', ...queryScope, currentIso], queryFn: () => api.get<DashboardSummary>(`/api/reports/summary?from=${currentIso}&to=${currentIso}`) });
+  const summary = useQuery({ queryKey: ['mobile-summary', ...queryScope, currentIso], queryFn: () => api.get<DashboardSummary>(`/api/reports/summary?from=${currentIso}&to=${currentIso}`), enabled: can('dashboard') || can('reports') });
   const charts = useQuery({
     queryKey: ['mobile-dashboard-charts', ...queryScope, chartPeriod, chartYear, chartMonth],
     queryFn: () => api.get<DashboardChartData>(`/api/reports/dashboard-charts?period=${chartPeriod}&year=${chartYear}&month=${chartMonth}`),
+    enabled: can('dashboard') || can('reports'),
   });
-  const due = useQuery({ queryKey: ['mobile-due', ...queryScope], queryFn: () => api.get<any[]>('/api/installments/due-today') });
-  const overdue = useQuery({ queryKey: ['mobile-overdue', ...queryScope], queryFn: () => api.get<any[]>('/api/installments/overdue') });
-  const pending = useQuery({ queryKey: ['mobile-pending', ...queryScope], queryFn: () => api.get<{ items: any[]; total: number }>('/api/admin/payment-submissions?review_status=pending_review&limit=1') });
+  const due = useQuery({ queryKey: ['mobile-due', ...queryScope], queryFn: () => api.get<any[]>('/api/installments/due-today'), enabled: can('dashboard') || can('plans') || can('reports') });
+  const overdue = useQuery({ queryKey: ['mobile-overdue', ...queryScope], queryFn: () => api.get<any[]>('/api/installments/overdue'), enabled: can('dashboard') || can('plans') || can('reports') });
+  const pending = useQuery({ queryKey: ['mobile-pending', ...queryScope], queryFn: () => api.get<{ items: any[]; total: number }>('/api/admin/payment-submissions?review_status=pending_review&limit=1'), enabled: can('submissions') });
   const today = new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
   const dayNumber = new Date().toLocaleDateString('th-TH', { day: 'numeric' });
+  const quickActions = can('customers') || can('plans') || can('submissions') || can('banks');
+  const systemItems = ([
+    { permission: 'reports', title: 'รายงาน', description: 'ภาพรวมรายวันและกราฟ', icon: FileText, onPress: () => navigation.navigate('ComingSoon', { title: 'รายงาน', description: 'ภาพรวมรายวันและกราฟ' }) },
+    { permission: 'oa', title: 'LINE OA', description: 'บัญชีและ webhook', icon: MessageCircle, onPress: () => navigation.navigate('ComingSoon', { title: 'LINE OA', description: 'บัญชีและ webhook' }) },
+    { permission: 'settings', title: 'ตั้งค่า', description: 'ข้อความตอบกลับและระบบ', icon: Settings2, onPress: () => navigation.navigate('ComingSoon', { title: 'ตั้งค่า', description: 'ข้อความตอบกลับและระบบ' }) },
+    { permission: 'logs', title: 'ประวัติ', description: 'ตรวจสอบ audit logs', icon: History, onPress: () => navigation.navigate('ComingSoon', { title: 'ประวัติ', description: 'ตรวจสอบ audit logs' }) },
+  ] as Array<{ permission: AdminPermission; title: string; description: string; icon: IconComponent; onPress: () => void }>).filter((item) => can(item.permission));
 
   return (
     <Screen
@@ -181,17 +190,19 @@ export function DashboardScreen() {
           </View>}
         />
 
-        <SectionHeading eyebrow="QUICK ACTIONS" title="จัดการงานวันนี้" />
-        <BentoCard style={[dashboardStyles.actionsCard, { borderColor: colors.dashboardCoral }]}>
-          <View style={[dashboardStyles.actionLayout, isWide && dashboardStyles.actionLayoutWide]}>
-            <ActionTile style={isWide ? dashboardStyles.actionLeadWide : dashboardStyles.actionLead} label="ลูกค้า" description="จัดการข้อมูลลูกค้า" icon={Users} primary onPress={() => navigation.navigate('Customers')} />
-            <View style={[dashboardStyles.actionPair, isWide && dashboardStyles.actionPairWide]}>
-              <ActionTile style={dashboardStyles.actionPairItem} label="สร้างบิล" description="สร้างแผนการชำระ" icon={FileText} onPress={() => navigation.navigate('Bills')} />
-              <ActionTile style={dashboardStyles.actionPairItem} label={`ตรวจสลิป (${pending.data?.total ?? 0})`} description="ตรวจสอบและอนุมัติ" icon={Receipt} onPress={() => navigation.navigate('Submissions')} />
+        {quickActions ? <>
+          <SectionHeading eyebrow="QUICK ACTIONS" title="จัดการงานวันนี้" />
+          <BentoCard style={[dashboardStyles.actionsCard, { borderColor: colors.dashboardCoral }]}>
+            <View style={[dashboardStyles.actionLayout, isWide && dashboardStyles.actionLayoutWide]}>
+              {can('customers') && <ActionTile style={isWide ? dashboardStyles.actionLeadWide : dashboardStyles.actionLead} label="ลูกค้า" description="จัดการข้อมูลลูกค้า" icon={Users} primary onPress={() => navigation.navigate('Customers')} />}
+              {(can('plans') || can('submissions')) && <View style={[dashboardStyles.actionPair, isWide && dashboardStyles.actionPairWide]}>
+                {can('plans') && <ActionTile style={dashboardStyles.actionPairItem} label="สร้างบิล" description="สร้างแผนการชำระ" icon={FileText} onPress={() => navigation.navigate('Bills')} />}
+                {can('submissions') && <ActionTile style={dashboardStyles.actionPairItem} label={`ตรวจสลิป (${pending.data?.total ?? 0})`} description="ตรวจสอบและอนุมัติ" icon={Receipt} onPress={() => navigation.navigate('Submissions')} />}
+              </View>}
+              {can('banks') && <ActionTile style={isWide ? dashboardStyles.actionSideWide : dashboardStyles.actionSide} label="บัญชีรับโอน" description="จัดการบัญชีธนาคาร" icon={Landmark} onPress={() => navigation.navigate('Banks')} />}
             </View>
-            <ActionTile style={isWide ? dashboardStyles.actionSideWide : dashboardStyles.actionSide} label="บัญชีรับโอน" description="จัดการบัญชีธนาคาร" icon={Landmark} onPress={() => navigation.navigate('Banks')} />
-          </View>
-        </BentoCard>
+          </BentoCard>
+        </> : null}
 
         <SectionHeading eyebrow="TODAY" title="สถานะวันนี้" />
         <BentoCard muted style={dashboardStyles.statusCard}>
@@ -199,13 +210,10 @@ export function DashboardScreen() {
           <View style={dashboardStyles.statusStats}><View><Text style={[dashboardStyles.statusValue, { color: colors.dashboardCoralText }]}>{overdue.data?.length ?? 0} งวด</Text><Text style={[dashboardStyles.statusLabel, { color: colors.dashboardTextSecondary }]}>รายการค้างชำระ</Text></View><View><Text style={[dashboardStyles.statusValue, { color: colors.dashboardText }]}>{formatBaht(summary.data?.overdue_amount ?? 0)}</Text><Text style={[dashboardStyles.statusLabel, { color: colors.dashboardTextSecondary }]}>ยอดค้างชำระ</Text></View><View><Text style={[dashboardStyles.statusValue, { color: colors.dashboardText }]}>{summary.data?.customers ?? 0}</Text><Text style={[dashboardStyles.statusLabel, { color: colors.dashboardTextSecondary }]}>ลูกค้าในองค์กร</Text></View></View>
         </BentoCard>
 
-        <SectionHeading eyebrow="SYSTEM" title="เมนูระบบ" />
-        <BentoCard style={dashboardStyles.systemCard}>
-          <SystemItem title="รายงาน" description="ภาพรวมรายวันและกราฟ" icon={FileText} onPress={() => navigation.navigate('ComingSoon', { title: 'รายงาน', description: 'ภาพรวมรายวันและกราฟ' })} />
-          <SystemItem title="LINE OA" description="บัญชีและ webhook" icon={MessageCircle} onPress={() => navigation.navigate('ComingSoon', { title: 'LINE OA', description: 'บัญชีและ webhook' })} />
-          <SystemItem title="ตั้งค่า" description="ข้อความตอบกลับและระบบ" icon={Settings2} onPress={() => navigation.navigate('ComingSoon', { title: 'ตั้งค่า', description: 'ข้อความตอบกลับและระบบ' })} />
-          <SystemItem title="ประวัติ" description="ตรวจสอบ audit logs" icon={History} last onPress={() => navigation.navigate('ComingSoon', { title: 'ประวัติ', description: 'ตรวจสอบ audit logs' })} />
-        </BentoCard>
+        {systemItems.length > 0 ? <>
+          <SectionHeading eyebrow="SYSTEM" title="เมนูระบบ" />
+          <BentoCard style={dashboardStyles.systemCard}>{systemItems.map((item, index) => <SystemItem key={item.permission} title={item.title} description={item.description} icon={item.icon} last={index === systemItems.length - 1} onPress={item.onPress} />)}</BentoCard>
+        </> : null}
       </View>
     </Screen>
   );

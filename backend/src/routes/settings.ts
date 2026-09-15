@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import { prisma } from "../lib/prisma";
 import { ok, ApiError } from "../lib/response";
 import { authorize } from "../lib/auth";
+import { requirePermission } from "../lib/permissions";
 import { audit } from "../services/audit";
 import { MESSAGE_TEMPLATE_KEYS, mergeMessageTemplateEnabled, mergeMessageTemplates, normalizeCustomMessageTemplates } from "../services/messages";
 
@@ -26,7 +27,7 @@ const view = (org: any) => ({
 
 // Per-org settings (name, timezone, bill footer, reminder schedule/message). Any member can view/edit.
 export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
-  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
+  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method, request.url) }))
 
   .get("/", async ({ ctx }: any) => {
     const org = await prisma.organization.findUnique({ where: { id: ctx.orgId } });
@@ -37,6 +38,8 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
   .patch(
     "/",
     async ({ body, ctx }: any) => {
+      if (body?.message_templates !== undefined) requirePermission(ctx, "message-settings");
+      if (Object.keys(body ?? {}).some((key) => key !== "message_templates")) requirePermission(ctx, "settings");
       const data: any = {};
       if (body.name !== undefined) data.name = body.name;
       if (body.timezone !== undefined) data.timezone = body.timezone;

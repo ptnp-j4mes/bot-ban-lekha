@@ -55,7 +55,7 @@ const CUSTOMER_DOCUMENT_EXTENSIONS: Record<string, string> = {
 };
 
 export const customerRoutes = new Elysia({ prefix: "/api" })
-  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
+  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method, request.url) }))
 
   .post("/customers", async ({ body, ctx }: any) => {
     const { customer_code, display_name, phone, line_oa_id, facebook_url, email, address, contact_note, customer_type } = body ?? {};

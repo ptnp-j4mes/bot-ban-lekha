@@ -9,7 +9,7 @@ import { api } from './api';
 import { store } from './storage';
 
 type AuthState = {
-  status: 'loading' | 'signed_out' | 'signed_in';
+  status: 'loading' | 'signed_out' | 'pending' | 'signed_in';
   me: AdminMe | null;
   orgId: string | null;
   orgName: string | null;
@@ -63,6 +63,11 @@ export function AdminAuthProvider({ children }: PropsWithChildren) {
       if (meRef.current?.user_id && meRef.current.user_id !== current.user_id) await clearCache();
       meRef.current = current;
       setMe(current);
+      if (current.approval_status === 'pending') {
+        setStatus('pending');
+        setError('รออนุมัติสิทธิ์เข้าใช้งาน');
+        return;
+      }
       const savedOrg = await store.get('org_id');
       if (!current.is_platform_admin && current.org) {
         await enterOrg(current.org);
@@ -73,6 +78,15 @@ export function AdminAuthProvider({ children }: PropsWithChildren) {
       setStatus('signed_in');
       setError(null);
     } catch (err) {
+      if (err instanceof MobileApiError && err.code === 'PENDING_APPROVAL') {
+        await clearCache();
+        await api.clearToken();
+        meRef.current = null;
+        setMe(null);
+        setStatus('pending');
+        setError(err.message);
+        return;
+      }
       await exitOrg();
       await api.clearToken();
       meRef.current = null;
@@ -114,6 +128,15 @@ export function AdminAuthProvider({ children }: PropsWithChildren) {
       await api.setToken(result.token);
       await refresh();
     } catch (err) {
+      if (err instanceof MobileApiError && err.code === 'PENDING_APPROVAL') {
+        await clearCache();
+        await api.clearToken();
+        meRef.current = null;
+        setMe(null);
+        setStatus('pending');
+        setError(err.message);
+        throw err;
+      }
       await exitOrg();
       await api.clearToken();
       meRef.current = null;
@@ -138,6 +161,15 @@ export function AdminAuthProvider({ children }: PropsWithChildren) {
       await api.setToken(session.token);
       await refresh();
     } catch (err) {
+      if (err instanceof MobileApiError && err.code === 'PENDING_APPROVAL') {
+        await clearCache();
+        await api.clearToken();
+        meRef.current = null;
+        setMe(null);
+        setStatus('pending');
+        setError(err.message);
+        throw err;
+      }
       await exitOrg();
       await api.clearToken();
       meRef.current = null;

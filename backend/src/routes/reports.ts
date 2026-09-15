@@ -14,7 +14,7 @@ export const csvEscape = (value: unknown) => {
 
 // Org-scoped reporting. Any member can view/export.
 export const reportRoutes = new Elysia({ prefix: "/api/reports" })
-  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
+  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method, request.url) }))
 
   .get("/summary", async ({ query, ctx }: any) => {
     const range: any = {};

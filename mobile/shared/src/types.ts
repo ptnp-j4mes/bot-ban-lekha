@@ -11,11 +11,19 @@ export type MobileConfig = {
   defaultOaId?: string;
 };
 
+export const ADMIN_PERMISSIONS = [
+  'dashboard', 'customers', 'banks', 'plans', 'submissions', 'senders', 'groups',
+  'reports', 'oa', 'chat', 'logs', 'settings', 'message-settings',
+] as const;
+export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number];
+
 export type AdminMe = {
   user_id: string;
   name?: string | null;
   is_platform_admin: boolean;
   org?: { id: string; name: string } | null;
+  approval_status: 'pending' | 'approved';
+  permissions: AdminPermission[];
   menu_prefs?: unknown;
 };
 

@@ -27,6 +27,8 @@ import { HeaderMenuProvider } from '../../../../shared/src/ui';
 import { font, useColors } from '../../../../shared/src/theme';
 import type { AdminStackParamList } from '../navigation';
 import { api } from '../api';
+import { filterMenuSections, hasMenuPermission } from '../permissions';
+import { ADMIN_PERMISSIONS, type AdminPermission } from '../../../../shared/src/types';
 import { GlassView } from './GlassView';
 
 type AdminNavigation = NavigationContainerRef<AdminStackParamList>;
@@ -115,24 +117,28 @@ function initials(value?: string | null) {
   return text.slice(0, 2).toUpperCase();
 }
 
-export function AdminMenuProvider({ children, mode, profileLabel, onLogout, navigationRef, queryScope = [] }: PropsWithChildren<{ mode: 'org' | 'platform'; profileLabel?: string | null; onLogout: () => void; navigationRef: AdminNavigation; queryScope?: readonly (string | null)[] }>) {
+export function AdminMenuProvider({ children, mode, profileLabel, onLogout, navigationRef, queryScope = [], permissions }: PropsWithChildren<{ mode: 'org' | 'platform'; profileLabel?: string | null; onLogout: () => void; navigationRef: AdminNavigation; queryScope?: readonly (string | null)[]; permissions?: readonly AdminPermission[] }>) {
   const colors = useColors();
   const isDark = useColorScheme() === 'dark';
   const [open, setOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [activeRoute, setActiveRoute] = useState<keyof AdminStackParamList | undefined>();
-  const sections = mode === 'platform' ? platformSections : orgSections;
-  const islandItems = mode === 'platform' ? platformIslandItems : orgIslandItems;
+  const allowedPermissions = permissions ?? ADMIN_PERMISSIONS;
+  const can = (id: string) => hasMenuPermission(allowedPermissions, id);
+  const sections = mode === 'platform' ? platformSections : filterMenuSections(orgSections, allowedPermissions);
+  const islandItems = mode === 'platform' ? platformIslandItems : orgIslandItems.filter((item) => can(item.id));
   const islandActiveRoute = islandItems.find((item) => activeRoute === item.route || (item.route === 'Customers' && activeRoute === 'CustomerDetail'))?.route ?? islandItems[0]?.route;
   const profileInitials = useMemo(() => initials(profileLabel), [profileLabel]);
   const notificationsEnabled = mode === 'org';
-  const pending = useQuery({ queryKey: ['mobile-pending', ...queryScope], queryFn: () => api.get<{ total: number }>('/api/admin/payment-submissions?review_status=pending_review&limit=1'), enabled: notificationsEnabled, refetchInterval: 30_000 });
-  const due = useQuery({ queryKey: ['mobile-due', ...queryScope], queryFn: () => api.get<any[]>('/api/installments/due-today'), enabled: notificationsEnabled, refetchInterval: 60_000 });
-  const overdue = useQuery({ queryKey: ['mobile-overdue', ...queryScope], queryFn: () => api.get<any[]>('/api/installments/overdue'), enabled: notificationsEnabled, refetchInterval: 60_000 });
+  const pending = useQuery({ queryKey: ['mobile-pending', ...queryScope], queryFn: () => api.get<{ total: number }>('/api/admin/payment-submissions?review_status=pending_review&limit=1'), enabled: notificationsEnabled && can('submissions'), refetchInterval: 30_000 });
+  const due = useQuery({ queryKey: ['mobile-due', ...queryScope], queryFn: () => api.get<any[]>('/api/installments/due-today'), enabled: notificationsEnabled && (can('dashboard') || can('plans') || can('reports')), refetchInterval: 60_000 });
+  const overdue = useQuery({ queryKey: ['mobile-overdue', ...queryScope], queryFn: () => api.get<any[]>('/api/installments/overdue'), enabled: notificationsEnabled && (can('dashboard') || can('plans') || can('reports')), refetchInterval: 60_000 });
   const notificationItems: NotificationItem[] = [
-    { id: 'subs', label: 'สลิปรอตรวจสอบ', count: pending.data?.total ?? 0, tone: 'warn', icon: Receipt, route: 'Submissions' },
-    { id: 'due', label: 'ครบกำหนดวันนี้', count: due.data?.length ?? 0, tone: 'info', icon: CalendarDays, route: 'Dashboard' },
-    { id: 'overdue', label: 'ค้างชำระ', count: overdue.data?.length ?? 0, tone: 'danger', icon: CircleAlert, route: 'Dashboard' },
+    ...(can('submissions') ? [{ id: 'subs', label: 'สลิปรอตรวจสอบ', count: pending.data?.total ?? 0, tone: 'warn' as const, icon: Receipt, route: 'Submissions' as const }] : []),
+    ...(can('dashboard') || can('plans') || can('reports') ? [
+      { id: 'due', label: 'ครบกำหนดวันนี้', count: due.data?.length ?? 0, tone: 'info' as const, icon: CalendarDays, route: 'Dashboard' as const },
+      { id: 'overdue', label: 'ค้างชำระ', count: overdue.data?.length ?? 0, tone: 'danger' as const, icon: CircleAlert, route: 'Dashboard' as const },
+    ] : []),
   ];
   const notificationCount = notificationItems.reduce((total, item) => total + item.count, 0);
   const notificationButton = notificationsEnabled ? <Pressable accessibilityLabel="การแจ้งเตือน" accessibilityRole="button" onPress={() => setNotificationsOpen(true)} style={({ pressed }) => [styles.notificationButton, { opacity: pressed ? 0.7 : 1 }]}>

@@ -106,6 +106,7 @@ test("liff: session exchange happy path returns a working session token, scoped 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.customer.customer_code).toBe(customer.customerCode);
+    expect(body.data.consent).toBeNull();
 
     const me = await app.handle(new Request("http://localhost/api/liff/me", { headers: liffHdr(body.data.token) }));
     expect(me.status).toBe(200);
@@ -113,6 +114,51 @@ test("liff: session exchange happy path returns a working session token, scoped 
   } finally {
     globalThis.fetch = origFetch;
   }
+});
+
+test("liff: consent stores the mandatory acknowledgement and selected optional purposes", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const { customer } = await makeLinkedCustomer(org.id, oa.id, `Uconsent${rnd()}`);
+  const token = liffToken(customer.id, org.id, oa.id, customer.lineUserId!);
+  const selection = {
+    general: true, retention: true, truth: true, gps: true, sensitive: true,
+    sensitive_categories: ["health"], sensitive_other: "", photo: true, image_rights: true, marketing: false,
+  };
+
+  const invalid = await app.handle(new Request("http://localhost/api/liff/me/consent", {
+    method: "POST", headers: { ...liffHdr(token), "content-type": "application/json" },
+    body: JSON.stringify({ ...selection, general: false }),
+  }));
+  expect(invalid.status).toBe(400);
+
+  const res = await app.handle(new Request("http://localhost/api/liff/me/consent", {
+    method: "POST", headers: { ...liffHdr(token), "content-type": "application/json" },
+    body: JSON.stringify(selection),
+  }));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.data.consent.accepted_at).toBeString();
+  expect(body.data.consent.selections).toEqual(selection);
+
+  const saved = await prisma.customer.findUnique({ where: { id: customer.id }, select: { consentAt: true } });
+  expect(saved?.consentAt).not.toBeNull();
+  const audit = await prisma.auditLog.findFirst({ where: { orgId: org.id, action: "customer_consent", entityId: customer.id } });
+  expect(audit?.actorType).toBe("line_user");
+  expect((audit?.newValue as any)?.selections).toEqual(selection);
+});
+
+test("liff: consent rejects sensitive data without a category or image publication without image rights", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const { customer } = await makeLinkedCustomer(org.id, oa.id, `Uconsentinvalid${rnd()}`);
+  const token = liffToken(customer.id, org.id, oa.id, customer.lineUserId!);
+  const post = (body: unknown) => app.handle(new Request("http://localhost/api/liff/me/consent", {
+    method: "POST", headers: { ...liffHdr(token), "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+  const base = { general: true, retention: true, truth: true, gps: false, sensitive: false, sensitive_categories: [], sensitive_other: "", photo: false, image_rights: false, marketing: false };
+  expect((await post({ ...base, sensitive: true })).status).toBe(400);
+  expect((await post({ ...base, photo: true })).status).toBe(400);
 });
 
 test("liff: customer isolation — a session only ever sees its own balance/installments/payments", async () => {

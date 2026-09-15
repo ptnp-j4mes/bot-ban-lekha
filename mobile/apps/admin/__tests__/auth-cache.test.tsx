@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react-nativ
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Pressable, Text } from 'react-native';
 import { AdminAuthProvider, useAdminAuth } from '../src/auth';
+import { MobileApiError } from '../../../shared/src/api';
 
 const mockStoreValues = new Map([['org_id', 'org-1'], ['org_name', 'Org 1']]);
 
@@ -97,4 +98,16 @@ test('clears cached admin data and returns to signed out after replacement login
   await fireEvent.press(screen.getByTestId('login'));
   await waitFor(() => expect(screen.getByTestId('status').props.children).toBe('signed_out'));
   expect(queryClient.getQueryData(['mobile-customers', 'admin-1', 'org-1'])).toBeUndefined();
+});
+
+test('shows pending approval when login is rejected for missing access', async () => {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  mockApi.getToken.mockResolvedValue(null);
+  mockApi.post.mockRejectedValueOnce(new MobileApiError('รออนุมัติสิทธิ์เข้าใช้งาน', 403, 'PENDING_APPROVAL'));
+  renderAuth(queryClient);
+
+  await waitFor(() => expect(screen.getByTestId('status').props.children).toBe('signed_out'));
+  await fireEvent.press(screen.getByTestId('login'));
+  await waitFor(() => expect(screen.getByTestId('status').props.children).toBe('pending'));
+  expect(mockApi.clearToken).toHaveBeenCalled();
 });

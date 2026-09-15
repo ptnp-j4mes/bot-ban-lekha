@@ -25,7 +25,13 @@ const mockAdminApiGet = jest.fn(async (path: string) => {
 });
 
 jest.mock('../src/auth', () => ({
-  useAdminAuth: () => ({ login: mockLogin, loginWithLine: mockLoginWithLine, orgName: 'ทดสอบ', logout: jest.fn(async () => {}) }),
+  useAdminAuth: () => ({
+    login: mockLogin,
+    loginWithLine: mockLoginWithLine,
+    orgName: 'ทดสอบ',
+    me: { user_id: 'admin-1', is_platform_admin: false, approval_status: 'approved', permissions: ['dashboard', 'customers', 'banks', 'plans', 'submissions', 'senders', 'groups', 'reports', 'oa', 'chat', 'logs', 'settings', 'message-settings'] },
+    logout: jest.fn(async () => {}),
+  }),
 }));
 jest.mock('../src/api', () => ({ api: { get: (path: string) => mockAdminApiGet(path) } }));
 jest.mock('@react-navigation/native', () => ({ useNavigation: () => ({ navigate: mockNavigate }) }));

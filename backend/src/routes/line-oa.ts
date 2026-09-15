@@ -6,7 +6,7 @@ import { audit } from "../services/audit";
 import { publicOa } from "../services/oa";
 
 export const lineOaRoutes = new Elysia({ prefix: "/api/line-oa-accounts" })
-  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
+  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method, request.url) }))
 
   .get("/", async ({ ctx }: any) =>
     ok((await prisma.lineOaAccount.findMany({ where: { orgId: ctx.orgId }, orderBy: { createdAt: "asc" } })).map(publicOa))

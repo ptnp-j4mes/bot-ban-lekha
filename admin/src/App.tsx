@@ -27,9 +27,10 @@ import { PlatformSettings } from "@/pages/PlatformSettings";
 import { StorageSettings } from "@/pages/StorageSettings";
 import { FileManager } from "@/components/FileManager";
 import { Login } from "@/pages/Login";
+import { PendingApproval } from "@/pages/PendingApproval";
 import { NotificationBell, type Notif } from "@/components/NotificationBell";
 import { ConfirmProvider } from "@/components/ui/confirm";
-import { menuIdFromPath, menuPath, platformMenuIdFromPath, platformMenuPath } from "@/lib/menu";
+import { menuIdFromPath, menuPath, menuPermission, platformMenuIdFromPath, platformMenuPath } from "@/lib/menu";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
@@ -144,7 +145,7 @@ function Frame({ title, brand, topRight, right, children, nav }: any) {
 }
 
 function Shell() {
-  const { me, loading, isPlatformAdmin, impersonating, orgId, orgName, exitOrg, logout, menuPrefs } = useAuth();
+  const { me, loading, isPlatformAdmin, impersonating, orgId, orgName, exitOrg, logout, menuPrefs, permissions, pendingApproval } = useAuth();
   const [pathname, setPathname] = useState(currentPath);
   const opEnabled = !!orgId && (!isPlatformAdmin || impersonating);
 
@@ -173,6 +174,9 @@ function Shell() {
 
   const tab = menuIdFromPath(pathname) ?? "dashboard";
   const ptab = platformMenuIdFromPath(pathname) ?? "users";
+  const canMenu = (id: string) => isPlatformAdmin || permissions.includes(menuPermission(id));
+  const allowedNav = NAV.filter((item) => canMenu(item.id));
+  const allowedNavIds = allowedNav.map((item) => item.id).join(",");
 
   // Keep the URL in the correct menu namespace when auth mode changes, e.g.
   // entering or leaving an organization from the platform user console.
@@ -181,24 +185,26 @@ function Shell() {
     if (isPlatformAdmin && !impersonating) {
       if (!platformMenuIdFromPath(pathname)) navigatePlatform("users", true);
     } else if (!menuIdFromPath(pathname)) {
-      navigate("dashboard", true);
+      if (allowedNav.length) navigate(allowedNav[0].id, true);
+    } else if (allowedNav.length && !allowedNav.some((item) => item.id === tab)) {
+      navigate(allowedNav[0].id, true);
     }
-  }, [loading, me, isPlatformAdmin, impersonating, pathname]);
+  }, [loading, me, isPlatformAdmin, impersonating, pathname, allowedNavIds, tab]);
   const pending = useQuery({
     queryKey: ["subs-pending-nav"],
     queryFn: () => apiGet("/api/admin/payment-submissions?review_status=pending_review&limit=1"),
-    enabled: opEnabled,
+    enabled: opEnabled && canMenu("subs"),
     refetchInterval: 30000,
   });
   const unclassifiedCustomers = useQuery({
     queryKey: ["customer-unclassified-nav"],
     queryFn: () => apiGet("/api/customers?customer_type=unclassified&limit=1&page=1"),
-    enabled: opEnabled,
+    enabled: opEnabled && canMenu("customers"),
     refetchInterval: 30000,
   });
   // Shared cache keys with Dashboard — no extra fetch.
-  const dueToday = useQuery({ queryKey: ["due-today"], queryFn: () => apiGet("/api/installments/due-today"), enabled: opEnabled, refetchInterval: 60000 });
-  const overdue = useQuery({ queryKey: ["overdue"], queryFn: () => apiGet("/api/installments/overdue"), enabled: opEnabled, refetchInterval: 60000 });
+  const dueToday = useQuery({ queryKey: ["due-today"], queryFn: () => apiGet("/api/installments/due-today"), enabled: opEnabled && (canMenu("dashboard") || canMenu("plans") || canMenu("reports")), refetchInterval: 60000 });
+  const overdue = useQuery({ queryKey: ["overdue"], queryFn: () => apiGet("/api/installments/overdue"), enabled: opEnabled && (canMenu("dashboard") || canMenu("plans") || canMenu("reports")), refetchInterval: 60000 });
   const pendingCount = pending.data?.total ?? 0;
   const unclassifiedCount = unclassifiedCustomers.data?.total ?? 0;
 
@@ -222,10 +228,12 @@ function Shell() {
   }, [unclassifiedCount, opEnabled]);
 
   const notifs: Notif[] = [
-    { id: "subs", label: "สลิปรอตรวจสอบ", count: pendingCount, tone: "warn", onClick: () => navigate("subs") },
-    { id: "new-customers", label: "ผู้ติดต่อใหม่รอจัดประเภท", count: unclassifiedCount, tone: "warn", onClick: () => navigate("customers", false, "?customer_type=unclassified") },
-    { id: "due", label: "ครบกำหนดวันนี้", count: dueToday.data?.length ?? 0, tone: "info", onClick: () => navigate("dashboard") },
-    { id: "overdue", label: "ค้างชำระ", count: overdue.data?.length ?? 0, tone: "danger", onClick: () => navigate("dashboard") },
+    ...(canMenu("subs") ? [{ id: "subs", label: "สลิปรอตรวจสอบ", count: pendingCount, tone: "warn" as const, onClick: () => navigate("subs") }] : []),
+    ...(canMenu("customers") ? [{ id: "new-customers", label: "ผู้ติดต่อใหม่รอจัดประเภท", count: unclassifiedCount, tone: "warn" as const, onClick: () => navigate("customers", false, "?customer_type=unclassified") }] : []),
+    ...(canMenu("dashboard") || canMenu("plans") || canMenu("reports") ? [
+      { id: "due", label: "ครบกำหนดวันนี้", count: dueToday.data?.length ?? 0, tone: "info" as const, onClick: () => navigate("dashboard") },
+      { id: "overdue", label: "ค้างชำระ", count: overdue.data?.length ?? 0, tone: "danger" as const, onClick: () => navigate("dashboard") },
+    ] : []),
   ];
 
   if (loading) return (
@@ -233,6 +241,7 @@ function Shell() {
       <div className="text-muted-foreground text-sm">กำลังโหลด…</div>
     </div>
   );
+  if (pendingApproval || me?.approvalStatus === "pending") return <PendingApproval />;
   if (!hasCreds() || !me) return <Login />;
 
   const roleText = impersonating ? "กำลังดูในมุม user" : isPlatformAdmin ? "Super Admin" : (orgName || "ผู้ใช้");
@@ -304,7 +313,7 @@ function Shell() {
     );
   }
 
-  const active = NAV.find((n) => n.id === tab) ?? NAV[0];
+  const active = NAV.find((n) => n.id === tab && canMenu(n.id)) ?? allowedNav[0] ?? NAV[0];
 
   const hidden = new Set(menuPrefs?.hidden ?? []);
   const customGroups = menuPrefs?.groups?.length ? menuPrefs.groups : null;
@@ -339,7 +348,7 @@ function Shell() {
       return (
         <nav>
           {groups.map((g, gi) => {
-            const items = g.items.map((id) => NAV.find((n) => n.id === id)).filter((n): n is typeof NAV[number] => !!n && !hidden.has(n.id));
+            const items = g.items.map((id) => NAV.find((n) => n.id === id)).filter((n): n is typeof NAV[number] => !!n && canMenu(n.id) && !hidden.has(n.id));
             if (!items.length) return null;
             return (
               <div key={gi}>
@@ -355,13 +364,13 @@ function Shell() {
       const ordered = [
         ...customOrder.map((id) => NAV.find((n) => n.id === id)).filter((n): n is typeof NAV[number] => !!n),
         ...NAV.filter((n) => !customOrder.includes(n.id)),
-      ].filter((n) => !hidden.has(n.id));
+        ].filter((n) => canMenu(n.id) && !hidden.has(n.id));
       return <nav><div className="nav-section">เมนู</div><div className="space-y-0.5">{ordered.map(item)}</div></nav>;
     }
     return (
       <nav>
         {NAV_GROUPS.map((group) => {
-          const items = group.items.filter((n) => !hidden.has(n.id));
+          const items = group.items.filter((n) => canMenu(n.id) && !hidden.has(n.id));
           if (!items.length) return null;
           return (
             <div key={group.label}>

@@ -1,14 +1,16 @@
 # Customer LIFF: pink dashboard
 
-Mobile-first customer view matching the pink Rich Menu. This is a read-only UI; it does not create bills, approve payments, generate payment QR codes or upload slips. Admin pages, backend routes and the database are unchanged.
+Mobile-first customer view matching the pink Rich Menu. Financial records remain read-only; the first visit can save the customer's privacy acknowledgement and consent choices. It does not create bills, approve payments, generate payment QR codes or upload slips.
 
 ## Existing API contract
 
 The app initializes LIFF and exchanges the raw LINE ID token with `POST /api/liff/session` using `{ id_token, oa_id }`. Only the backend-verified customer session is used for `GET /api/liff/me/balance`, `/me/installments` and `/me/payments`. All fields use the existing snake_case serializer.
 
+If the linked customer has not accepted the consent form, financial requests are not started. The form submits the selected purposes to `POST /api/liff/me/consent`; the backend stores the acceptance time on the customer and the checkbox selections in the customer audit log.
+
 `oa` is the internal `LineOaAccount.id`, not the OA public handle, LINE user ID or channel ID. Read query parameters only after `liff.init()` resolves. The `liff.state` fallback is read-only.
 
-A page open or explicit refresh exchanges a fresh session rather than trusting a cached account. Tokens remain in sessionStorage with a page-memory fallback when WebView storage is blocked; never localStorage. Superseded requests are aborted. No private customer responses are intentionally cached, logged or persisted. Actual sessionStorage lifetime depends on the WebView.
+A page open or explicit refresh exchanges a fresh session rather than trusting a cached account. Tokens remain in sessionStorage with a page-memory fallback when WebView storage is blocked; never localStorage. Superseded requests are aborted. No private customer responses or uploaded documents are intentionally cached, logged or persisted. Actual sessionStorage lifetime depends on the WebView.
 
 ## Meaning of amounts
 

@@ -12,6 +12,7 @@ export const clearAuth = () => {
   localStorage.removeItem("authToken");
   localStorage.removeItem("adminKey");
   localStorage.removeItem("orgId");
+  localStorage.removeItem("orgName");
 };
 
 export const loginUrl = `${BASE}/api/auth/line/login`;

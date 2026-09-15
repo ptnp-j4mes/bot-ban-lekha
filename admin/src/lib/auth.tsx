@@ -2,11 +2,12 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-toastify";
 import { apiGet, apiSend, clearAuth, hasCreds, setToken, getLineLoginVerifier, clearLineLoginVerifier, getOrgId, setOrgId } from "./api";
+import { ADMIN_PERMISSIONS, type AdminPermission } from "./menu";
 
 type Org = { id: string; name: string };
 export type MenuGroup = { label: string; items: string[] };
 export type MenuPrefs = { order?: string[]; hidden?: string[]; groups?: MenuGroup[] };
-type Me = { userId: string; name?: string; isPlatformAdmin: boolean; org?: Org | null; menuPrefs?: MenuPrefs | null };
+type Me = { userId: string; name?: string; isPlatformAdmin: boolean; org?: Org | null; approvalStatus: "pending" | "approved"; permissions: AdminPermission[]; menuPrefs?: MenuPrefs | null };
 
 type AuthState = {
   me?: Me;
@@ -18,6 +19,10 @@ type AuthState = {
   enterOrg: (org: Org) => void;
   exitOrg: () => void;
   canWrite: boolean; // any member = full access
+  approvalStatus: "pending" | "approved";
+  permissions: AdminPermission[];
+  pendingApproval: boolean;
+  login: (username: string, password: string) => Promise<void>;
   menuPrefs?: MenuPrefs | null;
   logout: () => void;
 };
@@ -30,6 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [orgId, setOrgIdState] = useState(getOrgId());
   const [orgName, setOrgName] = useState(localStorage.getItem("orgName") || "");
+  const [pendingApproval, setPendingApproval] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -48,7 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (alive) setToken(result.token);
         }
       } catch (error: any) {
-        if (alive) toast.error(error?.message || "เข้าสู่ระบบไม่สำเร็จ");
+        if (alive && error?.code === "PENDING_APPROVAL") setPendingApproval(true);
+        else if (alive) toast.error(error?.message || "เข้าสู่ระบบไม่สำเร็จ");
       } finally {
         clearLineLoginVerifier();
         if (code || legacyToken || err) history.replaceState(null, "", window.location.pathname);
@@ -61,8 +68,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const me = useQuery<any>({ queryKey: ["me"], queryFn: () => apiGet("/api/auth/me"), enabled: ready && hasCreds(), retry: false });
   const data: Me | undefined = me.data
-    ? { userId: me.data.user_id, name: me.data.name, isPlatformAdmin: !!me.data.is_platform_admin, org: me.data.org ?? null, menuPrefs: me.data.menu_prefs ?? null }
+    ? {
+        userId: me.data.user_id,
+        name: me.data.name,
+        isPlatformAdmin: !!me.data.is_platform_admin,
+        org: me.data.org ?? null,
+        approvalStatus: me.data.approval_status === "approved" ? "approved" : "pending",
+        permissions: Array.isArray(me.data.permissions) ? me.data.permissions.filter((permission: string) => ADMIN_PERMISSIONS.includes(permission as AdminPermission)) : [],
+        menuPrefs: me.data.menu_prefs ?? null,
+      }
     : undefined;
+
+  useEffect(() => {
+    if (data?.approvalStatus === "pending" || (me.error as any)?.code === "PENDING_APPROVAL") setPendingApproval(true);
+  }, [data?.approvalStatus, me.error]);
 
   // A normal user always operates inside their own org — pin it.
   useEffect(() => {
@@ -89,9 +108,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     qc.invalidateQueries();
   };
   const logout = () => {
+    setPendingApproval(false);
     clearAuth();
     qc.clear();
     window.location.reload();
+  };
+
+  const login = async (username: string, password: string) => {
+    setPendingApproval(false);
+    clearAuth();
+    qc.clear();
+    try {
+      const result = await apiSend<{ token: string }>("/api/auth/login", "POST", { username, password });
+      setToken(result.token);
+    } catch (error: any) {
+      if (error?.code === "PENDING_APPROVAL") setPendingApproval(true);
+      throw error;
+    }
   };
 
   const isPlatformAdmin = !!data?.isPlatformAdmin;
@@ -105,6 +138,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     enterOrg,
     exitOrg,
     canWrite: true,
+    approvalStatus: pendingApproval ? "pending" : (data?.approvalStatus ?? "pending"),
+    permissions: data?.permissions ?? [],
+    pendingApproval,
+    login,
     menuPrefs: data?.menuPrefs ?? null,
     logout,
   };

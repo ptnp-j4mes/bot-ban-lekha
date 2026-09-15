@@ -35,3 +35,17 @@ test("customer detail exposes navigation for its long sections", () => {
   assert.match(detail, /aria-label="ส่วนข้อมูลลูกค้า"/);
   assert.match(detail, /href="#customer-documents"/);
 });
+
+test("customer detail uses the shared dialog chrome", () => {
+  assert.match(detail, /createPortal\(/);
+  assert.match(detail, /document\.body/);
+  assert.match(detail, /fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black\/40 px-3 sm:px-4/);
+  assert.match(detail, /rounded-md border border-border bg-background shadow-xl/);
+  assert.doesNotMatch(detail, /bg-black\/40 p-0/);
+});
+
+test("table headers stay below the customer dialog header", () => {
+  assert.match(table, /sticky top-0 z-0 border-b border-foreground\/15 bg-card/);
+  assert.doesNotMatch(detail, /my-3/);
+  assert.doesNotMatch(detail, /sm:my-8/);
+});

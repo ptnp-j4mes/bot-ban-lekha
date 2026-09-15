@@ -8,7 +8,7 @@ import { renderDailyReminder, sendAndLog } from "../services/messages";
 import { recordManualPayment } from "../services/payment";
 
 export const installmentRoutes = new Elysia({ prefix: "/api/installments" })
-  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
+  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method, request.url) }))
 
   .get("/due-today", async ({ ctx }: any) => {
     const today = bangkokToday();

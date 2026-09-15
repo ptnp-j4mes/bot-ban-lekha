@@ -12,6 +12,7 @@ export type ErrorCode =
   | "LINE_PUSH_FAILED"
   | "OCR_FAILED"
   | "UNAUTHORIZED"
+  | "PENDING_APPROVAL"
   | "FORBIDDEN"
   | "INTERNAL_ERROR";
 
@@ -26,6 +27,7 @@ const STATUS: Record<ErrorCode, number> = {
   LINE_PUSH_FAILED: 502,
   OCR_FAILED: 502,
   UNAUTHORIZED: 401,
+  PENDING_APPROVAL: 403,
   FORBIDDEN: 403,
   INTERNAL_ERROR: 500,
 };

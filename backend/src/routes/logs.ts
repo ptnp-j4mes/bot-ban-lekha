@@ -8,7 +8,7 @@ import { detectImageMime } from "../services/ocr";
 
 // Org-scoped audit log + resend of a failed LINE message.
 export const logRoutes = new Elysia()
-  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
+  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method, request.url) }))
 
   .get("/api/audit-logs", async ({ query, ctx }: any) => {
     const page = Math.max(1, Number(query.page ?? 1));

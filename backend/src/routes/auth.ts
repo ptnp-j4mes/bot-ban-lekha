@@ -7,6 +7,7 @@ import { signJwt } from "../lib/jwt";
 import { authContext } from "../lib/auth";
 import { verifyLineIdToken } from "../lib/line";
 import { sha256 } from "../lib/hash";
+import { getAdminAccess } from "../lib/permissions";
 
 const AUTHORIZE = "https://access.line.me/oauth2/v2.1/authorize";
 const TOKEN = "https://api.line.me/oauth2/v2.1/token";
@@ -19,9 +20,7 @@ type LineAdminProfile = { sub: string; name?: string; pictureUrl?: string };
 // Keep the native LINE Login path aligned with the existing web callback. The
 // mobile app only sends an ID token; channel secrets remain server-side.
 async function upsertLineAdmin(profile: LineAdminProfile) {
-  const total = await prisma.adminUser.count();
   const existing = await prisma.adminUser.findUnique({ where: { lineUserId: profile.sub } });
-  if (existing && !existing.isActive) throw new ApiError("FORBIDDEN", "บัญชีถูกปิดใช้งาน");
 
   return existing
     ? prisma.adminUser.update({
@@ -37,11 +36,17 @@ async function upsertLineAdmin(profile: LineAdminProfile) {
           lineUserId: profile.sub,
           displayName: profile.name,
           pictureUrl: profile.pictureUrl,
-          isPlatformAdmin: total === 0,
+          isPlatformAdmin: false,
           isActive: true,
           lastLoginAt: new Date(),
         },
       });
+}
+
+async function ensureApproved(db: any, user: { id: string; isActive: boolean; isPlatformAdmin: boolean }) {
+  if (!user.isActive) throw new ApiError("PENDING_APPROVAL", "รออนุมัติสิทธิ์เข้าใช้งาน");
+  if (!user.isPlatformAdmin && !(await getAdminAccess(db, user.id)).hasApprovedMembership)
+    throw new ApiError("PENDING_APPROVAL", "รออนุมัติสิทธิ์เข้าใช้งาน");
 }
 
 export const authRoutes = new Elysia({ prefix: "/api/auth", cookie: { secrets: env.jwtSecret, sign: ["oauth_state"] } })
@@ -52,7 +57,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth", cookie: { secrets: e
     const u = await prisma.adminUser.findUnique({ where: { username } });
     const okPw = u?.passwordHash ? await Bun.password.verify(password, u.passwordHash) : false;
     if (!u || !okPw) throw new ApiError("UNAUTHORIZED", "username หรือ password ไม่ถูกต้อง");
-    if (!u.isActive) throw new ApiError("FORBIDDEN", "บัญชีถูกปิดใช้งาน");
+    await ensureApproved(prisma, u);
     await prisma.adminUser.update({ where: { id: u.id }, data: { lastLoginAt: new Date() } });
     return ok({ token: signJwt({ sub: u.id, name: u.displayName }, env.jwtSecret) });
   }, { body: t.Object({ username: t.String({ minLength: 1 }), password: t.String({ minLength: 1 }) }) })
@@ -103,8 +108,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth", cookie: { secrets: e
     if (!profRes.ok) return fail("profile fetch failed");
     const prof: any = await profRes.json();
 
-    // First-ever admin to log in becomes the platform admin (you). Others just get an account;
-    // org access is granted by being added to an org (member/platform admin).
+    // LINE accounts start as regular users; Super Admin grants org access separately.
     const user = await upsertLineAdmin({ sub: prof.userId, name: prof.displayName, pictureUrl: prof.pictureUrl });
     const code = randomBytes(32).toString("base64url");
     await prisma.$transaction(async (tx) => {
@@ -129,7 +133,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth", cookie: { secrets: e
     "/line/complete",
     async ({ body }: any) => {
       const now = new Date();
-      return ok(await prisma.$transaction(async (tx) => {
+      const user = await prisma.$transaction(async (tx) => {
         await tx.adminLoginCompletion.deleteMany({ where: { OR: [{ expiresAt: { lte: now } }, { consumedAt: { not: null } }] } });
         const codeHash = sha256(body.code);
         const challengeHash = sha256(sha256(body.code_verifier));
@@ -141,11 +145,12 @@ export const authRoutes = new Elysia({ prefix: "/api/auth", cookie: { secrets: e
           data: { consumedAt: now },
         });
         if (consumed.count !== 1) throw new ApiError("UNAUTHORIZED", "Invalid or expired login completion");
-        const user = await tx.adminUser.findUnique({ where: { id: completion.adminUserId } });
-        if (!user || !user.isActive) throw new ApiError("FORBIDDEN", "บัญชีถูกปิดใช้งาน");
-        await tx.adminUser.update({ where: { id: user.id }, data: { lastLoginAt: now } });
-        return { token: signJwt({ sub: user.id, name: user.displayName }, env.jwtSecret) };
-      }));
+        return tx.adminUser.findUnique({ where: { id: completion.adminUserId } });
+      });
+      if (!user) throw new ApiError("UNAUTHORIZED", "Account not found");
+      await ensureApproved(prisma, user);
+      await prisma.adminUser.update({ where: { id: user.id }, data: { lastLoginAt: now } });
+      return ok({ token: signJwt({ sub: user.id, name: user.displayName }, env.jwtSecret) });
     },
     { body: t.Object({ code: t.String({ minLength: 1 }), code_verifier: t.String({ minLength: 1 }) }) }
   )
@@ -160,6 +165,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth", cookie: { secrets: e
       const profile = await verifyLineIdToken(body.id_token, env.lineLoginChannelId);
       if (!profile) throw new ApiError("UNAUTHORIZED", "Invalid LINE ID token");
       const user = await upsertLineAdmin(profile);
+      await ensureApproved(prisma, user);
       return ok({ token: signJwt({ sub: user.id, name: user.displayName }, env.jwtSecret) });
     },
     { body: t.Object({ id_token: t.String({ minLength: 1 }) }) }
@@ -185,19 +191,19 @@ export const authRoutes = new Elysia({ prefix: "/api/auth", cookie: { secrets: e
 
   // Current user + their org.
   .get("/me", async ({ headers }: any) => {
-    const ctx = await authContext(headers);
+    const ctx = await authContext(headers, { allowPending: true, ignoreOrg: true });
     // user = their single org; super admin = no default org (enters a user's org explicitly).
     let org: { id: string; name: string } | null = null;
     let menuPrefs: unknown = null;
     if (!ctx.isPlatformAdmin && ctx.userId !== "apikey") {
-      const m = await prisma.membership.findFirst({ where: { adminUserId: ctx.userId, organization: { isActive: true } }, include: { organization: true } });
-      if (m) org = { id: m.orgId, name: m.organization.name };
+      const access = await getAdminAccess(prisma, ctx.userId);
+      if (access.membership?.organization?.isActive) org = { id: access.membership.orgId, name: access.membership.organization.name };
     }
     if (ctx.userId !== "apikey") {
       const u = await prisma.adminUser.findUnique({ where: { id: ctx.userId }, select: { menuPrefs: true } });
       menuPrefs = u?.menuPrefs ?? null;
     }
-    return ok({ userId: ctx.userId, name: ctx.name, isPlatformAdmin: ctx.isPlatformAdmin, org, menu_prefs: menuPrefs });
+    return ok({ userId: ctx.userId, name: ctx.name, isPlatformAdmin: ctx.isPlatformAdmin, org, approval_status: ctx.approvalStatus, permissions: ctx.permissions, menu_prefs: menuPrefs });
   })
 
   // Save sidebar menu preferences for super admins only.

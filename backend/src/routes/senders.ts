@@ -6,7 +6,7 @@ import { audit } from "../services/audit";
 
 // Slip senders registry (who posts slips in groups). Member can view + rename.
 export const senderRoutes = new Elysia({ prefix: "/api/senders" })
-  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
+  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method, request.url) }))
 
   .get("/", async ({ ctx }: any) => {
     const senders = await prisma.lineSender.findMany({ where: { orgId: ctx.orgId }, orderBy: { name: "asc" } });

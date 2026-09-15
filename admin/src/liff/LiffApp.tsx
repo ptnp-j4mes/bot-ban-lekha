@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowLeft, CircleAlert, Crown, MessageCircle, RefreshCw, ShieldCheck } from "lucide-react";
 import { clearLiffToken, liffGet, liffPost, setLiffToken } from "./api";
-import { OPEN_BILL_DOCUMENT_PATH, TABS, unpaidInstallments, type Balance, type CustomerData, type Installment, type PaymentHistory, type Tab } from "./model";
+import { OPEN_BILL_DOCUMENT_PATH, TABS, unpaidInstallments, type Balance, type CustomerData, type CustomerLoad, type Installment, type PaymentHistory, type Tab } from "./model";
 import { LiffSessionError, loadCustomerData, readInitialTab, type CustomerApi, type LiffSdk, type Session, type SessionProblem } from "./session";
+import { ConsentForm } from "./ConsentForm";
+import type { ConsentSelections, LiffConsent } from "./consent";
 import { BalanceHero, EmptyState, InstallmentCard, LoadingState, NextDueCard, PaymentHistoryItem } from "./components";
 import "./styles/liff.css";
 
@@ -14,9 +16,10 @@ const api: CustomerApi = {
   getBalance: (signal) => liffGet<Balance>("/api/liff/me/balance", signal),
   getInstallments: (signal) => liffGet<Installment[]>("/api/liff/me/installments", signal),
   getPayments: (signal) => liffGet<PaymentHistory[]>("/api/liff/me/payments", signal),
+  saveConsent: (selection, signal) => liffPost<{ consent: LiffConsent }>("/api/liff/me/consent", selection, signal),
 };
 type Problem = SessionProblem | "error";
-type State = { stage: "loading" } | { stage: "ready"; data: CustomerData } | { stage: Problem };
+type State = { stage: "loading" } | { stage: "ready"; data: CustomerLoad } | { stage: Problem };
 const problems: Record<Problem, { title: string; description: string }> = {
   not_configured: { title: "ลิงก์นี้ยังไม่พร้อมใช้งาน", description: "กรุณาเปิดจากเมนูใน LINE อีกครั้ง หากยังเปิดไม่ได้ กรุณาติดต่อแอดมินเพื่อตรวจสอบการตั้งค่า LIFF ค่ะ" },
   sdk_unavailable: { title: "เชื่อมต่อ LINE ไม่สำเร็จ", description: "กรุณาตรวจสอบอินเทอร์เน็ต แล้วปิดหน้านี้และเปิดใหม่จากเมนูใน LINE ค่ะ" },
@@ -74,12 +77,18 @@ export function LiffApp() {
     tabsRef.current?.scrollIntoView({ block: "start" });
     tabsRef.current?.querySelector<HTMLButtonElement>("#liff-tab-unpaid")?.focus({ preventScroll: true });
   };
-  const data = state.stage === "ready" ? state.data : null;
+  const data: CustomerData | null = state.stage === "ready" && "balance" in state.data ? state.data : null;
+  const consentGate = state.stage === "ready" && state.data.consent === null ? state.data : null;
   const unpaid = data ? unpaidInstallments(data.installments) : [];
   const rows = tab === "unpaid" ? unpaid : tab === "document" ? [] : data?.installments ?? [];
   const count = tab === "history" ? data?.payments.length ?? 0 : rows.length;
-  const name = data?.customer.display_name?.trim() || data?.customer.customer_code || "ลูกค้า";
+  const customer = data?.customer ?? consentGate?.customer;
+  const name = customer?.display_name?.trim() || customer?.customer_code || "ลูกค้า";
   const problem = state.stage !== "ready" && state.stage !== "loading" ? problems[state.stage] : null;
+  const submitConsent = async (selection: ConsentSelections) => {
+    await api.saveConsent(selection, new AbortController().signal);
+    setAttempt((value) => value + 1);
+  };
 
   return (
     <div className="liff-app">
@@ -90,6 +99,10 @@ export function LiffApp() {
         </header>
         {state.stage === "loading" && <LoadingState />}
         {problem && <section className="liff-problem" role="alert"><span className="liff-empty-icon"><CircleAlert size={28} aria-hidden="true" /></span><h1>{problem.title}</h1><p>{problem.description}</p><button type="button" className="liff-button liff-button--outline" onClick={() => state.stage === "sdk_unavailable" ? window.location.reload() : setAttempt((value) => value + 1)}>ลองอีกครั้ง</button></section>}
+        {consentGate && <>
+          <div className="liff-greeting"><div><p>สวัสดีค่ะ</p><h1>{name}</h1><span>รหัสลูกค้า {consentGate.customer.customer_code}</span></div><span className="liff-avatar" aria-hidden="true">{name.slice(0, 1)}</span></div>
+          <ConsentForm onSubmit={submitConsent} />
+        </>}
         {data && <>
           <div className="liff-greeting"><div><p>สวัสดีค่ะ</p><h1>{name}</h1><span>รหัสลูกค้า {data.customer.customer_code}</span></div><span className="liff-avatar" aria-hidden="true">{name.slice(0, 1)}</span></div>
           <BalanceHero balance={data.balance} />

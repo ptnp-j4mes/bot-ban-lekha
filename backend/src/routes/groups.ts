@@ -6,7 +6,7 @@ import { audit } from "../services/audit";
 
 // LINE groups the bot collects slips from. Member can view + rename.
 export const groupRoutes = new Elysia({ prefix: "/api/groups" })
-  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
+  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method, request.url) }))
 
   .get("/", async ({ ctx }: any) => {
     const groups = await prisma.lineGroup.findMany({ where: { orgId: ctx.orgId }, orderBy: { name: "asc" } });

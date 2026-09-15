@@ -8,7 +8,7 @@ import { bangkokDayEndExclusive, bangkokDayStart, bangkokToday } from "../lib/da
 import { readS3Object } from "../services/storage";
 
 export const adminSubmissionRoutes = new Elysia({ prefix: "/api/admin/payment-submissions" })
-  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
+  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method, request.url) }))
 
   .get("/", async ({ query, ctx }: any) => {
     const page = Math.max(1, Number(query.page ?? 1));

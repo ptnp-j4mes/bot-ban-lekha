@@ -1,3 +1,5 @@
+import type { LiffConsent } from "./consent";
+
 /** The existing /api/liff snake_case response contract. */
 export type Balance = { outstanding: number; count: number; next_due_date: string | null };
 export type Customer = { customer_code: string; display_name: string | null };
@@ -11,8 +13,10 @@ export type PaymentHistory = {
   bill_installment: { installment_no: number; bill_plan: { bill_no: number } };
 };
 export type CustomerData = {
-  customer: Customer; balance: Balance; installments: Installment[]; payments: PaymentHistory[];
+  customer: Customer; consent: LiffConsent; balance: Balance; installments: Installment[]; payments: PaymentHistory[];
 };
+export type CustomerConsentGate = { customer: Customer; consent: null };
+export type CustomerLoad = CustomerData | CustomerConsentGate;
 export type Tab = "unpaid" | "all" | "history" | "document";
 export const TABS: { id: Tab; label: string }[] = [
   { id: "unpaid", label: "ยอดค้าง" },

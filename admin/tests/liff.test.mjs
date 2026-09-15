@@ -17,7 +17,9 @@ async function loadModule(name) {
 }
 const model = await loadModule('model');
 const session = await loadModule('session');
+const consent = await loadModule('consent');
 const liffApp = await readFile(new URL('../src/liff/LiffApp.tsx', import.meta.url), 'utf8');
+const consentForm = await readFile(new URL('../src/liff/ConsentForm.tsx', import.meta.url), 'utf8').catch(() => '');
 
 test('LIFF open-bill deep link selects the document tab', () => {
   assert.equal(typeof session.readInitialTab, 'function');
@@ -95,7 +97,9 @@ test('OA is read from the final query or the SDK state without modifying it', ()
 function fixture() {
   const trace = [];
   const controller = new AbortController();
+  const consent = { accepted_at: '2026-09-15T00:00:00.000Z', version: '2026-09-15' };
   const data = { customer: { customer_code: 'C001', display_name: 'Test customer' },
+    consent,
     balance: { outstanding: 350, count: 1, next_due_date: '2026-09-15' },
     installments: [installment()], payments: [] };
   const sdk = { init: async () => { trace.push('init'); }, isLoggedIn: () => true,
@@ -105,7 +109,7 @@ function fixture() {
     setToken: (token) => trace.push(`token:${token}`),
     createSession: async (id, oa, signal) => {
       trace.push(`session:${id}:${oa}`); assert.equal(signal, controller.signal);
-      return { token: 'verified-session', customer: data.customer };
+      return { token: 'verified-session', customer: data.customer, consent };
     },
     getBalance: async () => data.balance,
     getInstallments: async () => data.installments,
@@ -153,6 +157,38 @@ test('unlinked account never loads financial data', async () => {
   f.api.getBalance = async () => { reads++; return f.data.balance; };
   await assert.rejects(session.loadCustomerData(f.options), { kind: 'pending_registration' });
   assert.equal(reads, 0);
+});
+
+test('unconsented customer sees the consent gate before financial data is loaded', async () => {
+  assert.equal(typeof session.loadCustomerData, 'function');
+  const f = fixture(); let reads = 0;
+  f.api.createSession = async () => ({ token: 'verified-session', customer: f.data.customer, consent: null });
+  f.api.getBalance = async () => { reads++; return f.data.balance; };
+  f.api.getInstallments = async () => { reads++; return f.data.installments; };
+  f.api.getPayments = async () => { reads++; return f.data.payments; };
+  assert.deepEqual(await session.loadCustomerData(f.options), { customer: f.data.customer, consent: null });
+  assert.equal(reads, 0);
+});
+
+test('consent choices require the mandatory acknowledgements and linked permissions', () => {
+  assert.equal(typeof consent.isConsentSubmissionValid, 'function');
+  const valid = { general: true, gps: false, photo: false, image_rights: false, marketing: false, retention: true, truth: true };
+  assert.equal(consent.isConsentSubmissionValid(valid), true);
+  assert.equal(consent.isConsentSubmissionValid({ ...valid, general: false }), false);
+  assert.equal(consent.isConsentSubmissionValid({ ...valid, retention: false }), false);
+  assert.equal(consent.isConsentSubmissionValid({ ...valid, truth: false }), false);
+  assert.equal(consent.isConsentSubmissionValid({ ...valid, photo: true }), false);
+});
+
+test('LIFF includes the reviewed Thai consent form and saves separate choices', () => {
+  assert.match(liffApp, /ConsentForm/);
+  assert.match(liffApp, /saveConsent/);
+  assert.match(consentForm, /นางสาวชลดา พรมเมศ/);
+  assert.match(consentForm, /lekhabankhumthraphy@gmail\.com/);
+  assert.match(consentForm, /@972sgppy/);
+  assert.doesNotMatch(consentForm, /ข้อมูลส่วนบุคคลที่อ่อนไหว/);
+  assert.match(consentForm, /การเผยแพร่ภาพ/);
+  assert.match(consentForm, /การตลาด - ไม่บังคับ/);
 });
 
 test('LIFF shows the pending registration state for non-customers', () => {

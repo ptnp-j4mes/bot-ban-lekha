@@ -8,21 +8,30 @@ import { audit } from "../services/audit";
 import { purgeSlipImage } from "../services/retention";
 import { getSystemSettings, updateSystemSettings } from "../services/systemSettings";
 import { deleteSlipFile, getGoogleDriveStatus, getR2StorageUsage, getS3StorageStatus, getStorageConfigStatus, listGoogleDriveFolder, moveSlipFile, readStoredFile, storedSlipChatId } from "../services/storage";
+import { ADMIN_PERMISSIONS, hasApprovedPermissions, invalidPermissions, normalizePermissions } from "../lib/permissions";
 
 // Super-admin only: manage users (username/password) and the org each user operates in.
 // A user belongs to exactly one org (membership). Roles are collapsed — a member = full access.
 
-const userView = (u: any) => ({
-  id: u.id,
-  username: u.username,
-  display_name: u.displayName,
-  is_platform_admin: u.isPlatformAdmin,
-  is_active: u.isActive,
-  last_login_at: u.lastLoginAt,
-  org: u.memberships?.[0]?.organization
-    ? { id: u.memberships[0].organization.id, name: u.memberships[0].organization.name }
-    : null,
-});
+const userView = (u: any) => {
+  const membership = u.memberships?.find((item: any) => item.organization?.isActive && hasApprovedPermissions(item.permissions))
+    ?? u.memberships?.find((item: any) => item.organization?.isActive)
+    ?? u.memberships?.[0]
+    ?? null;
+  const approved = u.isPlatformAdmin ? u.isActive : u.isActive && membership?.organization?.isActive && hasApprovedPermissions(membership.permissions);
+  return {
+    id: u.id,
+    username: u.username,
+    line_user_id: u.lineUserId,
+    display_name: u.displayName,
+    is_platform_admin: u.isPlatformAdmin,
+    is_active: u.isActive,
+    approval_status: approved ? "approved" : "pending",
+    permissions: u.isPlatformAdmin ? [...ADMIN_PERMISSIONS] : membership ? normalizePermissions(membership.permissions) : [],
+    last_login_at: u.lastLoginAt,
+    org: membership?.organization ? { id: membership.organization.id, name: membership.organization.name } : null,
+  };
+};
 const withOrg = { memberships: { include: { organization: true } } } as const;
 
 async function getOrgUsage(db: any, orgId: string) {
@@ -53,8 +62,9 @@ async function setUserOrg(userId: string, opts: { org_id?: string; org_name?: st
   if (!orgId) return;
   const org = await prisma.organization.findUnique({ where: { id: orgId } });
   if (!org) throw new ApiError("NOT_FOUND", "Organization not found");
+  const previous = await prisma.membership.findFirst({ where: { adminUserId: userId }, select: { permissions: true } });
   await prisma.membership.deleteMany({ where: { adminUserId: userId } });
-  await prisma.membership.create({ data: { orgId, adminUserId: userId, role: "user" } });
+  await prisma.membership.create({ data: { orgId, adminUserId: userId, role: "user", permissions: previous?.permissions ?? undefined } });
 }
 
 const fileChatId = (sub: any) => storedSlipChatId(sub.imageUrl ?? "") ?? sub.lineGroupId ?? sub.lineUserId ?? null;
@@ -328,6 +338,32 @@ export const platformRoutes = new Elysia({ prefix: "/api/platform" })
   })
 
   .get("/admin-users", async () => ok((await prisma.adminUser.findMany({ include: withOrg, orderBy: { createdAt: "asc" } })).map(userView)))
+
+  .post("/admin-users/:id/approve", async ({ params, body, ctx }: any) => {
+    if (invalidPermissions(body?.permissions) || normalizePermissions(body.permissions).length === 0)
+      throw new ApiError("VALIDATION_ERROR", "ต้องเลือกสิทธิ์อย่างน้อย 1 เมนู");
+    const permissions = normalizePermissions(body.permissions);
+    const full = await prisma.$transaction(async (tx) => {
+      const user = await tx.adminUser.findUnique({ where: { id: params.id } });
+      if (!user) throw new ApiError("NOT_FOUND", "User not found");
+      const org = await tx.organization.findUnique({ where: { id: body.org_id } });
+      if (!org || !org.isActive) throw new ApiError("VALIDATION_ERROR", "องค์กรไม่พร้อมใช้งาน");
+      const oldMembership = await tx.membership.findFirst({ where: { adminUserId: user.id }, select: { orgId: true, permissions: true } });
+      await tx.membership.deleteMany({ where: { adminUserId: user.id } });
+      await tx.membership.create({ data: { orgId: org.id, adminUserId: user.id, role: "user", permissions } });
+      await tx.adminUser.update({ where: { id: user.id }, data: { isActive: true } });
+      await audit(tx, {
+        action: "approve_admin_user",
+        entityType: "admin_user",
+        entityId: user.id,
+        actorId: ctx.userId,
+        oldValue: oldMembership,
+        newValue: { orgId: org.id, permissions },
+      });
+      return tx.adminUser.findUnique({ where: { id: user.id }, include: withOrg });
+    });
+    return ok(userView(full));
+  }, { body: t.Object({ org_id: t.String({ minLength: 1 }), permissions: t.Array(t.String()) }) })
 
   // Create a user (username/password) and put them in an org (existing org_id or new org_name).
   .post("/admin-users", async ({ body, ctx }: any) => {

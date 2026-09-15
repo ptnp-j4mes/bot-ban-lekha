@@ -527,6 +527,71 @@ test("platform routes: super admin only", async () => {
   expect(ok.status).toBe(200);
 });
 
+test("super admin approves a pending LINE user with an org and menu permissions", async () => {
+  const org = await mkOrg("approval");
+  const user = await prisma.adminUser.create({ data: { lineUserId: `Uapprove${rnd()}`, displayName: "Approval User", isActive: true } });
+  const response = await app.handle(new Request(`http://localhost/api/platform/admin-users/${user.id}/approve`, {
+    method: "POST",
+    headers: { "x-api-key": "change-me", "content-type": "application/json" },
+    body: JSON.stringify({ org_id: org.id, permissions: ["customers", "plans", "submissions"] }),
+  }));
+  expect(response.status).toBe(200);
+  const approved = (await response.json()).data;
+  expect(approved.approval_status).toBe("approved");
+  expect(approved.permissions).toEqual(["customers", "plans", "submissions"]);
+  expect(approved.line_user_id).toBe(user.lineUserId);
+
+  const membership = await prisma.membership.findUnique({ where: { orgId_adminUserId: { orgId: org.id, adminUserId: user.id } } });
+  expect((membership as any)?.permissions).toEqual(["customers", "plans", "submissions"]);
+});
+
+test("menu permissions are enforced by the API while legacy memberships keep full access", async () => {
+  const org = await mkOrg("menu-permissions");
+  const limitedUser = await prisma.adminUser.create({ data: { username: `limited-${rnd()}`, isActive: true } });
+  await prisma.membership.create({ data: { orgId: org.id, adminUserId: limitedUser.id, role: "user", permissions: ["customers"] } });
+  const limitedToken = signJwt({ sub: limitedUser.id }, env.jwtSecret);
+  expect((await app.handle(new Request("http://localhost/api/customers", { headers: hdr(limitedToken, org.id) }))).status).toBe(200);
+  expect((await app.handle(new Request("http://localhost/api/bank-accounts", { headers: hdr(limitedToken, org.id) }))).status).toBe(403);
+
+  const legacy = await mkMember(org.id, "legacy");
+  expect((await app.handle(new Request("http://localhost/api/bank-accounts", { headers: hdr(legacy.token, org.id) }))).status).toBe(200);
+
+  const settingsUser = await prisma.adminUser.create({ data: { username: `settings-${rnd()}`, isActive: true } });
+  await prisma.membership.create({ data: { orgId: org.id, adminUserId: settingsUser.id, role: "user", permissions: ["settings"] } });
+  const settingsToken = signJwt({ sub: settingsUser.id }, env.jwtSecret);
+  const messagePatch = await app.handle(new Request("http://localhost/api/settings/", {
+    method: "PATCH", headers: { ...hdr(settingsToken, org.id), "content-type": "application/json" },
+    body: JSON.stringify({ message_templates: {} }),
+  }));
+  expect(messagePatch.status).toBe(403);
+
+  const reportsUser = await prisma.adminUser.create({ data: { username: `reports-${rnd()}`, isActive: true } });
+  await prisma.membership.create({ data: { orgId: org.id, adminUserId: reportsUser.id, role: "user", permissions: ["reports"] } });
+  const reportsToken = signJwt({ sub: reportsUser.id }, env.jwtSecret);
+  expect((await app.handle(new Request("http://localhost/api/installments/overdue", { headers: hdr(reportsToken, org.id) }))).status).toBe(200);
+  expect((await app.handle(new Request("http://localhost/api/installments/not-real/pay", {
+    method: "POST", headers: { ...hdr(reportsToken, org.id), "content-type": "application/json" }, body: JSON.stringify({ amount: 1 }),
+  }))).status).toBe(403);
+});
+
+test("/auth/me exposes pending status and effective menu permissions", async () => {
+  const user = await prisma.adminUser.create({ data: { username: `me-pending-${rnd()}`, isActive: true } });
+  const token = signJwt({ sub: user.id }, env.jwtSecret);
+  const response = await app.handle(new Request("http://localhost/api/auth/me", { headers: { authorization: `Bearer ${token}` } }));
+  expect(response.status).toBe(200);
+  expect((await response.json()).data).toMatchObject({ approval_status: "pending", permissions: [], org: null });
+});
+
+test("approval rejects an empty or unknown menu permission", async () => {
+  const org = await mkOrg("approval-validation");
+  const user = await prisma.adminUser.create({ data: { lineUserId: `Uinvalid${rnd()}`, isActive: true } });
+  const post = (permissions: string[]) => app.handle(new Request(`http://localhost/api/platform/admin-users/${user.id}/approve`, {
+    method: "POST", headers: { "x-api-key": "change-me", "content-type": "application/json" }, body: JSON.stringify({ org_id: org.id, permissions }),
+  }));
+  expect((await post([])).status).toBe(400);
+  expect((await post(["not-a-menu"])).status).toBe(400);
+});
+
 test("super admin creates a user in an org; that user is scoped to it", async () => {
   const username = `u${rnd()}`;
   const orgName = `Org-${rnd()}`;
@@ -576,7 +641,9 @@ test("username/password login: super admin gets a working platform token", async
 });
 
 test("LINE login completion codes are verifier-bound, single-use, and expire", async () => {
+  const org = await mkOrg("completion-approved");
   const user = await prisma.adminUser.create({ data: { username: `complete${rnd()}`, isActive: true, displayName: "Completion" } });
+  await prisma.membership.create({ data: { orgId: org.id, adminUserId: user.id, role: "user" } });
   const code = `code-${rnd()}`;
   const verifier = `verifier-${rnd()}`;
   await prisma.adminLoginCompletion.create({
@@ -605,7 +672,9 @@ test("LINE login completion codes are verifier-bound, single-use, and expire", a
 });
 
 test("LINE login completion rejects wrong verifier without consuming the code and rejects expiry", async () => {
+  const org = await mkOrg("completion-approved-2");
   const user = await prisma.adminUser.create({ data: { username: `complete2${rnd()}`, isActive: true } });
+  await prisma.membership.create({ data: { orgId: org.id, adminUserId: user.id, role: "user" } });
   const code = `code-${rnd()}`;
   const verifier = `verifier-${rnd()}`;
   await prisma.adminLoginCompletion.create({
@@ -622,6 +691,33 @@ test("LINE login completion rejects wrong verifier without consuming the code an
     data: { codeHash: sha256(expired), challengeHash: sha256(sha256(verifier)), adminUserId: user.id, expiresAt: new Date(Date.now() - 1) },
   });
   expect((await redeem({ code: expired, code_verifier: verifier })).status).toBe(401);
+});
+
+test("pending LINE login completion is consumed without issuing a token", async () => {
+  const user = await prisma.adminUser.create({ data: { lineUserId: `Upending${rnd()}`, isActive: true } });
+  const code = `pending-code-${rnd()}`;
+  const verifier = `pending-verifier-${rnd()}`;
+  await prisma.adminLoginCompletion.create({
+    data: { codeHash: sha256(code), challengeHash: sha256(sha256(verifier)), adminUserId: user.id, expiresAt: new Date(Date.now() + 5 * 60_000) },
+  });
+
+  const redeem = () => app.handle(new Request("http://localhost/api/auth/line/complete", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, code_verifier: verifier }),
+  }));
+  const pending = await redeem();
+  expect(pending.status).toBe(403);
+  expect((await pending.json()).error.code).toBe("PENDING_APPROVAL");
+  expect((await redeem()).status).toBe(401);
+});
+
+test("username/password login without an approved org is pending", async () => {
+  const username = `pending-password-${rnd()}`;
+  await prisma.adminUser.create({ data: { username, passwordHash: await Bun.password.hash("secret123"), isActive: true } });
+  const response = await app.handle(new Request("http://localhost/api/auth/login", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, password: "secret123" }),
+  }));
+  expect(response.status).toBe(403);
+  expect((await response.json()).error.code).toBe("PENDING_APPROVAL");
 });
 
 test("LINE browser callback issues a verifier-bound login code instead of a JWT fragment", async () => {
@@ -661,12 +757,16 @@ test("LINE browser callback issues a verifier-bound login code instead of a JWT 
 });
 
 test("native LINE login: verifies ID token, upserts admin, and returns JWT", async () => {
+  const lineUserId = `Umobile${rnd()}`;
+  const org = await mkOrg("native-approved");
+  const user = await prisma.adminUser.create({ data: { lineUserId, displayName: "Existing Native Admin", isActive: true } });
+  await prisma.membership.create({ data: { orgId: org.id, adminUserId: user.id, role: "user" } });
   const previousChannel = env.lineLoginChannelId;
   const previousFetch = globalThis.fetch;
   env.lineLoginChannelId = "mobile-line-channel";
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     expect(String(input)).toBe("https://api.line.me/oauth2/v2.1/verify");
-    return new Response(JSON.stringify({ sub: `Umobile${rnd()}`, name: "Native Admin", aud: "mobile-line-channel" }), { status: 200 });
+    return new Response(JSON.stringify({ sub: lineUserId, name: "Native Admin", aud: "mobile-line-channel" }), { status: 200 });
   }) as unknown as typeof fetch;
 
   try {
@@ -723,6 +823,30 @@ test("native LINE login: inactive account is blocked", async () => {
       body: JSON.stringify({ id_token: "valid-but-inactive" }),
     }));
     expect(res.status).toBe(403);
+    expect((await res.json()).error.code).toBe("PENDING_APPROVAL");
+  } finally {
+    env.lineLoginChannelId = previousChannel;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("new native LINE login creates a non-platform pending account", async () => {
+  const lineUserId = `Unewpending${rnd()}`;
+  const previousChannel = env.lineLoginChannelId;
+  const previousFetch = globalThis.fetch;
+  env.lineLoginChannelId = "mobile-line-channel";
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ sub: lineUserId, name: "Pending Admin", aud: "mobile-line-channel" }), { status: 200 })) as unknown as typeof fetch;
+
+  try {
+    const res = await app.handle(new Request("http://localhost/api/auth/mobile/line", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id_token: "new-pending" }),
+    }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error.code).toBe("PENDING_APPROVAL");
+    const user = await prisma.adminUser.findUnique({ where: { lineUserId: lineUserId } });
+    expect(user?.isPlatformAdmin).toBe(false);
+    expect(await prisma.membership.count({ where: { adminUserId: user!.id } })).toBe(0);
   } finally {
     env.lineLoginChannelId = previousChannel;
     globalThis.fetch = previousFetch;
@@ -747,12 +871,8 @@ test("native LINE login: active account without org membership cannot access ten
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ id_token: "valid-without-org" }),
     }));
-    expect(res.status).toBe(200);
-    const token = (await res.json()).data.token;
-    const forbidden = await app.handle(new Request("http://localhost/api/customers", {
-      headers: hdr(token, org.id),
-    }));
-    expect(forbidden.status).toBe(403);
+    expect(res.status).toBe(403);
+    expect((await res.json()).error.code).toBe("PENDING_APPROVAL");
     expect(user.isActive).toBe(true);
   } finally {
     env.lineLoginChannelId = previousChannel;

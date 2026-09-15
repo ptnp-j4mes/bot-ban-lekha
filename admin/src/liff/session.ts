@@ -1,4 +1,5 @@
-import type { Balance, Customer, CustomerData, Installment, PaymentHistory, Tab } from "./model";
+import type { ConsentSelections, LiffConsent } from "./consent";
+import type { Balance, Customer, CustomerData, CustomerLoad, Installment, PaymentHistory, Tab } from "./model";
 
 export interface LiffSdk {
   init(config: { liffId: string }): Promise<unknown>;
@@ -8,7 +9,7 @@ export interface LiffSdk {
   getIDToken(): string | null;
   closeWindow(): void;
 }
-export type Session = { token: string; customer: Customer };
+export type Session = { token: string; customer: Customer; consent: LiffConsent | null };
 export type SessionProblem = "not_configured" | "sdk_unavailable" | "pending_registration" | "unauthorized";
 export class LiffSessionError extends Error {
   kind: SessionProblem;
@@ -27,6 +28,7 @@ export interface CustomerApi {
   getBalance(signal: AbortSignal): Promise<Balance>;
   getInstallments(signal: AbortSignal): Promise<Installment[]>;
   getPayments(signal: AbortSignal): Promise<PaymentHistory[]>;
+  saveConsent(selection: ConsentSelections, signal: AbortSignal): Promise<{ consent: LiffConsent }>;
 }
 
 /** Read only, after init: never rewrite SDK-owned liff.* query parameters. */
@@ -43,7 +45,7 @@ export function readOaId(search: string): string | null {
 
 export async function loadCustomerData({ sdk, liffId, getSearch, api, signal }: {
   sdk?: LiffSdk; liffId?: string; getSearch: () => string; api: CustomerApi; signal: AbortSignal;
-}): Promise<CustomerData | null> {
+}): Promise<CustomerLoad | null> {
   signal.throwIfAborted();
   // Always re-bind a page/refresh to LINE's verified current user and OA.
   // A sessionStorage token alone cannot prove that the LINE account has not changed.
@@ -69,9 +71,10 @@ export async function loadCustomerData({ sdk, liffId, getSearch, api, signal }: 
   }
   signal.throwIfAborted();
   api.setToken(session.token);
+  if (session.consent === null) return { customer: session.customer, consent: null };
   const [balance, installments, payments] = await Promise.all([
     api.getBalance(signal), api.getInstallments(signal), api.getPayments(signal),
   ]);
   signal.throwIfAborted();
-  return { customer: session.customer, balance, installments, payments };
+  return { customer: session.customer, consent: session.consent, balance, installments, payments };
 }

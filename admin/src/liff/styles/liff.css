@@ -124,3 +124,25 @@
   .liff-app .liff-installment { padding-left: 14px; padding-right: 14px; }
   .liff-app .liff-dock-inner { padding-left: 14px; padding-right: 14px; }
 }
+.liff-app .liff-consent { margin-top: 8px; }
+.liff-app .liff-consent-title-row { display: flex; align-items: flex-start; gap: 12px; }
+.liff-app .liff-consent-icon { display: grid; place-items: center; flex: 0 0 44px; height: 44px; color: var(--liff-pink); background: #fce5ef; border: 1px solid #f2c8d9; border-radius: 15px; }
+.liff-app .liff-consent-eyebrow { color: var(--liff-muted); font-size: 11px; }
+.liff-app .liff-consent h1 { margin-top: 2px; font-size: 19px; line-height: 1.45; }
+.liff-app .liff-consent-controller { display: grid; gap: 2px; margin: 17px 0 12px; padding: 13px 15px; background: white; border: 1px solid var(--liff-line); border-radius: 16px; font-size: 11px; }
+.liff-app .liff-consent-controller span { color: var(--liff-muted); }
+.liff-app .liff-consent-intro { margin-bottom: 15px; color: var(--liff-muted); font-size: 12px; line-height: 1.8; }
+.liff-app .liff-consent-block { min-width: 0; margin: 12px 0 0; padding: 14px 14px 15px; border: 1px solid var(--liff-line); border-radius: 18px; background: white; }
+.liff-app .liff-consent-block legend { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 0 6px; color: #a81950; font-size: 13px; font-weight: 700; }
+.liff-app .liff-consent-block legend small { color: var(--liff-muted); font-size: 10px; font-weight: 400; }
+.liff-app .liff-consent-block p { margin-top: 11px; color: var(--liff-muted); font-size: 11px; line-height: 1.8; }
+.liff-app .liff-check { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 12px; line-height: 1.75; }
+.liff-app .liff-check input { width: 19px; height: 19px; flex: 0 0 19px; margin: 2px 0 0; accent-color: var(--liff-pink); }
+.liff-app .liff-check--required > span::after { content: " *"; color: #b51c56; }
+.liff-app .liff-check--nested { margin-top: 11px; padding-left: 27px; }
+.liff-app .liff-check.is-disabled { cursor: not-allowed; opacity: .55; }
+.liff-app .liff-consent-list { display: grid; gap: 2px; margin: 9px 0 0 27px; padding-left: 16px; color: var(--liff-muted); font-size: 11px; line-height: 1.7; }
+.liff-app .liff-consent-final { margin: 16px 0 0; padding: 14px; border: 1px solid #e9bed1; border-radius: 16px; background: #fff4f8; }
+.liff-app .liff-consent-error { display: flex; align-items: flex-start; gap: 7px; margin: 11px 2px 0; color: #b4233d; font-size: 12px; }
+.liff-app .liff-consent-error svg { flex: 0 0 16px; margin-top: 3px; }
+.liff-app .liff-consent-submit { margin-top: 14px; }

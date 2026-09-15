@@ -2,6 +2,7 @@ import { env } from "../env";
 import { prisma } from "./prisma";
 import { verifyJwt, signJwt } from "./jwt";
 import { ApiError } from "./response";
+import { ADMIN_PERMISSIONS, getAdminAccess, requireAnyPermission, requiredPermissions, type AdminPermission, type ApprovalStatus } from "./permissions";
 
 // Two roles only: super_admin (isPlatformAdmin) and user (member of an org).
 // A user has full access within their own org; no viewer/admin/owner tiers.
@@ -10,6 +11,8 @@ export type AuthContext = {
   isPlatformAdmin: boolean;
   orgId: string | null; // org being acted on (from x-org-id)
   name?: string | null;
+  approvalStatus: ApprovalStatus;
+  permissions: AdminPermission[];
 };
 
 type Headers = Record<string, string | undefined>;
@@ -17,11 +20,11 @@ const bearer = (h: string | undefined) => (h?.startsWith("Bearer ") ? h.slice(7)
 
 // Resolve the caller + which org they're acting on (x-org-id). Super admins (and the
 // break-glass API key) may act on any org; a user may act only on an org they belong to.
-export async function authContext(headers: Headers): Promise<AuthContext> {
-  const orgId = headers["x-org-id"] || null;
+export async function authContext(headers: Headers, options: { allowPending?: boolean; ignoreOrg?: boolean } = {}): Promise<AuthContext> {
+  const orgId = options.ignoreOrg ? null : headers["x-org-id"] || null;
 
   if (headers["x-api-key"] && headers["x-api-key"] === env.adminApiKey) {
-    return { userId: "apikey", isPlatformAdmin: true, orgId, name: "API Key" };
+    return { userId: "apikey", isPlatformAdmin: true, orgId, name: "API Key", approvalStatus: "approved", permissions: [...ADMIN_PERMISSIONS] };
   }
 
   const token = bearer(headers["authorization"]);
@@ -35,24 +38,34 @@ export async function authContext(headers: Headers): Promise<AuthContext> {
   }
   const user = await prisma.adminUser.findUnique({ where: { id: payload.sub } });
   if (!user) throw new ApiError("UNAUTHORIZED", "Account not found");
-  if (!user.isActive) throw new ApiError("FORBIDDEN", "บัญชีถูกปิดใช้งาน");
+  if (!user.isActive) {
+    if (!options.allowPending) throw new ApiError("PENDING_APPROVAL", "รออนุมัติสิทธิ์เข้าใช้งาน");
+    return { userId: user.id, isPlatformAdmin: user.isPlatformAdmin, orgId, name: user.displayName, approvalStatus: "pending", permissions: [] };
+  }
+
+  const access = user.isPlatformAdmin ? null : await getAdminAccess(prisma, user.id, orgId);
+  const approvalStatus = user.isPlatformAdmin ? "approved" : access!.approvalStatus;
+  const permissions = user.isPlatformAdmin ? [...ADMIN_PERMISSIONS] : access!.permissions;
+  if (!options.allowPending && !user.isPlatformAdmin && !access!.hasApprovedMembership)
+    throw new ApiError("PENDING_APPROVAL", "รออนุมัติสิทธิ์เข้าใช้งาน");
 
   // A non-platform user may only act on an org they are a member of.
   if (orgId && !user.isPlatformAdmin) {
-    const member = await prisma.membership.findUnique({
-      where: { orgId_adminUserId: { orgId, adminUserId: user.id } },
-      include: { organization: { select: { isActive: true } } },
-    });
-    if (!member || !member.organization.isActive) throw new ApiError("FORBIDDEN", "องค์กรถูกปิดใช้งานหรือไม่มีสิทธิ์เข้าถึง");
+    if (!access!.membership || !access!.membership.organization.isActive) {
+      if (!access!.hasApprovedMembership) throw new ApiError("PENDING_APPROVAL", "รออนุมัติสิทธิ์เข้าใช้งาน");
+      throw new ApiError("FORBIDDEN", "องค์กรถูกปิดใช้งานหรือไม่มีสิทธิ์เข้าถึง");
+    }
+    if (access!.approvalStatus === "pending") throw new ApiError("PENDING_APPROVAL", "รออนุมัติสิทธิ์เข้าใช้งาน");
   }
-  return { userId: user.id, isPlatformAdmin: user.isPlatformAdmin, orgId, name: user.displayName };
+  return { userId: user.id, isPlatformAdmin: user.isPlatformAdmin, orgId, name: user.displayName, approvalStatus, permissions };
 }
 
 // Guard for org-scoped routes: requires x-org-id + access to that org (member or platform).
 // No role tiers — any member has full access within the org.
-export async function authorize(headers: Headers, _method?: string): Promise<AuthContext> {
+export async function authorize(headers: Headers, _method?: string, requestUrl?: string): Promise<AuthContext> {
   const ctx = await authContext(headers);
   if (!ctx.orgId) throw new ApiError("VALIDATION_ERROR", "x-org-id header is required");
+  if (requestUrl) requireAnyPermission(ctx, requiredPermissions(_method ?? "GET", requestUrl) ?? []);
   return ctx;
 }
 

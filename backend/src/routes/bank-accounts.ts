@@ -24,7 +24,7 @@ async function resolveBankMaster(id?: string) {
 }
 
 export const bankAccountRoutes = new Elysia({ prefix: "/api/bank-accounts" })
-  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method) }))
+  .resolve(async ({ headers, request }: any) => ({ ctx: await authorize(headers, request.method, request.url) }))
 
   .get("/master", async () =>
     ok(await prisma.bankMaster.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }))

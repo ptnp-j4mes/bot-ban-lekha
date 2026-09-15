@@ -19,6 +19,12 @@ test("customer list and detail expose contact classification", () => {
   assert.match(detail, /คนทั่วไป/);
 });
 
+test("customer list separates existing customers from unclassified new contacts", () => {
+  assert.match(customers, /const CUSTOMER_TYPE_TABS = \[\s+\{ value: "customer", label: "ลูกค้า" \},/);
+  assert.match(customers, /value: "unclassified", label: "ลูกค้าใหม่รอจัดประเภท"/);
+  assert.match(customers, /setCustomerTypeFilter\(item\.value\)/);
+});
+
 test("admin notification bell watches unclassified LINE contacts", () => {
   assert.match(app, /customer_type=unclassified/);
   assert.match(app, /refetchInterval: 30000/);

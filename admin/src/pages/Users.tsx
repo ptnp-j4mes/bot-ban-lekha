@@ -46,7 +46,7 @@ export function Users() {
     e.currentTarget.reset();
   };
 
-  const orgOptions = (orgs.data ?? []).map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>);
+  const orgOptions = (orgs.data ?? []).filter((o: any) => o.is_active).map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>);
 
   const columns: Column<any>[] = [
     { key: "name", header: "ชื่อ / login", sortValue: (u) => u.display_name || u.username, cell: (u) => <div>{u.display_name || "—"}<div className="text-xs text-muted-foreground">@{u.username}</div></div> },

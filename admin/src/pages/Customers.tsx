@@ -18,6 +18,12 @@ const CUSTOMER_TYPE_OPTIONS = [
   { value: "customer", label: "ลูกค้า" },
   { value: "general", label: "คนทั่วไป" },
 ];
+const CUSTOMER_TYPE_TABS = [
+  { value: "customer", label: "ลูกค้า" },
+  { value: "unclassified", label: "ลูกค้าใหม่รอจัดประเภท" },
+  { value: "general", label: "คนทั่วไป" },
+  { value: "all", label: "ทั้งหมด" },
+];
 const formObj = (e: React.FormEvent<HTMLFormElement>) => {
   e.preventDefault();
   return Object.fromEntries(new FormData(e.currentTarget).entries()) as Record<string, string>;
@@ -32,7 +38,7 @@ export function Customers() {
   const [createOpen, setCreateOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
   const initialType = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("customer_type") : null;
-  const [customerTypeFilter, setCustomerTypeFilter] = useState(CUSTOMER_TYPE_OPTIONS.some((x) => x.value === initialType) ? initialType! : "all");
+  const [customerTypeFilter, setCustomerTypeFilter] = useState(CUSTOMER_TYPE_OPTIONS.some((x) => x.value === initialType) ? initialType! : "customer");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -154,13 +160,16 @@ export function Customers() {
             <h2 className="font-head text-lg font-semibold">รายชื่อลูกค้า</h2>
             <p className="mt-1 text-sm text-muted-foreground">ค้นหา แก้ไข และดูข้อมูลลูกค้าได้จากที่เดียว</p>
           </div>
+          <section aria-label="กลุ่มลูกค้า" className="flex overflow-x-auto rounded-xl border border-border p-1">
+            {CUSTOMER_TYPE_TABS.map((item) => <button key={item.value} type="button" aria-pressed={customerTypeFilter === item.value} onClick={() => { setCustomerTypeFilter(item.value); setPage(1); setSelected(new Set()); }} className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors ${customerTypeFilter === item.value ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>{item.label}</button>)}
+          </section>
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
             <form className="relative min-w-0 flex-1" onSubmit={(e) => { e.preventDefault(); setPage(1); setQ(search); }}>
               <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหารหัส ชื่อ หรือเบอร์โทร" className="h-11 pr-10" aria-label="ค้นหาลูกค้า" />
               {search && <button type="button" onClick={() => { setSearch(""); setQ(""); setPage(1); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="ล้างคำค้น"><X className="h-4 w-4" /></button>}
             </form>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" className="h-11" onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal className="h-4 w-4" /> ตัวกรอง{(statusFilter !== "all" || customerTypeFilter !== "all") && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] text-primary-foreground">1</span>}</Button>
+              <Button type="button" variant="outline" className="h-11" onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal className="h-4 w-4" /> ตัวกรอง{statusFilter !== "all" && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] text-primary-foreground">1</span>}</Button>
               <Button type="button" variant="outline" className="h-11" onClick={exportCsv} disabled={!rows.length}><Download className="h-4 w-4" /> Export</Button>
               <label className="cursor-pointer"><input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && importCsv(e.target.files[0])} /><span className="inline-flex h-11 items-center gap-2 rounded-lg border border-primary bg-transparent px-4 text-sm font-semibold text-primary hover:bg-primary/10"><Upload className="h-4 w-4" /> นำเข้า CSV</span></label>
               <Button type="button" className="h-11" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> เพิ่มลูกค้า</Button>
@@ -174,7 +183,7 @@ export function Customers() {
             </button>)}
           </section>
 
-          {filtersOpen && <div className="grid grid-cols-1 gap-3 rounded-xl bg-secondary/60 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end"><Field label="สถานะ"><Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}><option value="all">ทุกสถานะ</option><option value="active">ใช้งานอยู่</option><option value="blocked">บล็อก</option><option value="closed">ปิดบัญชี</option></Select></Field><Field label="ประเภทผู้ติดต่อ"><Select value={customerTypeFilter} onChange={(e) => { setCustomerTypeFilter(e.target.value); setPage(1); }}><option value="all">ทุกประเภท</option>{CUSTOMER_TYPE_OPTIONS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}</Select></Field><Button type="button" variant="ghost" className="h-[42px]" onClick={() => { setStatusFilter("all"); setCustomerTypeFilter("all"); setPage(1); }}>ล้างตัวกรอง</Button></div>}
+          {filtersOpen && <div className="grid grid-cols-1 gap-3 rounded-xl bg-secondary/60 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"><Field label="สถานะ"><Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}><option value="all">ทุกสถานะ</option><option value="active">ใช้งานอยู่</option><option value="blocked">บล็อก</option><option value="closed">ปิดบัญชี</option></Select></Field><Button type="button" variant="ghost" className="h-[42px]" onClick={() => { setStatusFilter("all"); setCustomerTypeFilter("all"); setPage(1); }}>ล้างตัวกรอง</Button></div>}
 
           <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span>แสดง {rows.length} จาก {total} ลูกค้า</span>{selected.size > 0 && <button type="button" className="font-semibold text-primary hover:underline" onClick={() => setSelected(new Set())}>เลือกอยู่ {selected.size} รายการ · ล้างการเลือก</button>}</div>
         </CardContent>

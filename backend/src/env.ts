@@ -14,6 +14,8 @@ export const env = {
   lineAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN ?? "",
   // Customer-facing LIFF app channel id (ID token audience) — separate from admin LINE Login.
   lineLiffChannelId: process.env.LINE_LIFF_CHANNEL_ID ?? "",
+  // ON requires LIFF consent before financial data; any other value except OFF fails closed to ON.
+  consentEnabled: (process.env.CONSENT ?? "ON").trim().toUpperCase() !== "OFF",
   autoApprove: process.env.PAYMENT_AUTO_APPROVE_ENABLED === "true",
   storageDriver: process.env.STORAGE_DRIVER ?? "local",
   localStoragePath: process.env.LOCAL_STORAGE_PATH ?? "./storage",

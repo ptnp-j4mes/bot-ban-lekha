@@ -9,7 +9,7 @@ export interface LiffSdk {
   getIDToken(): string | null;
   closeWindow(): void;
 }
-export type Session = { token: string; customer: Customer; consent: LiffConsent | null };
+export type Session = { token: string; customer: Customer; consent: LiffConsent | null; consent_required: boolean };
 export type SessionProblem = "not_configured" | "sdk_unavailable" | "pending_registration" | "unauthorized";
 export class LiffSessionError extends Error {
   kind: SessionProblem;
@@ -71,7 +71,8 @@ export async function loadCustomerData({ sdk, liffId, getSearch, api, signal }: 
   }
   signal.throwIfAborted();
   api.setToken(session.token);
-  if (session.consent === null) return { customer: session.customer, consent: null };
+  const consentRequired = session.consent_required !== false;
+  if (consentRequired && session.consent === null) return { customer: session.customer, consent: null };
   const [balance, installments, payments] = await Promise.all([
     api.getBalance(signal), api.getInstallments(signal), api.getPayments(signal),
   ]);

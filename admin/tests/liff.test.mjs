@@ -170,6 +170,20 @@ test('unconsented customer sees the consent gate before financial data is loaded
   assert.equal(reads, 0);
 });
 
+test('CONSENT=OFF bypasses the consent gate and loads financial data', async () => {
+  assert.equal(typeof session.loadCustomerData, 'function');
+  const f = fixture(); let reads = 0;
+  f.api.createSession = async () => ({ token: 'verified-session', customer: f.data.customer, consent: null, consent_required: false });
+  f.api.getBalance = async () => { reads++; return f.data.balance; };
+  f.api.getInstallments = async () => { reads++; return f.data.installments; };
+  f.api.getPayments = async () => { reads++; return f.data.payments; };
+  assert.deepEqual(await session.loadCustomerData(f.options), {
+    customer: f.data.customer, consent: null, balance: f.data.balance,
+    installments: f.data.installments, payments: f.data.payments,
+  });
+  assert.equal(reads, 3);
+});
+
 test('consent choices require the mandatory acknowledgements and linked permissions', () => {
   assert.equal(typeof consent.isConsentSubmissionValid, 'function');
   const valid = { general: true, gps: false, photo: false, image_rights: false, marketing: false, retention: true, truth: true };

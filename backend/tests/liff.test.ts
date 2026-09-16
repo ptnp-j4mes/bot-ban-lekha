@@ -9,6 +9,7 @@ const rnd = () => Math.random().toString(36).slice(2, 8);
 const today = bangkokToday();
 
 env.lineLiffChannelId = "test-liff-channel";
+env.consentEnabled = true;
 
 const mkOrg = (name = "org") => prisma.organization.create({ data: { name: `${name}-${rnd()}` } });
 const mkOa = (orgId: string) =>
@@ -107,11 +108,35 @@ test("liff: session exchange happy path returns a working session token, scoped 
     const body = await res.json();
     expect(body.data.customer.customer_code).toBe(customer.customerCode);
     expect(body.data.consent).toBeNull();
+    expect(body.data.consent_required).toBe(true);
 
     const me = await app.handle(new Request("http://localhost/api/liff/me", { headers: liffHdr(body.data.token) }));
     expect(me.status).toBe(200);
     expect((await me.json()).data.customer_code).toBe(customer.customerCode);
   } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("liff: CONSENT=OFF marks consent as optional for the linked customer", async () => {
+  const org = await mkOrg();
+  const oa = await mkOa(org.id);
+  const { customer } = await makeLinkedCustomer(org.id, oa.id, `Uconsentoff${rnd()}`);
+  const previousConsentEnabled = env.consentEnabled;
+  const origFetch = globalThis.fetch;
+  try {
+    env.consentEnabled = false;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ sub: customer.lineUserId, aud: env.lineLiffChannelId }), { status: 200 })) as any;
+    const res = await app.handle(new Request("http://localhost/api/liff/session", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id_token: "fake", oa_id: oa.id }),
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.consent).toBeNull();
+    expect(body.data.consent_required).toBe(false);
+  } finally {
+    env.consentEnabled = previousConsentEnabled;
     globalThis.fetch = origFetch;
   }
 });

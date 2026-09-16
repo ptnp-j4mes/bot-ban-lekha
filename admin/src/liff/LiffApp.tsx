@@ -78,7 +78,7 @@ export function LiffApp() {
     tabsRef.current?.querySelector<HTMLButtonElement>("#liff-tab-unpaid")?.focus({ preventScroll: true });
   };
   const data: CustomerData | null = state.stage === "ready" && "balance" in state.data ? state.data : null;
-  const consentGate = state.stage === "ready" && state.data.consent === null ? state.data : null;
+  const consentGate = state.stage === "ready" && !("balance" in state.data) ? state.data : null;
   const unpaid = data ? unpaidInstallments(data.installments) : [];
   const rows = tab === "unpaid" ? unpaid : tab === "document" ? [] : data?.installments ?? [];
   const count = tab === "history" ? data?.payments.length ?? 0 : rows.length;

@@ -6,7 +6,7 @@ Mobile-first customer view matching the pink Rich Menu. Financial records remain
 
 The app initializes LIFF and exchanges the raw LINE ID token with `POST /api/liff/session` using `{ id_token, oa_id }`. Only the backend-verified customer session is used for `GET /api/liff/me/balance`, `/me/installments` and `/me/payments`. All fields use the existing snake_case serializer.
 
-If the linked customer has not accepted the consent form, financial requests are not started. The form submits the selected purposes to `POST /api/liff/me/consent`; the backend stores the acceptance time on the customer and the checkbox selections in the customer audit log.
+If the linked customer has not accepted the consent form, financial requests are not started while backend `CONSENT=ON`. Set `CONSENT=OFF` to skip the consent gate; the backend returns that mode to LIFF so frontend and backend cannot drift. When enabled, the form submits the selected purposes to `POST /api/liff/me/consent`; the backend stores the acceptance time on the customer and the checkbox selections in the customer audit log.
 
 `oa` is the internal `LineOaAccount.id`, not the OA public handle, LINE user ID or channel ID. Read query parameters only after `liff.init()` resolves. The `liff.state` fallback is read-only.
 

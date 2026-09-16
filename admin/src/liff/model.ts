@@ -13,7 +13,7 @@ export type PaymentHistory = {
   bill_installment: { installment_no: number; bill_plan: { bill_no: number } };
 };
 export type CustomerData = {
-  customer: Customer; consent: LiffConsent; balance: Balance; installments: Installment[]; payments: PaymentHistory[];
+  customer: Customer; consent: LiffConsent | null; balance: Balance; installments: Installment[]; payments: PaymentHistory[];
 };
 export type CustomerConsentGate = { customer: Customer; consent: null };
 export type CustomerLoad = CustomerData | CustomerConsentGate;

@@ -42,6 +42,7 @@ export const liffRoutes = new Elysia({ prefix: "/api/liff" })
         token,
         customer: { customer_code: customer.customerCode, display_name: customer.displayName },
         consent: customer.consentAt ? { acceptedAt: customer.consentAt, version: LIFF_CONSENT_VERSION } : null,
+        consentRequired: env.consentEnabled,
       });
     },
     { body: t.Object({ id_token: t.String({ minLength: 1 }), oa_id: t.String({ minLength: 1 }) }) }

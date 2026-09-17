@@ -204,7 +204,7 @@ test("renderBillText: renders per-installment and bill-header penalties separate
     bank: null,
     footer: "footer",
   });
-  expect(text).toContain("12💸 500✅🔴ปรับ500");
+  expect(text).toContain("12💸 500✅ ค่าปรับ500");
   expect(text).toContain("22💸 500");
   expect(text).toContain("🔴ค่าปรับหัวบิล 500");
 });

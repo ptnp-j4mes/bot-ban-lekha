@@ -36,12 +36,20 @@ test("customer detail exposes navigation for its long sections", () => {
   assert.match(detail, /href="#customer-documents"/);
 });
 
-test("customer detail uses the shared dialog chrome", () => {
+test("customer detail shows consent only for customer contacts", () => {
+  assert.match(detail, /customer_type === "customer"/);
+  assert.match(detail, /consent_at/);
+  assert.match(detail, /ยินยอมแล้ว/);
+  assert.match(detail, /ยังไม่ได้ยินยอม/);
+});
+
+test("customer detail uses a full-viewport dialog", () => {
   assert.match(detail, /createPortal\(/);
   assert.match(detail, /document\.body/);
-  assert.match(detail, /fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black\/40 px-3 sm:px-4/);
-  assert.match(detail, /rounded-md border border-border bg-background shadow-xl/);
-  assert.doesNotMatch(detail, /bg-black\/40 p-0/);
+  assert.match(detail, /fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black\/40 p-0/);
+  assert.match(detail, /min-h-full w-full max-w-none space-y-4 bg-background p-3 sm:p-4/);
+  assert.doesNotMatch(detail, /fixed inset-0 z-50 flex items-center/);
+  assert.doesNotMatch(detail, /sm:max-h-\[calc\(100dvh-4rem\)\]/);
 });
 
 test("table headers stay below the customer dialog header", () => {

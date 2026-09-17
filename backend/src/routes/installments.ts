@@ -93,6 +93,10 @@ export const installmentRoutes = new Elysia({ prefix: "/api/installments" })
       if (body.due_date !== undefined) data.dueDate = dateOnly(body.due_date);
     }
     if (body?.status !== undefined) data.status = body.status;
+    if (body?.is_late !== undefined) {
+      if (typeof body.is_late !== "boolean") throw new ApiError("VALIDATION_ERROR", "is_late must be a boolean");
+      data.isLate = body.is_late;
+    }
     if (body?.penalty_amount !== undefined) {
       if (!(body.penalty_amount >= 0)) throw new ApiError("VALIDATION_ERROR", "penalty_amount must be >= 0");
       data.penaltyAmount = body.penalty_amount;

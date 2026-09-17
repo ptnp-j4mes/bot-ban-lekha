@@ -261,6 +261,7 @@ model BillInstallment {
   dueDate              DateTime  @map("due_date") @db.Date
   amountDue            Decimal   @map("amount_due")
   amountPaid           Decimal   @default(0) @map("amount_paid")
+  isLate               Boolean   @default(false) @map("is_late")
   penaltyAmount        Decimal   @default(0) @map("penalty_amount")
   status               String    @default("pending")
   paidAt               DateTime? @map("paid_at")

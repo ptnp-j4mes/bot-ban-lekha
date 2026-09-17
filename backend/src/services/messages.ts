@@ -10,7 +10,7 @@ type Tx = PrismaClient | Prisma.TransactionClient;
 export const fmtAmount = (n: number) =>
   n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 
-type InstallmentView = { dueDate: Date; amountDue: number; status: string; penaltyAmount?: number };
+type InstallmentView = { dueDate: Date; amountDue: number; status: string; isLate?: boolean; penaltyAmount?: number };
 type BankView = { accountNo: string; bankName: string; accountName: string } | null;
 export type BillRenderArgs = {
   principal: number;
@@ -107,13 +107,17 @@ const fill = (template: string, values: Record<string, string | number>) =>
 export const renderCustomMessage = (template: string, customerName?: string | null) =>
   fill(template, { customer_name: customerName?.trim() || "ลูกค้า" });
 
-// `15💸 490✅` (paid) / `29💸 490` (unpaid) — 💸 stays, ✅ appended when paid.
+// Paid, late, and penalty markers are independent: `15💸 490✅ 🔴ส่งล่าช้า ค่าปรับ500`.
 export function renderBillStatusLines(installments: InstallmentView[]): string {
   return installments
     .map((i) => {
       const penalty = Number(i.penaltyAmount ?? 0);
-      const penaltyText = penalty > 0 ? `🔴ปรับ${fmtAmount(penalty)}` : "";
-      return `${dayOfMonth(i.dueDate)}💸 ${fmtAmount(i.amountDue)}${i.status === "paid" ? "✅" : ""}${penaltyText}`;
+      const paymentMarker = i.status === "paid" ? "✅" : "";
+      const details = [
+        i.isLate ? "🔴ส่งล่าช้า" : "",
+        penalty > 0 ? `ค่าปรับ${fmtAmount(penalty)}` : "",
+      ].filter(Boolean).join(" ");
+      return `${dayOfMonth(i.dueDate)}💸 ${fmtAmount(i.amountDue)}${paymentMarker}${details ? ` ${details}` : ""}`;
     })
     .join("\n");
 }

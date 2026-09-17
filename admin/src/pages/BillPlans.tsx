@@ -21,7 +21,7 @@ export function BillPlans() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [mode, setMode] = useState<"interval" | "custom">("interval");
-  const [rows, setRows] = useState([{ due_date: "", amount_due: "", penalty_amount: "" }]);
+  const [rows, setRows] = useState([{ due_date: "", amount_due: "", penalty_amount: "", is_late: false }]);
   const [expandedPlans, setExpandedPlans] = useState<Record<string, boolean>>({});
 
   const [payInst, setPayInst] = useState<any>(null);
@@ -86,6 +86,7 @@ export function BillPlans() {
     { key: "due", header: "ครบกำหนด", sortValue: (i) => i.due_date, cell: (i) => <span className="fig">{thDate(i.due_date)}</span> },
     { key: "amt", header: "ยอด", align: "right", sortValue: (i) => Number(i.amount_due), cell: (i) => <span className="fig">{baht(i.amount_due)}</span> },
     { key: "paid", header: "จ่าย", align: "right", sortValue: (i) => Number(i.amount_paid), cell: (i) => <span className="fig">{baht(i.amount_paid)}</span> },
+    { key: "late", header: "ส่งล่าช้า", sortValue: (i) => i.is_late ? 1 : 0, cell: (i) => i.is_late ? <span className="text-danger-text">🔴</span> : "—" },
     { key: "penalty", header: "ค่าปรับ", align: "right", sortValue: (i) => Number(i.penalty_amount), cell: (i) => <span className="fig text-danger-text">{Number(i.penalty_amount ?? 0) > 0 ? baht(i.penalty_amount) : "—"}</span> },
     { key: "status", header: "สถานะ", sortValue: (i) => i.status, cell: (i) => statusBadge(i.status) },
     { key: "act", header: "", stop: true, cell: (i) => i.status === "cancelled" ? null : (
@@ -126,12 +127,12 @@ export function BillPlans() {
   const submitCustom = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const installments = rows.filter((r) => r.due_date && r.amount_due).map((r, i) => ({ installment_no: i + 1, due_date: r.due_date, amount_due: Number(r.amount_due), penalty_amount: Number(r.penalty_amount || 0) }));
+    const installments = rows.filter((r) => r.due_date && r.amount_due).map((r, i) => ({ installment_no: i + 1, due_date: r.due_date, amount_due: Number(r.amount_due), is_late: r.is_late, penalty_amount: Number(r.penalty_amount || 0) }));
     if (!installments.length) return;
     createCustom.mutate({
       customer_id: fd.get("customer_id"), bill_no: Number(fd.get("bill_no")), principal_amount: Number(fd.get("principal_amount")),
       cycle_type: "custom_dates", bank_account_id: fd.get("bank_account_id") || undefined, bill_penalty_amount: Number(fd.get("bill_penalty_amount") || 0), note: fd.get("note") || undefined, installments,
-    }, { onSuccess: () => { setRows([{ due_date: "", amount_due: "", penalty_amount: "" }]); setViewCust(""); setCreateOpen(false); } });
+    }, { onSuccess: () => { setRows([{ due_date: "", amount_due: "", penalty_amount: "", is_late: false }]); setViewCust(""); setCreateOpen(false); } });
   };
 
   return (
@@ -186,20 +187,21 @@ export function BillPlans() {
                   </div>
                   <span className="text-xs font-medium text-muted-foreground">{rows.length} งวด</span>
                 </div>
-                <div className="hidden grid-cols-[1.5rem_minmax(0,1fr)_8rem_7rem_auto] gap-2 px-1 text-xs font-medium text-muted-foreground sm:grid">
-                  <span>งวด</span><span>วันครบกำหนด</span><span>ยอด (บาท)</span><span>ค่าปรับ (บาท)</span><span />
+                <div className="hidden grid-cols-[1.5rem_minmax(0,1fr)_8rem_7rem_6rem_auto] gap-2 px-1 text-xs font-medium text-muted-foreground sm:grid">
+                  <span>งวด</span><span>วันครบกำหนด</span><span>ยอด (บาท)</span><span>ค่าปรับ (บาท)</span><span>ส่งล่าช้า</span><span />
                 </div>
                 {rows.map((r, i) => (
-                  <div key={i} className="grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-2 rounded-lg border border-border/70 bg-card p-2 sm:grid-cols-[1.5rem_minmax(0,1fr)_8rem_7rem_auto] sm:border-0 sm:bg-transparent sm:p-0">
+                  <div key={i} className="grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-2 rounded-lg border border-border/70 bg-card p-2 sm:grid-cols-[1.5rem_minmax(0,1fr)_8rem_7rem_6rem_auto] sm:border-0 sm:bg-transparent sm:p-0">
                     <span className="w-6 text-sm text-muted-foreground">{i + 1}</span>
                     <Input type="date" aria-label={`วันครบกำหนด งวดที่ ${i + 1}`} value={r.due_date} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, due_date: e.target.value } : x))} className="min-w-0" />
                     <Input type="number" min="0.01" step="0.01" placeholder="ยอด (บาท)" aria-label={`ยอดงวดที่ ${i + 1}`} value={r.amount_due} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, amount_due: e.target.value } : x))} className="col-start-2 row-start-2 w-full sm:col-start-auto sm:row-start-auto sm:w-full" />
                     <Input type="number" min="0" step="0.01" placeholder="ค่าปรับ" aria-label={`ค่าปรับงวดที่ ${i + 1}`} value={r.penalty_amount} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, penalty_amount: e.target.value } : x))} className="col-start-2 row-start-3 w-full sm:col-start-auto sm:row-start-auto sm:w-full" />
-                    {rows.length > 1 && <Button size="icon" variant="ghost" type="button" className="col-start-2 row-start-4 justify-self-start sm:col-start-auto sm:row-start-auto" aria-label={`ลบงวดที่ ${i + 1}`} title={`ลบงวดที่ ${i + 1}`} onClick={() => setRows(rows.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" /></Button>}
+                    <label className="col-start-2 row-start-4 flex items-center gap-2 text-xs text-muted-foreground sm:col-start-auto sm:row-start-auto"><input type="checkbox" aria-label={`ส่งล่าช้า งวดที่ ${i + 1}`} checked={r.is_late} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, is_late: e.target.checked } : x))} /> ส่งล่าช้า</label>
+                    {rows.length > 1 && <Button size="icon" variant="ghost" type="button" className="col-start-2 row-start-5 justify-self-start sm:col-start-auto sm:row-start-auto" aria-label={`ลบงวดที่ ${i + 1}`} title={`ลบงวดที่ ${i + 1}`} onClick={() => setRows(rows.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" /></Button>}
                   </div>
                 ))}
                 <div className="flex items-center justify-between gap-2">
-                  <Button size="sm" variant="outline" type="button" onClick={() => setRows([...rows, { due_date: "", amount_due: "", penalty_amount: "" }])}><Plus className="mr-1 h-3 w-3" /> เพิ่มงวด</Button>
+                  <Button size="sm" variant="outline" type="button" onClick={() => setRows([...rows, { due_date: "", amount_due: "", penalty_amount: "", is_late: false }])}><Plus className="mr-1 h-3 w-3" /> เพิ่มงวด</Button>
                   <span className="text-xs text-muted-foreground">เพิ่มได้หลายงวดตามจริง</span>
                 </div>
               </div>
@@ -310,13 +312,14 @@ export function BillPlans() {
         <form className="space-y-4" onSubmit={(e) => {
           e.preventDefault();
           const f = e.currentTarget.elements as any;
-          editI.mutate({ id: editInst.id, data: { amount_due: Number(f.amount_due.value), due_date: f.due_date.value, status: f.status.value, penalty_amount: Number(f.penalty_amount.value || 0) } }, { onSuccess: () => setEditInst(null) });
+          editI.mutate({ id: editInst.id, data: { amount_due: Number(f.amount_due.value), due_date: f.due_date.value, status: f.status.value, is_late: f.is_late.checked, penalty_amount: Number(f.penalty_amount.value || 0) } }, { onSuccess: () => setEditInst(null) });
         }}>
           <Field label="ยอดงวด (บาท)"><Input name="amount_due" type="number" min="0.01" step="0.01" defaultValue={editInst?.amount_due} required /></Field>
           <Field label="วันครบกำหนด"><Input name="due_date" type="date" defaultValue={editInst?.due_date} required /></Field>
           <Field label="สถานะงวด"><Select name="status" defaultValue={editInst?.status}>
               {["pending", "partial_paid", "overdue", "paid", "cancelled"].map((s) => <option key={s} value={s}>{statusTh(s)}</option>)}
             </Select></Field>
+          <label className="flex items-center gap-2 text-sm"><input name="is_late" type="checkbox" defaultChecked={!!editInst?.is_late} /> ส่งล่าช้า</label>
           <Field label="ค่าปรับงวดนี้ (บาท)"><Input name="penalty_amount" type="number" min="0" step="0.01" defaultValue={editInst?.penalty_amount ?? 0} /></Field>
           <Button type="submit" className="w-full" disabled={editI.isPending}>บันทึกการแก้ไข</Button>
         </form>

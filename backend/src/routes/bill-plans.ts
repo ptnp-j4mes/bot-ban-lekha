@@ -34,7 +34,7 @@ const customDatesBody = t.Object({
   bill_penalty_amount: t.Optional(t.Number({ minimum: 0 })),
   note: t.Optional(t.String()),
   installments: t.Array(
-    t.Object({ installment_no: t.Integer({ minimum: 1, maximum: MAX_INSTALLMENTS }), due_date: t.String({ minLength: 1 }), amount_due: t.Number(), penalty_amount: t.Optional(t.Number({ minimum: 0 })) }),
+    t.Object({ installment_no: t.Integer({ minimum: 1, maximum: MAX_INSTALLMENTS }), due_date: t.String({ minLength: 1 }), amount_due: t.Number(), is_late: t.Optional(t.Boolean()), penalty_amount: t.Optional(t.Number({ minimum: 0 })) }),
     { minItems: 1, maxItems: MAX_INSTALLMENTS }
   ),
 });
@@ -102,7 +102,7 @@ export const billPlanRoutes = new Elysia({ prefix: "/api/bill-plans" })
     const rows = b.installments.map((i: any) => {
       if (!(i.amount_due > 0)) throw new ApiError("VALIDATION_ERROR", "amount_due must be > 0");
       if (!i.due_date) throw new ApiError("VALIDATION_ERROR", "due_date is required");
-      return { installmentNo: i.installment_no, dueDate: dateOnly(i.due_date), amountDue: i.amount_due, penaltyAmount: i.penalty_amount ?? 0 };
+      return { installmentNo: i.installment_no, dueDate: dateOnly(i.due_date), amountDue: i.amount_due, isLate: i.is_late ?? false, penaltyAmount: i.penalty_amount ?? 0 };
     });
 
     const plan = await prisma.$transaction(async (tx) => {
@@ -157,7 +157,7 @@ export const billPlanRoutes = new Elysia({ prefix: "/api/bill-plans" })
       cycleDays: b.cycle_days,
       totalInstallments: b.total_installments,
       billPenaltyAmount: b.bill_penalty_amount ?? 0,
-      installments: rows.map((row) => ({ dueDate: row.dueDate, amountDue: row.amountDue, status: "pending", penaltyAmount: row.penaltyAmount })),
+      installments: rows.map((row) => ({ dueDate: row.dueDate, amountDue: row.amountDue, status: "pending", isLate: false, penaltyAmount: row.penaltyAmount })),
       bank: { accountNo: bank.accountNo, bankName: bank.bankName, accountName: bank.accountName },
       note: b.note,
     };
@@ -170,7 +170,7 @@ export const billPlanRoutes = new Elysia({ prefix: "/api/bill-plans" })
           cycleDays: plan.cycleDays,
           totalInstallments: plan.totalInstallments,
           billPenaltyAmount: Number(plan.penaltyAmount),
-          installments: plan.installments.map((i) => ({ dueDate: i.dueDate, amountDue: Number(i.amountDue), status: i.status, penaltyAmount: Number(i.penaltyAmount) })),
+          installments: plan.installments.map((i) => ({ dueDate: i.dueDate, amountDue: Number(i.amountDue), status: i.status, isLate: i.isLate, penaltyAmount: Number(i.penaltyAmount) })),
           bank: plan.bankAccount ? { accountNo: plan.bankAccount.accountNo, bankName: plan.bankAccount.bankName, accountName: plan.bankAccount.accountName } : null,
           note: plan.note,
         },

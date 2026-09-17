@@ -68,6 +68,7 @@ export async function renderPlanBill(db: Tx, billPlanId: string) {
         dueDate: i.dueDate,
         amountDue: Number(i.amountDue),
         status: i.status,
+        isLate: i.isLate,
         penaltyAmount: Number(i.penaltyAmount),
       })),
       bank: current.bankAccount
@@ -120,6 +121,7 @@ export async function renderCustomerOpenBills(db: Tx, customerId: string, orgId:
         dueDate: i.dueDate,
         amountDue: Number(i.amountDue),
         status: i.status,
+        isLate: i.isLate,
         penaltyAmount: Number(i.penaltyAmount),
       })),
       bank: current.bankAccount

@@ -14,7 +14,8 @@
     "db:push": "prisma db push",
     "db:seed": "bun prisma/seed.ts",
     "db:generate": "prisma generate",
-    "migrate:private-documents": "bun src/scripts/migrate-private-documents.ts"
+    "migrate:private-documents": "bun src/scripts/migrate-private-documents.ts",
+    "db:import-chat-bills": "bun src/scripts/import-chat-bill-plans.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.2.1",

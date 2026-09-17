@@ -4,7 +4,7 @@ import { ExternalLink, FileImage, FileText, History, MessageSquare, Receipt, Sav
 import { toast } from "react-toastify";
 import { apiGet, apiRaw, apiSend, apiSendForm } from "@/lib/api";
 import { customerTypeTh, useMut, statusBadge, statusTh } from "@/lib/ui";
-import { baht, thDate } from "@/lib/format";
+import { baht, thDate, thDateTimeBangkok } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -85,9 +85,8 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
   ];
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 px-3 sm:px-4" onClick={onClose}>
-      <div className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-7xl flex-col overflow-hidden rounded-md border border-border bg-background shadow-xl sm:max-h-[calc(100dvh-4rem)]">
-        <div className="min-h-0 space-y-4 overflow-y-auto p-3 sm:p-4" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/40 p-0" onClick={onClose}>
+      <div className="min-h-full w-full max-w-none space-y-4 bg-background p-3 sm:p-4" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 -mx-3 -mt-3 border-b border-border bg-background/95 px-3 pb-3 pt-3 backdrop-blur sm:-mx-4 sm:-mt-4 sm:px-4 sm:pt-4">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
@@ -99,6 +98,7 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
           </div>
           <nav aria-label="ส่วนข้อมูลลูกค้า" className="mt-3 flex gap-1 overflow-x-auto text-sm">
             <a href="#customer-profile" className="inline-flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-muted-foreground hover:bg-secondary hover:text-foreground">ข้อมูลลูกค้า</a>
+            {data?.customer?.customer_type === "customer" && <a href="#customer-consent" className="inline-flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-muted-foreground hover:bg-secondary hover:text-foreground">ความยินยอม</a>}
             <a href="#customer-documents" className="inline-flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><FileText className="h-3.5 w-3.5" />เอกสาร</a>
             <a href="#customer-bills" className="inline-flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><Receipt className="h-3.5 w-3.5" />บิล</a>
             <a href="#customer-payments" className="inline-flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><History className="h-3.5 w-3.5" />การชำระ</a>
@@ -123,6 +123,13 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
             <div className="flex justify-end"><Button type="submit" disabled={update.isPending}><Save className="h-4 w-4" />บันทึกข้อมูลส่วนตัว</Button></div>
           </form></CardContent>}
         </Card>
+
+        {data?.customer?.customer_type === "customer" && <Card id="customer-consent">
+          <CardHeader className="flex-row items-start justify-between gap-3"><div><CardTitle className="text-base">ความยินยอมข้อมูลส่วนบุคคล</CardTitle><p className="mt-1 text-sm text-muted-foreground">สถานะการรับทราบและยินยอมผ่าน LINE LIFF</p></div><Badge variant={data.customer.consent_at ? "success" : "secondary"}>{data.customer.consent_at ? "ยินยอมแล้ว" : "ยังไม่ได้ยินยอม"}</Badge></CardHeader>
+          <CardContent className="text-sm">
+            {data.customer.consent_at ? <p>ยินยอมเมื่อ <span className="fig">{thDateTimeBangkok(data.customer.consent_at)}</span></p> : <p className="text-muted-foreground">ลูกค้ายังไม่ได้ยืนยัน Consent ใน LINE LIFF</p>}
+          </CardContent>
+        </Card>}
 
         <Card id="customer-documents">
           <CardHeader className="flex-row justify-between"><div><CardTitle className="text-base">เอกสารและรูปหลักฐาน</CardTitle><p className="mt-1 text-sm text-muted-foreground">เก็บเอกสารสำคัญของลูกค้าไว้ในที่เดียว</p></div><Badge variant="secondary">{data?.documents?.length ?? 0} ไฟล์</Badge></CardHeader>
@@ -177,7 +184,6 @@ export function CustomerDetail({ id, onClose }: { id: string; onClose: () => voi
           </CardContent>
         </Card>
         </div>
-      </div>
     </div>,
     document.body,
   );
